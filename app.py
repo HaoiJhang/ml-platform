@@ -86,6 +86,36 @@ def main() -> None:
         st.write("Target summary")
         st.json(eda_summary["target"], expanded=False)
 
+    eda_tabs = st.tabs(["Missingness", "Correlations", "Target relationships", "Quality warnings"])
+    with eda_tabs[0]:
+        st.metric("Rows with any missing value", eda_summary["missingness"]["rows_with_any_missing"])
+        top_missing = eda_summary["missingness"]["top_missing_columns"]
+        if top_missing:
+            st.dataframe(
+                pd.DataFrame(
+                    [{"column": column, "missing_rate": rate} for column, rate in top_missing.items()]
+                ),
+                use_container_width=True,
+            )
+        correlated_missing = eda_summary["missingness"]["correlated_missing_pairs"]
+        if correlated_missing:
+            st.write("Correlated missingness pairs")
+            st.dataframe(pd.DataFrame(correlated_missing), use_container_width=True)
+    with eda_tabs[1]:
+        top_pairs = eda_summary["correlations"]["top_numeric_pairs"]
+        target_corr = eda_summary["correlations"]["target_numeric_correlations"]
+        if target_corr:
+            st.write("Numeric correlations with target")
+            st.dataframe(pd.DataFrame(target_corr), use_container_width=True)
+        if top_pairs:
+            st.write("Strong numeric feature correlations")
+            st.dataframe(pd.DataFrame(top_pairs), use_container_width=True)
+    with eda_tabs[2]:
+        st.json(eda_summary.get("target_relationships", {}), expanded=False)
+    with eda_tabs[3]:
+        for warning in eda_summary["quality_warnings"]:
+            st.warning(warning)
+
     if not st.button("Run training", type="primary"):
         return
 
