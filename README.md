@@ -23,6 +23,9 @@ Start the local app with:
 UV_CACHE_DIR=.uv-cache uv run streamlit run app.py
 ```
 
+The included Streamlit config binds the server to `127.0.0.1`, so the app is
+intended for local access at `http://localhost:8501` only.
+
 The app writes experiment artifacts under `runs/`. Each completed run gets a
 directory containing `config.json`, `eda_summary.json`, `cleaning_log.json`,
 `metrics.json`, `feature_importance.json`, `prediction_sample.csv`,
