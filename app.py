@@ -14,7 +14,7 @@ import streamlit as st
 
 from ml_platform.automl import train_model
 from ml_platform.cleaning import CleanConfig, clean_and_split
-from ml_platform.config import load_settings
+from ml_platform.config import Settings, load_settings
 from ml_platform.data_io import read_csv
 from ml_platform.eda import generate_eda_summary
 from ml_platform.evaluation import evaluate_model
@@ -23,6 +23,32 @@ from ml_platform.storage import RunStorage
 
 
 st.set_page_config(page_title="ML Platform Prototype", layout="wide")
+
+
+def _configure_llm_settings(settings: Settings) -> Settings:
+    with st.sidebar:
+        st.header("LLM API")
+        st.caption("Optional. Leave empty to use the local rule-based report.")
+        api_key = st.text_input(
+            "API key",
+            value="",
+            type="password",
+            placeholder="Uses OPENAI_API_KEY if empty",
+        )
+        base_url = st.text_input(
+            "Base URL",
+            value=settings.openai_base_url or "",
+            placeholder="OpenAI default or compatible API URL",
+        )
+        model = st.text_input("Model", value=settings.openai_model)
+
+    return Settings(
+        runs_dir=settings.runs_dir,
+        data_dir=settings.data_dir,
+        openai_api_key=api_key or settings.openai_api_key,
+        openai_base_url=base_url or None,
+        openai_model=model or settings.openai_model,
+    )
 
 
 def _infer_task_type(df: pd.DataFrame, target: str) -> str:
@@ -36,7 +62,7 @@ def _infer_task_type(df: pd.DataFrame, target: str) -> str:
 
 
 def main() -> None:
-    settings = load_settings()
+    settings = _configure_llm_settings(load_settings())
 
     st.title("ML Platform Research Prototype")
     st.caption("Local CSV EDA, cleaning, AutoML training, evaluation, storage, and report generation.")

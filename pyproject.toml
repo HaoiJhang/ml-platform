@@ -8,6 +8,7 @@ dependencies = [
     "flaml[automl]>=2.3.0",
     "joblib>=1.4.2",
     "numpy>=2.0.2",
+    "openai>=2.0.0",
     "pandas>=2.3.3",
     "scikit-learn>=1.5.2",
     "streamlit>=1.40.0",
