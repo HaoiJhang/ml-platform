@@ -156,12 +156,34 @@ def main() -> None:
         storage.save_json(run, "cleaning_log.json", cleaned.cleaning_log)
         storage.save_json(run, "metrics.json", metrics)
         storage.save_json(run, "feature_importance.json", trained.feature_importance)
-        storage.save_text(run, "report.md", report)
-        storage.save_predictions(run, prediction_sample)
-        storage.save_model(run, trained.model)
+        report_path = storage.save_text(run, "report.md", report)
+        prediction_path = storage.save_predictions(run, prediction_sample)
+        model_path = storage.save_model(run, trained.model)
         storage.record_run(run, metrics=metrics, status="completed")
 
     st.success(f"Run completed: {run.run_id}")
+    download_cols = st.columns(3)
+    with download_cols[0]:
+        st.download_button(
+            "Download model",
+            data=model_path.read_bytes(),
+            file_name=f"{run.run_id}_model.joblib",
+            mime="application/octet-stream",
+        )
+    with download_cols[1]:
+        st.download_button(
+            "Download report",
+            data=report_path.read_text(encoding="utf-8"),
+            file_name=f"{run.run_id}_report.md",
+            mime="text/markdown",
+        )
+    with download_cols[2]:
+        st.download_button(
+            "Download predictions",
+            data=prediction_path.read_text(encoding="utf-8"),
+            file_name=f"{run.run_id}_prediction_sample.csv",
+            mime="text/csv",
+        )
     st.subheader("Metrics")
     st.json(metrics)
     st.subheader("Feature Importance")
