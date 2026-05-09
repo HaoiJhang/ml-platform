@@ -670,6 +670,246 @@ def _consume_pending_plan_suggestion(columns: list[str]) -> None:
         st.session_state["priority_metric_choice"] = metric
 
 
+def _render_text_items(title: str, items: list[object], empty_text: str) -> None:
+    st.write(title)
+    clean_items = [str(item) for item in items if str(item).strip()]
+    if not clean_items:
+        st.caption(empty_text)
+        return
+    for item in clean_items:
+        st.write(f"- {item}")
+
+
+def _render_planner_suggestion(plan_data: dict[str, object]) -> None:
+    summary_cols = st.columns(3)
+    with summary_cols[0]:
+        st.metric("Planner", str(plan_data.get("planner_name") or "unknown"))
+    with summary_cols[1]:
+        st.metric("Task type", str(plan_data.get("suggested_task_type") or "auto"))
+    with summary_cols[2]:
+        st.metric("Priority metric", str(plan_data.get("priority_metric") or "auto"))
+
+    target_items = [str(item) for item in plan_data.get("suggested_targets", []) if str(item).strip()]
+    excluded_items = [str(item) for item in plan_data.get("suggested_excluded_columns", []) if str(item).strip()]
+    detail_cols = st.columns(2)
+    with detail_cols[0]:
+        st.write("Suggested targets")
+        if target_items:
+            st.dataframe(pd.DataFrame({"target": target_items}), hide_index=True, use_container_width=True)
+        else:
+            st.caption("No target suggestion.")
+    with detail_cols[1]:
+        st.write("Suggested exclusions")
+        if excluded_items:
+            st.dataframe(pd.DataFrame({"column": excluded_items}), hide_index=True, use_container_width=True)
+        else:
+            st.caption("No excluded columns suggested.")
+
+    notes_cols = st.columns(2)
+    with notes_cols[0]:
+        _render_text_items("Notes", list(plan_data.get("notes", [])), "No notes.")
+    with notes_cols[1]:
+        _render_text_items("Risk flags", list(plan_data.get("risk_flags", [])), "No risk flags.")
+
+    with st.expander("Raw planner JSON", expanded=False):
+        st.json(plan_data, expanded=True)
+
+
+def _render_target_profile(target_data: dict[str, object]) -> None:
+    summary_cols = st.columns(3)
+    with summary_cols[0]:
+        st.metric("Target", str(target_data.get("name") or "-"))
+    with summary_cols[1]:
+        st.metric("Missing rows", int(target_data.get("missing_count") or 0))
+    with summary_cols[2]:
+        st.metric("Unique values", int(target_data.get("unique_count") or 0))
+
+    stats = target_data.get("stats", {})
+    if isinstance(stats, dict) and stats:
+        stats_rows = [{"stat": key, "value": value} for key, value in stats.items()]
+        st.dataframe(pd.DataFrame(stats_rows), hide_index=True, use_container_width=True)
+
+    top_values = target_data.get("top_values", {})
+    if isinstance(top_values, dict) and top_values:
+        st.write("Top target values")
+        st.dataframe(
+            pd.DataFrame([{"value": key, "count": value} for key, value in top_values.items()]),
+            hide_index=True,
+            use_container_width=True,
+        )
+
+
+def _flatten_target_relationships(relationships: dict[str, object]) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    numeric_correlation_rows: list[dict[str, object]] = []
+    numeric_group_rows: list[dict[str, object]] = []
+    categorical_rows: list[dict[str, object]] = []
+
+    for item in relationships.get("numeric_features", []):
+        if not isinstance(item, dict):
+            continue
+        feature = str(item.get("feature") or "")
+        if "target_correlation" in item:
+            numeric_correlation_rows.append(
+                {"feature": feature, "target_correlation": item.get("target_correlation")}
+            )
+        by_target = item.get("by_target", {})
+        if isinstance(by_target, dict):
+            for target_value, stats in by_target.items():
+                if not isinstance(stats, dict):
+                    continue
+                numeric_group_rows.append(
+                    {
+                        "feature": feature,
+                        "target_value": str(target_value),
+                        "mean": stats.get("mean"),
+                        "median": stats.get("median"),
+                        "count": stats.get("count"),
+                    }
+                )
+
+    for item in relationships.get("categorical_features", []):
+        if not isinstance(item, dict):
+            continue
+        feature = str(item.get("feature") or "")
+        distribution = item.get("target_distribution_by_value", {})
+        if not isinstance(distribution, dict):
+            continue
+        for feature_value, target_rates in distribution.items():
+            if not isinstance(target_rates, dict):
+                continue
+            for target_value, rate in target_rates.items():
+                categorical_rows.append(
+                    {
+                        "feature": feature,
+                        "feature_value": str(feature_value),
+                        "target_value": str(target_value),
+                        "share": rate,
+                    }
+                )
+
+    return (
+        pd.DataFrame(numeric_correlation_rows),
+        pd.DataFrame(numeric_group_rows),
+        pd.DataFrame(categorical_rows),
+    )
+
+
+def _render_target_relationships(relationships: dict[str, object]) -> None:
+    numeric_correlations, numeric_groups, categorical_distribution = _flatten_target_relationships(relationships)
+
+    if not numeric_correlations.empty:
+        st.write("Numeric feature relationships")
+        st.dataframe(numeric_correlations, hide_index=True, use_container_width=True)
+
+    if not numeric_groups.empty:
+        st.write("Numeric feature distribution by target")
+        st.dataframe(numeric_groups, hide_index=True, use_container_width=True)
+
+    if not categorical_distribution.empty:
+        st.write("Categorical feature target distribution")
+        st.dataframe(categorical_distribution, hide_index=True, use_container_width=True)
+
+    if numeric_correlations.empty and numeric_groups.empty and categorical_distribution.empty:
+        st.caption("No target relationship summary available.")
+
+
+def _render_metrics(metrics: dict[str, object], priority_metric: str | None = None) -> None:
+    test_rows: list[dict[str, object]] = []
+    train_rows: list[dict[str, object]] = []
+    for metric_name, value in metrics.items():
+        phase = "train" if str(metric_name).startswith("train_") else "test"
+        label = str(metric_name).removeprefix("train_")
+        row = {"metric": label, "value": value}
+        if phase == "train":
+            train_rows.append(row)
+        else:
+            test_rows.append(row)
+
+    if priority_metric:
+        resolved_value = metrics.get(priority_metric)
+        priority_cols = st.columns(2)
+        with priority_cols[0]:
+            st.metric("Priority metric", priority_metric)
+        with priority_cols[1]:
+            st.metric("Priority value", "-" if resolved_value is None else f"{float(resolved_value):.4f}")
+
+    metric_cols = st.columns(2)
+    with metric_cols[0]:
+        st.write("Test metrics")
+        if test_rows:
+            st.dataframe(pd.DataFrame(test_rows), hide_index=True, use_container_width=True)
+        else:
+            st.caption("No test metrics.")
+    with metric_cols[1]:
+        st.write("Train metrics")
+        if train_rows:
+            st.dataframe(pd.DataFrame(train_rows), hide_index=True, use_container_width=True)
+        else:
+            st.caption("No train metrics.")
+
+
+def _render_validation_summary(
+    preflight: dict[str, object],
+    postrun: dict[str, object],
+    recommendations: dict[str, object],
+    priority_metric: str,
+) -> None:
+    summary_cols = st.columns(4)
+    with summary_cols[0]:
+        st.metric("Requested metric", priority_metric)
+    with summary_cols[1]:
+        st.metric("Preflight", "OK" if preflight.get("ok_to_run") else "Blocked")
+    with summary_cols[2]:
+        st.metric("Postrun", "OK" if postrun.get("ok") else "Check issues")
+    with summary_cols[3]:
+        st.metric("Trainer", str(postrun.get("trainer_name") or "-"))
+
+    preflight_detail_cols = st.columns(3)
+    with preflight_detail_cols[0]:
+        st.metric("Feature count", int(preflight.get("feature_count") or 0))
+    with preflight_detail_cols[1]:
+        st.metric("Dropped target rows", int(preflight.get("dropped_target_rows") or 0))
+    with preflight_detail_cols[2]:
+        st.metric("Report mode", str(postrun.get("report_mode") or "-"))
+
+    generalization_gap = postrun.get("generalization_gap", {})
+    if isinstance(generalization_gap, dict) and generalization_gap:
+        gap_rows = [{"metric": key, "value": value} for key, value in generalization_gap.items()]
+        st.write("Generalization gap")
+        st.dataframe(pd.DataFrame(gap_rows), hide_index=True, use_container_width=True)
+
+    class_balance = preflight.get("class_balance", {})
+    if isinstance(class_balance, dict) and class_balance:
+        st.write("Class balance")
+        st.dataframe(
+            pd.DataFrame([{"class": key, "share": value} for key, value in class_balance.items()]),
+            hide_index=True,
+            use_container_width=True,
+        )
+
+    recommended_exclusions = preflight.get("recommended_excluded_columns", [])
+    detected_leakage = preflight.get("detected_leakage_columns", [])
+    detail_cols = st.columns(2)
+    with detail_cols[0]:
+        _render_text_items("Recommended exclusions", list(recommended_exclusions), "No extra exclusions suggested.")
+    with detail_cols[1]:
+        _render_text_items("Potential leakage columns", list(detected_leakage), "No leakage columns detected.")
+
+    issue_cols = st.columns(2)
+    with issue_cols[0]:
+        st.write("Preflight issues")
+        _render_issue_table(list(preflight.get("issues", [])))
+    with issue_cols[1]:
+        st.write("Postrun issues")
+        _render_issue_table(list(postrun.get("issues", [])))
+
+    recommendation_cols = st.columns(2)
+    with recommendation_cols[0]:
+        _render_text_items("Recommendation summary", list(recommendations.get("summary", [])), "No summary available.")
+    with recommendation_cols[1]:
+        _render_text_items("Next steps", list(recommendations.get("next_steps", [])), "No next steps available.")
+
+
 def _render_issue_table(issues: list[dict[str, object]]) -> None:
     if not issues:
         st.caption("No issues surfaced.")
@@ -815,7 +1055,7 @@ def main() -> None:
     st.subheader("Execution plan")
     _section_caption("Use the brief-driven suggestion as a starting point, then confirm the explicit controls before running.")
     with st.expander("Planner suggestion", expanded=bool(planner_brief.strip())):
-        st.json(plan_data, expanded=False)
+        _render_planner_suggestion(plan_data)
         if st.button("Apply planner suggestions"):
             _queue_plan_suggestion(plan_data, columns)
             st.rerun()
@@ -864,7 +1104,7 @@ def main() -> None:
     if primary_target in analysis_df.columns and eda_summary.get("target"):
         label = "Primary target profile" if len(target_columns) > 1 else "Target profile"
         st.write(label)
-        st.json(eda_summary["target"], expanded=False)
+        _render_target_profile(eda_summary["target"])
     if len(target_columns) > 1:
         st.write("Target task types")
         st.dataframe(
@@ -898,7 +1138,7 @@ def main() -> None:
             st.write("Strong numeric feature correlations")
             st.dataframe(pd.DataFrame(top_pairs), use_container_width=True)
     with eda_tabs[2]:
-        st.json(eda_summary.get("target_relationships", {}), expanded=False)
+        _render_target_relationships(eda_summary.get("target_relationships", {}))
     with eda_tabs[3]:
         for warning in eda_summary["quality_warnings"]:
             st.warning(warning)
@@ -1082,16 +1322,13 @@ def main() -> None:
         run = result["run"]
         with st.expander(f"{result['target']} results", expanded=len(results) == 1):
             st.write("Metrics")
-            st.json(result["metrics"])
+            _render_metrics(result["metrics"], priority_metric=result["priority_metric"])
             st.write("Validation")
-            st.json(
-                {
-                    "preflight": artifact_to_dict(result["preflight_validation"]),
-                    "postrun": artifact_to_dict(result["postrun_validation"]),
-                    "recommendations": artifact_to_dict(result["recommendations"]),
-                    "priority_metric": result["priority_metric"],
-                },
-                expanded=False,
+            _render_validation_summary(
+                preflight=artifact_to_dict(result["preflight_validation"]),
+                postrun=artifact_to_dict(result["postrun_validation"]),
+                recommendations=artifact_to_dict(result["recommendations"]),
+                priority_metric=result["priority_metric"],
             )
             st.write("Feature importance")
             st.dataframe(pd.DataFrame(result["trained"].feature_importance), use_container_width=True)
