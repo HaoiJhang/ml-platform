@@ -68,16 +68,16 @@ def _apply_design_system() -> None:
 
             html,
             body,
-            .stApp,
-            .stApp *,
-            [class^="st-"],
-            [class*=" st-"],
-            [data-testid],
-            [data-testid] *,
+            .stApp {
+                font-family: Exo, "Helvetica Neue", Helvetica, Arial, sans-serif !important;
+            }
+
             button,
             input,
             textarea,
-            select {
+            select,
+            [data-baseweb="select"] > div,
+            [data-testid="stFileUploader"] section * {
                 font-family: Exo, "Helvetica Neue", Helvetica, Arial, sans-serif !important;
             }
 
@@ -302,6 +302,57 @@ def _apply_design_system() -> None:
 
             [data-testid="stFileUploader"] section svg {
                 color: #5c6672 !important;
+                width: 2.2rem !important;
+                height: 2.2rem !important;
+            }
+
+            /* Icon sizing for all interactive components */
+            svg {
+                display: inline-block;
+                flex-shrink: 0;
+            }
+
+            [data-testid="stExpander"] svg {
+                width: 1rem !important;
+                height: 1rem !important;
+            }
+
+            [data-baseweb="select"] svg,
+            [data-baseweb="menu"] svg {
+                width: 1.1rem !important;
+                height: 1.1rem !important;
+            }
+
+            .stAlert svg {
+                width: 1.1rem !important;
+                height: 1.1rem !important;
+            }
+
+            [data-testid="stMetric"] svg {
+                width: 1.3rem !important;
+                height: 1.3rem !important;
+            }
+
+            [data-testid="stSpinner"] svg {
+                width: 1.5rem !important;
+                height: 1.5rem !important;
+            }
+
+            button [data-testid="stBaseButton-icon"] svg,
+            .stDownloadButton button svg {
+                width: 1rem !important;
+                height: 1rem !important;
+            }
+
+            .stCheckbox svg,
+            .stRadio svg {
+                width: 1.05rem !important;
+                height: 1.05rem !important;
+            }
+
+            [data-testid="stStatusWidget"] svg {
+                width: 1.4rem !important;
+                height: 1.4rem !important;
             }
 
             [data-testid="stFileUploader"] button {
@@ -444,20 +495,23 @@ def _section_caption(text: str) -> None:
 
 
 def _configure_llm_settings(settings: Settings) -> Settings:
-    with st.sidebar:
-        st.header("Report engine")
-        st.caption("Optional LLM configuration. Leave empty to use the local rule-based report.")
+    st.subheader("Report engine")
+    _section_caption("Optional LLM configuration for plan and report generation. Leave the API key empty to use local rule-based outputs.")
+    config_cols = st.columns(3)
+    with config_cols[0]:
         api_key = st.text_input(
             "API key",
             value="",
             type="password",
             placeholder="Uses OPENAI_API_KEY if empty",
         )
+    with config_cols[1]:
         base_url = st.text_input(
             "Base URL",
             value=settings.openai_base_url or "",
             placeholder="OpenAI default or compatible API URL",
         )
+    with config_cols[2]:
         model = st.text_input("Model", value=settings.openai_model)
 
     return Settings(
@@ -494,31 +548,55 @@ def _initialize_experiment_state(columns: list[str]) -> None:
     st.session_state["target_columns"] = [columns[-1]]
     st.session_state["task_type_choice"] = "auto"
     st.session_state["time_budget"] = 30
+    st.session_state["time_budget_text"] = "30"
     st.session_state["priority_metric_choice"] = "auto"
     st.session_state["excluded_columns"] = []
     st.session_state["test_size"] = 0.2
     st.session_state["high_missing_threshold"] = 0.9
     st.session_state["random_state"] = 42
+    st.session_state["random_state_text"] = "42"
 
 
-def _apply_plan_suggestion(plan_suggestion: dict[str, object], columns: list[str]) -> None:
+def _queue_plan_suggestion(plan_suggestion: dict[str, object], columns: list[str]) -> None:
     suggested_targets = [column for column in plan_suggestion.get("suggested_targets", []) if column in columns]
-    if suggested_targets:
-        st.session_state["target_columns"] = suggested_targets
-
     suggested_task_type = plan_suggestion.get("suggested_task_type")
-    if suggested_task_type in {"auto", "classification", "regression"}:
-        st.session_state["task_type_choice"] = suggested_task_type
-
-    current_targets = set(st.session_state.get("target_columns", []))
+    pending_targets = suggested_targets or st.session_state.get("target_columns", [])
+    current_targets = set(pending_targets)
     excluded = [
         column
         for column in plan_suggestion.get("suggested_excluded_columns", [])
         if column in columns and column not in current_targets
     ]
-    st.session_state["excluded_columns"] = excluded
-
     metric = plan_suggestion.get("priority_metric")
+    st.session_state["_pending_plan_suggestion"] = {
+        "target_columns": suggested_targets,
+        "task_type_choice": suggested_task_type,
+        "excluded_columns": excluded,
+        "priority_metric_choice": metric,
+    }
+
+
+def _consume_pending_plan_suggestion(columns: list[str]) -> None:
+    pending = st.session_state.pop("_pending_plan_suggestion", None)
+    if not pending:
+        return
+
+    pending_targets = [column for column in pending.get("target_columns", []) if column in columns]
+    if pending_targets:
+        st.session_state["target_columns"] = pending_targets
+
+    suggested_task_type = pending.get("task_type_choice")
+    if suggested_task_type in {"auto", "classification", "regression"}:
+        st.session_state["task_type_choice"] = suggested_task_type
+
+    excluded_columns = [
+        column
+        for column in pending.get("excluded_columns", [])
+        if column in columns and column not in set(st.session_state.get("target_columns", []))
+    ]
+    st.session_state["excluded_columns"] = excluded_columns
+
+    metric = pending.get("priority_metric_choice")
     if metric in {"auto", "accuracy", "f1_weighted", "precision_weighted", "recall_weighted", "roc_auc", "rmse", "mae", "r2"}:
         st.session_state["priority_metric_choice"] = metric
 
@@ -530,30 +608,65 @@ def _render_issue_table(issues: list[dict[str, object]]) -> None:
     st.dataframe(pd.DataFrame(issues), use_container_width=True)
 
 
+def _render_integer_input(label: str, state_key: str, min_value: int | None = None) -> int:
+    text_key = f"{state_key}_text"
+    raw_value = st.text_input(label, key=text_key)
+    current_value = int(st.session_state.get(state_key, 0))
+    candidate = raw_value.strip()
+    try:
+        parsed_value = int(candidate)
+    except ValueError:
+        st.caption(f"Enter a whole number. Using {current_value} until corrected.")
+        return current_value
+
+    if min_value is not None and parsed_value < min_value:
+        st.caption(f"Enter a value greater than or equal to {min_value}. Using {current_value} until corrected.")
+        return current_value
+
+    st.session_state[state_key] = parsed_value
+    return parsed_value
+
+
 def main() -> None:
     _apply_design_system()
-    settings = _configure_llm_settings(load_settings())
-
     _render_hero()
+    settings = _configure_llm_settings(load_settings())
 
     st.subheader("Dataset intake")
     _section_caption("Start with one local CSV. The app keeps the experiment artifacts under the configured runs directory.")
-    uploaded_file = st.file_uploader("Upload CSV", type=["csv"], label_visibility="collapsed")
-    if uploaded_file is None:
-        st.markdown(
-            """
-            <div class="lab-empty">
-                Drop a CSV here to unlock schema inspection, missingness checks,
-                training controls, and exportable run artifacts.
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-        return
 
-    df = read_csv(uploaded_file)
+    demo_csvs = sorted(Path(p).name for p in PROJECT_ROOT.glob("data/*.csv") if p.is_file())
+
+    data_source = st.radio(
+        "Data source",
+        ["Upload CSV", *([f"Demo: {name}" for name in demo_csvs] if demo_csvs else [])],
+        horizontal=True,
+        index=0,
+    )
+
+    df: pd.DataFrame
+    if data_source.startswith("Demo: "):
+        demo_name = data_source.removeprefix("Demo: ")
+        demo_path = PROJECT_ROOT / "data" / demo_name
+        df = read_csv(demo_path)
+        st.info(f"Loaded demo dataset `{demo_name}` ({len(df)} rows, {len(df.columns)} columns).")
+    else:
+        uploaded_file = st.file_uploader("Upload CSV", type=["csv"], label_visibility="collapsed")
+        if uploaded_file is None:
+            st.markdown(
+                """
+                <div class="lab-empty">
+                    Drop a CSV here to unlock schema inspection, missingness checks,
+                    training controls, and exportable run artifacts.
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+            return
+        df = read_csv(uploaded_file)
     columns = list(df.columns)
     _initialize_experiment_state(columns)
+    _consume_pending_plan_suggestion(columns)
 
     st.subheader("Experiment setup")
     _section_caption("Choose the prediction target and tune the small number of parameters that affect the local run.")
@@ -573,7 +686,7 @@ def main() -> None:
             key="task_type_choice",
         )
     with setup_cols[2]:
-        time_budget = st.number_input("Training time budget seconds", min_value=5, step=5, key="time_budget")
+        time_budget = _render_integer_input("Training time budget seconds", "time_budget", min_value=5)
 
     if not target_columns:
         st.warning("Select at least one target variable to continue.")
@@ -608,7 +721,7 @@ def main() -> None:
             key="high_missing_threshold",
         )
     with config_cols[2]:
-        random_state = st.number_input("Random state", step=1, key="random_state")
+        random_state = _render_integer_input("Random state", "random_state")
     with config_cols[3]:
         priority_metric_choice = st.selectbox(
             "Priority metric",
@@ -635,7 +748,7 @@ def main() -> None:
     with st.expander("Planner suggestion", expanded=bool(planner_brief.strip())):
         st.json(plan_data, expanded=False)
         if st.button("Apply planner suggestions"):
-            _apply_plan_suggestion(plan_data, columns)
+            _queue_plan_suggestion(plan_data, columns)
             st.rerun()
 
     priority_metrics = {
