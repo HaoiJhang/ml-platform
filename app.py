@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import base64
+import logging
 from pathlib import Path
 import sys
-
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 SRC_DIR = PROJECT_ROOT / "src"
@@ -25,6 +25,16 @@ from ml_platform.planner import suggest_plan
 from ml_platform.storage import RunStorage
 from ml_platform.validation import build_recommendations, resolve_priority_metric, validate_postrun, validate_preflight
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s %(message)s",
+    datefmt="%Y-%m-%dT%H:%M:%S",
+    handlers=[
+        logging.StreamHandler(sys.stderr),
+        logging.FileHandler(PROJECT_ROOT / "app.log", encoding="utf-8"),
+    ],
+)
+logger = logging.getLogger("ml_platform")
 
 st.set_page_config(page_title="ML Platform", layout="wide")
 
@@ -844,15 +854,19 @@ def main() -> None:
     with st.spinner("Cleaning data and training model locally..."):
         failing_targets = [target for target, validation in preflight_by_target.items() if not validation.ok_to_run]
         if failing_targets:
+            logger.error("Blocking preflight issues targets=%s", failing_targets)
             st.error(f"Resolve blocking preflight issues before training: {', '.join(failing_targets)}")
             return
 
         feature_columns = [column for column in analysis_df.columns if column not in target_columns]
         if not feature_columns:
+            logger.error("No feature columns remain after exclusions")
             st.error("No feature columns remain after excluding selected target and ignored columns.")
             return
 
+        logger.info("Starting training pipeline targets=%s task_types=%s", target_columns, task_types)
         for target in target_columns:
+            logger.info("Training target=%s task_type=%s", target, task_types[target])
             task_type = task_types[target]
             priority_metric = priority_metrics[target]
             preflight_validation = preflight_by_target[target]
@@ -972,6 +986,7 @@ def main() -> None:
             )
 
     completed_ids = ", ".join(str(result["run"].run_id) for result in results)
+    logger.info("Training pipeline complete run_ids=%s", completed_ids)
     st.success(f"Run completed: {completed_ids}")
     st.subheader("Artifacts")
     _section_caption("Export the model, generated analysis report, and prediction sample for downstream review.")

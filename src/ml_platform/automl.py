@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any
 
@@ -8,6 +9,8 @@ from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from sklearn.pipeline import Pipeline
 
 from ml_platform.cleaning import CleanedData
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -20,9 +23,11 @@ class TrainedModel:
 
 
 def train_model(cleaned: CleanedData, time_budget: int = 30, metric_preference: str = "auto") -> TrainedModel:
+    logger.info("Starting training rows=%d features=%d task=%s time_budget=%d", len(cleaned.X_train), len(cleaned.feature_columns), cleaned.config.task_type, time_budget)
     try:
         return _train_with_flaml(cleaned, time_budget=time_budget, metric_preference=metric_preference)
     except Exception as exc:
+        logger.warning("FLAML training failed, falling back to sklearn: %s", exc)
         return _train_with_sklearn(cleaned, metric_preference=metric_preference, fallback_reason=str(exc))
 
 
@@ -68,6 +73,7 @@ def _train_with_sklearn(
     metric_preference: str,
     fallback_reason: str | None = None,
 ) -> TrainedModel:
+    logger.info("Training sklearn RandomForest features=%d", len(cleaned.feature_columns))
     if cleaned.config.task_type == "classification":
         estimator = RandomForestClassifier(n_estimators=200, random_state=cleaned.config.random_state, n_jobs=-1)
     else:

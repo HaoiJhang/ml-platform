@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -19,10 +22,12 @@ class Settings:
 
 
 def load_settings() -> Settings:
-    return Settings(
+    settings = Settings(
         runs_dir=Path(os.getenv("ML_PLATFORM_RUNS_DIR", "runs")),
         data_dir=Path(os.getenv("ML_PLATFORM_DATA_DIR", "data")),
         openai_api_key=os.getenv("OPENAI_API_KEY") or None,
         openai_base_url=os.getenv("OPENAI_BASE_URL") or None,
         openai_model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
     )
+    logger.info("Settings loaded runs_dir=%s llm_enabled=%s model=%s", settings.runs_dir, settings.llm_enabled, settings.openai_model)
+    return settings

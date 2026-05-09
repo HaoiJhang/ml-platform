@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 import uuid
 from dataclasses import dataclass
@@ -10,6 +11,8 @@ from typing import Any
 
 import joblib
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -26,6 +29,7 @@ class RunStorage:
         self.runs_dir.mkdir(parents=True, exist_ok=True)
         self.db_path = self.runs_dir / "runs.sqlite"
         self._init_db()
+        logger.info("RunStorage initialized runs_dir=%s", self.runs_dir.resolve())
 
     def create_run(self, config: dict[str, Any]) -> RunRecord:
         run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + uuid.uuid4().hex[:8]
@@ -33,26 +37,31 @@ class RunStorage:
         path.mkdir(parents=True, exist_ok=False)
         created_at = datetime.now(timezone.utc).isoformat()
         self.save_json(RunRecord(run_id, path, created_at, config), "config.json", config)
+        logger.info("Run created run_id=%s target=%s", run_id, config.get("target"))
         return RunRecord(run_id=run_id, path=path, created_at=created_at, config=config)
 
     def save_json(self, run: RunRecord, name: str, payload: Any) -> Path:
         output = run.path / name
         output.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        logger.debug("Saved JSON run_id=%s name=%s", run.run_id, name)
         return output
 
     def save_text(self, run: RunRecord, name: str, payload: str) -> Path:
         output = run.path / name
         output.write_text(payload, encoding="utf-8")
+        logger.debug("Saved text run_id=%s name=%s", run.run_id, name)
         return output
 
     def save_model(self, run: RunRecord, model: Any) -> Path:
         output = run.path / "model.joblib"
         joblib.dump(model, output)
+        logger.info("Model saved run_id=%s size_bytes=%d", run.run_id, output.stat().st_size)
         return output
 
     def save_predictions(self, run: RunRecord, predictions: pd.DataFrame) -> Path:
         output = run.path / "prediction_sample.csv"
         predictions.to_csv(output, index=False)
+        logger.debug("Predictions saved run_id=%s rows=%d", run.run_id, len(predictions))
         return output
 
     def record_run(self, run: RunRecord, metrics: dict[str, Any], status: str) -> None:
@@ -71,6 +80,7 @@ class RunStorage:
                     json.dumps(metrics, ensure_ascii=False),
                 ),
             )
+        logger.info("Run recorded in db run_id=%s status=%s", run.run_id, status)
 
     def _init_db(self) -> None:
         with sqlite3.connect(self.db_path) as conn:

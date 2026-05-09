@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
 
 from ml_platform.artifacts import artifact_to_dict
 from ml_platform.config import Settings
+
+logger = logging.getLogger(__name__)
 
 
 def generate_report(
@@ -56,8 +59,10 @@ def generate_report_result(
                 postrun_validation=postrun_validation,
                 recommendations=recommendations,
             )
+            logger.info("OpenAI report generated length=%d", len(report))
             return report, "openai"
         except Exception as exc:
+            logger.warning("OpenAI report generation failed, using rule-based fallback: %s", exc)
             fallback = _generate_rule_based_report(
                 eda_summary,
                 cleaning_log,
@@ -69,6 +74,7 @@ def generate_report_result(
                 recommendations=recommendations,
             )
             return fallback + f"\n\nLLM report generation failed, so this local rule-based report was used. Error: {exc}", "rule_based"
+    logger.info("Using rule-based report (llm_enabled=%s)", settings.llm_enabled)
     return (
         _generate_rule_based_report(
             eda_summary,
@@ -94,6 +100,7 @@ def _generate_rule_based_report(
     postrun_validation: Any = None,
     recommendations: Any = None,
 ) -> str:
+    logger.debug("Generating rule-based report")
     warnings = eda_summary.get("quality_warnings") or ["No major data quality warning was detected by local checks."]
     cleaned_steps = ", ".join(step.get("step", "unknown") for step in cleaning_log)
     top_features = [

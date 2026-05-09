@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 import pandas as pd
 
 from ml_platform.artifacts import PostRunValidation, PreflightValidation, RecommendationSet, ValidationIssue
+
+logger = logging.getLogger(__name__)
 
 
 VALID_CLASSIFICATION_METRICS = {"accuracy", "f1_weighted", "precision_weighted", "recall_weighted", "roc_auc"}
@@ -19,6 +22,7 @@ def validate_preflight(
     priority_metric: str,
     high_missing_threshold: float,
 ) -> PreflightValidation:
+    logger.info("Validating preflight target=%s task_type=%s rows=%d", target, task_type, len(df))
     issues: list[ValidationIssue] = []
     if target not in df.columns:
         issues.append(ValidationIssue("error", "missing_target", f"Target column was not found: {target}.", target))
@@ -135,6 +139,8 @@ def validate_preflight(
         )
 
     ok_to_run = not any(issue.severity == "error" for issue in issues)
+    logger.info("Preflight result ok_to_run=%s issues=%d errors=%d warnings=%d", ok_to_run, len(issues),
+                 sum(1 for i in issues if i.severity == "error"), sum(1 for i in issues if i.severity == "warning"))
     return PreflightValidation(
         ok_to_run=ok_to_run,
         task_type=task_type,
@@ -158,6 +164,7 @@ def validate_postrun(
     feature_importance: list[dict[str, Any]],
     report_mode: str,
 ) -> PostRunValidation:
+    logger.info("Validating postrun trainer=%s task_type=%s report_mode=%s", trainer_name, task_type, report_mode)
     issues: list[ValidationIssue] = []
     resolved_metric = resolve_priority_metric(task_type, priority_metric)
     metric_value = metrics.get(resolved_metric)
@@ -214,6 +221,7 @@ def validate_postrun(
         )
 
     ok = not any(issue.severity == "error" for issue in issues)
+    logger.info("Postrun result ok=%s issues=%d", ok, len(issues))
     return PostRunValidation(
         ok=ok,
         task_type=task_type,

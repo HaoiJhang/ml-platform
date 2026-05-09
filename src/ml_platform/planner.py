@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from typing import Any
 
@@ -8,6 +9,8 @@ import pandas as pd
 
 from ml_platform.artifacts import PlanSuggestion
 from ml_platform.config import Settings
+
+logger = logging.getLogger(__name__)
 
 
 METRIC_KEYWORDS: list[tuple[str, str]] = [
@@ -31,13 +34,16 @@ def suggest_plan(
     settings: Settings,
     user_brief: str = "",
 ) -> PlanSuggestion:
+    logger.info("Suggesting plan rows=%d llm_enabled=%s brief_len=%d", len(df), settings.llm_enabled, len(user_brief.strip()))
     rule_based = _rule_based_plan(df, eda_summary, user_brief)
     if not settings.llm_enabled or not user_brief.strip():
+        logger.info("Using rule-based plan (llm_enabled=%s, has_brief=%s)", settings.llm_enabled, bool(user_brief.strip()))
         return rule_based
 
     try:
         llm_plan = _generate_openai_plan(df, eda_summary, settings, user_brief)
     except Exception:
+        logger.warning("OpenAI plan generation failed, falling back to rule-based")
         return rule_based
     return _merge_plan(rule_based, llm_plan, df.columns.tolist())
 

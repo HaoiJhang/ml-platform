@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
 import warnings
 
 import numpy as np
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 
 def _json_safe(value: Any) -> Any:
@@ -33,6 +36,7 @@ def infer_column_types(df: pd.DataFrame) -> dict[str, list[str]]:
 
 
 def generate_eda_summary(df: pd.DataFrame, target: str | None = None) -> dict[str, Any]:
+    logger.info("Generating EDA summary rows=%d columns=%d target=%s", len(df), len(df.columns), target)
     column_types = infer_column_types(df)
     rows = len(df)
     columns: dict[str, Any] = {}
@@ -85,6 +89,7 @@ def generate_eda_summary(df: pd.DataFrame, target: str | None = None) -> dict[st
                 for key, value in target_series.astype("string").value_counts(dropna=True).head(20).to_dict().items()
             }
         summary["target_relationships"] = target_relationship_summary(df, target)
+    logger.info("EDA summary complete warnings=%d", len(summary["quality_warnings"]))
     return summary
 
 

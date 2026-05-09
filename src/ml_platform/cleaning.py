@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import inspect
+import logging
 from dataclasses import dataclass
 from typing import Any
 
@@ -10,6 +11,8 @@ from sklearn.impute import SimpleImputer
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -51,6 +54,7 @@ def clean_and_split(df: pd.DataFrame, config: CleanConfig) -> CleanedData:
     if config.task_type not in {"classification", "regression"}:
         raise ValueError("task_type must be 'classification' or 'regression'.")
 
+    logger.info("Cleaning dataset rows=%d columns=%d target=%s task_type=%s", len(df), len(df.columns), config.target, config.task_type)
     working = df.copy()
     log: list[dict[str, Any]] = []
 
@@ -75,6 +79,7 @@ def clean_and_split(df: pd.DataFrame, config: CleanConfig) -> CleanedData:
     ]
     if high_missing_columns:
         working = working.drop(columns=high_missing_columns)
+        logger.info("Dropped high-missing features threshold=%.2f count=%d", config.high_missing_threshold, len(high_missing_columns))
     log.append(
         {
             "step": "drop_high_missing_features",
@@ -89,6 +94,7 @@ def clean_and_split(df: pd.DataFrame, config: CleanConfig) -> CleanedData:
     ]
     if constant_columns:
         working = working.drop(columns=constant_columns)
+        logger.info("Dropped constant features count=%d", len(constant_columns))
     log.append({"step": "drop_constant_features", "columns": constant_columns})
 
     feature_columns = [column for column in working.columns if column != config.target]
@@ -135,6 +141,7 @@ def clean_and_split(df: pd.DataFrame, config: CleanConfig) -> CleanedData:
         random_state=config.random_state,
         stratify=stratify,
     )
+    logger.info("Split complete train=%d test=%d stratified=%s", len(X_train), len(X_test), stratify is not None)
     log.append(
         {
             "step": "split_train_test",

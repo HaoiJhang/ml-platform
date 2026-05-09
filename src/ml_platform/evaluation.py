@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 import numpy as np
@@ -17,8 +18,11 @@ from sklearn.metrics import (
 
 from ml_platform.cleaning import CleanedData
 
+logger = logging.getLogger(__name__)
+
 
 def evaluate_model(model: Any, cleaned: CleanedData, task_type: str) -> tuple[dict[str, float | None], pd.DataFrame]:
+    logger.info("Evaluating model task_type=%s test_rows=%d", task_type, len(cleaned.X_test))
     y_pred = model.predict(cleaned.X_test)
     y_pred_train = model.predict(cleaned.X_train)
     if task_type == "classification":
