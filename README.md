@@ -1,5 +1,7 @@
 # ML Platform Research Prototype
 
+Chinese documentation: [README.zh-CN.md](README.zh-CN.md)
+
 This repository contains a local, single-user research prototype for tabular ML
 workflows: CSV upload, EDA, cleaning, model training, evaluation, result
 storage, and optional LLM-assisted reporting.

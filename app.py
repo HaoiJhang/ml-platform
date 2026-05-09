@@ -42,6 +42,7 @@ st.set_page_config(page_title="ML Platform", layout="wide")
 
 HERO_IMAGE_PATH = Path("/Users/haoyi/Pictures/彩虹.jpg")
 LOCAL_LLM_CONFIG_PATH = PROJECT_ROOT / ".ml_platform.local.json"
+HELP_DOC_PATH = PROJECT_ROOT / "README.zh-CN.md"
 
 
 def _load_local_llm_config() -> dict[str, str]:
@@ -74,6 +75,16 @@ def _delete_local_llm_config() -> None:
         LOCAL_LLM_CONFIG_PATH.unlink(missing_ok=True)
     except OSError as exc:
         logger.warning("Unable to delete local LLM config: %s", exc)
+
+
+def _load_help_markdown() -> str:
+    if not HELP_DOC_PATH.exists():
+        return ""
+    try:
+        return HELP_DOC_PATH.read_text(encoding="utf-8").strip()
+    except OSError as exc:
+        logger.warning("Unable to read help doc: %s", exc)
+        return ""
 
 
 def _load_hero_background() -> str:
@@ -535,6 +546,27 @@ def _render_hero() -> None:
     )
 
 
+def _render_help_center() -> None:
+    help_markdown = _load_help_markdown()
+    st.subheader("Help center")
+    _section_caption("Read the quick-start guidance in the app, or expand the full Chinese manual without leaving the page.")
+
+    quick_start = """
+1. In `Report engine`, optionally fill in `API key`, `Base URL`, and `Model`. If you want the page to remember them, enable `Remember LLM settings on this device`.
+2. In `Dataset intake`, upload a CSV or choose a demo dataset. Then select one or more target columns in `Experiment setup`.
+3. Use `Planning brief` to describe the baseline you want. Review `Planner suggestion`, `Preflight validation`, and `EDA summary` before running.
+4. Click `Run training`. After the run finishes, inspect `Run results` and download the model, report, and predictions from `Artifacts`.
+"""
+    quick_tab, full_doc_tab = st.tabs(["Quick start", "Full guide"])
+    with quick_tab:
+        st.markdown(quick_start)
+    with full_doc_tab:
+        if help_markdown:
+            st.markdown(help_markdown)
+        else:
+            st.caption("The local help document is unavailable.")
+
+
 def _section_caption(text: str) -> None:
     st.markdown(f'<p class="lab-caption">{text}</p>', unsafe_allow_html=True)
 
@@ -939,6 +971,7 @@ def _render_integer_input(label: str, state_key: str, min_value: int | None = No
 def main() -> None:
     _apply_design_system()
     _render_hero()
+    _render_help_center()
     settings = _configure_llm_settings(load_settings())
 
     st.subheader("Dataset intake")
