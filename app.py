@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import base64
+import json
 import logging
+import os
 from pathlib import Path
 import sys
 
@@ -39,6 +41,39 @@ logger = logging.getLogger("ml_platform")
 st.set_page_config(page_title="ML Platform", layout="wide")
 
 HERO_IMAGE_PATH = Path("/Users/haoyi/Pictures/彩虹.jpg")
+LOCAL_LLM_CONFIG_PATH = PROJECT_ROOT / ".ml_platform.local.json"
+
+
+def _load_local_llm_config() -> dict[str, str]:
+    if not LOCAL_LLM_CONFIG_PATH.exists():
+        return {}
+    try:
+        raw_config = json.loads(LOCAL_LLM_CONFIG_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        logger.warning("Unable to read local LLM config: %s", exc)
+        return {}
+    if not isinstance(raw_config, dict):
+        return {}
+    return {
+        key: value
+        for key, value in raw_config.items()
+        if key in {"openai_api_key", "openai_base_url", "openai_model"} and isinstance(value, str)
+    }
+
+
+def _save_local_llm_config(config: dict[str, str]) -> None:
+    try:
+        LOCAL_LLM_CONFIG_PATH.write_text(json.dumps(config, indent=2), encoding="utf-8")
+        os.chmod(LOCAL_LLM_CONFIG_PATH, 0o600)
+    except OSError as exc:
+        logger.warning("Unable to write local LLM config: %s", exc)
+
+
+def _delete_local_llm_config() -> None:
+    try:
+        LOCAL_LLM_CONFIG_PATH.unlink(missing_ok=True)
+    except OSError as exc:
+        logger.warning("Unable to delete local LLM config: %s", exc)
 
 
 def _load_hero_background() -> str:
@@ -505,29 +540,53 @@ def _section_caption(text: str) -> None:
 
 
 def _configure_llm_settings(settings: Settings) -> Settings:
+    saved_config = _load_local_llm_config()
+    saved_api_key = saved_config.get("openai_api_key", "")
+    saved_base_url = saved_config.get("openai_base_url", "")
+    saved_model = saved_config.get("openai_model", "")
+
     st.subheader("Report engine")
-    _section_caption("Optional LLM configuration for plan and report generation. Leave the API key empty to use local rule-based outputs.")
+    _section_caption(
+        "Optional LLM configuration for plan and report generation. Save the key locally to keep it after page reloads."
+    )
     config_cols = st.columns(3)
     with config_cols[0]:
         api_key = st.text_input(
             "API key",
-            value="",
+            value=saved_api_key,
             type="password",
             placeholder="Uses OPENAI_API_KEY if empty",
         )
     with config_cols[1]:
         base_url = st.text_input(
             "Base URL",
-            value=settings.openai_base_url or "",
+            value=saved_base_url or settings.openai_base_url or "",
             placeholder="OpenAI default or compatible API URL",
         )
     with config_cols[2]:
-        model = st.text_input("Model", value=settings.openai_model)
+        model = st.text_input("Model", value=saved_model or settings.openai_model)
+
+    remember_config = st.checkbox("Remember LLM settings on this device", value=bool(saved_api_key))
+    if remember_config and api_key:
+        _save_local_llm_config(
+            {
+                "openai_api_key": api_key,
+                "openai_base_url": base_url,
+                "openai_model": model,
+            }
+        )
+    elif not remember_config and saved_config:
+        _delete_local_llm_config()
+        saved_config = {}
+
+    if saved_config and st.button("Forget saved LLM settings"):
+        _delete_local_llm_config()
+        st.rerun()
 
     return Settings(
         runs_dir=settings.runs_dir,
         data_dir=settings.data_dir,
-        openai_api_key=api_key or settings.openai_api_key,
+        openai_api_key=api_key or saved_api_key or settings.openai_api_key,
         openai_base_url=base_url or None,
         openai_model=model or settings.openai_model,
     )
