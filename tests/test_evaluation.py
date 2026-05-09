@@ -32,7 +32,18 @@ def test_classification_metrics() -> None:
 
     metrics, sample = evaluate_model(model, cleaned, "classification")
 
-    assert set(metrics) == {"accuracy", "f1_weighted", "roc_auc"}
+    assert set(metrics) == {
+        "accuracy",
+        "f1_weighted",
+        "precision_weighted",
+        "recall_weighted",
+        "roc_auc",
+        "train_accuracy",
+        "train_f1_weighted",
+        "train_precision_weighted",
+        "train_recall_weighted",
+        "train_roc_auc",
+    }
     assert len(sample) == 2
 
 
@@ -43,5 +54,5 @@ def test_regression_metrics() -> None:
 
     metrics, sample = evaluate_model(model, cleaned, "regression")
 
-    assert set(metrics) == {"rmse", "mae", "r2"}
+    assert set(metrics) == {"rmse", "mae", "r2", "train_rmse", "train_mae", "train_r2"}
     assert len(sample) == 2

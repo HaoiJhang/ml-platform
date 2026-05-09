@@ -15,16 +15,18 @@ class TrainedModel:
     model: Any
     trainer_name: str
     feature_importance: list[dict[str, Any]]
+    optimization_metric_used: str | None = None
+    training_notes: list[str] | None = None
 
 
-def train_model(cleaned: CleanedData, time_budget: int = 30) -> TrainedModel:
+def train_model(cleaned: CleanedData, time_budget: int = 30, metric_preference: str = "auto") -> TrainedModel:
     try:
-        return _train_with_flaml(cleaned, time_budget=time_budget)
+        return _train_with_flaml(cleaned, time_budget=time_budget, metric_preference=metric_preference)
     except Exception as exc:
-        return _train_with_sklearn(cleaned, fallback_reason=str(exc))
+        return _train_with_sklearn(cleaned, metric_preference=metric_preference, fallback_reason=str(exc))
 
 
-def _train_with_flaml(cleaned: CleanedData, time_budget: int) -> TrainedModel:
+def _train_with_flaml(cleaned: CleanedData, time_budget: int, metric_preference: str) -> TrainedModel:
     from flaml import AutoML
 
     preprocessor = cleaned.preprocessor
@@ -34,21 +36,38 @@ def _train_with_flaml(cleaned: CleanedData, time_budget: int) -> TrainedModel:
         raise ValueError("Preprocessor produced no features.")
 
     task = "classification" if cleaned.config.task_type == "classification" else "regression"
+    flaml_metric, metric_note = _map_metric_preference(cleaned.config.task_type, metric_preference)
     automl = AutoML()
+    fit_kwargs: dict[str, Any] = {
+        "task": task,
+        "time_budget": time_budget,
+        "verbose": 0,
+    }
+    if flaml_metric is not None:
+        fit_kwargs["metric"] = flaml_metric
     automl.fit(
         X_train,
         cleaned.y_train,
-        task=task,
-        time_budget=time_budget,
-        verbose=0,
+        **fit_kwargs,
     )
 
     model = Pipeline([("preprocessor", preprocessor), ("estimator", automl)])
     importance = _feature_importance_from_pipeline(model, cleaned.feature_columns)
-    return TrainedModel(model=model, trainer_name="flaml", feature_importance=importance)
+    notes = [metric_note] if metric_note else []
+    return TrainedModel(
+        model=model,
+        trainer_name="flaml",
+        feature_importance=importance,
+        optimization_metric_used=flaml_metric,
+        training_notes=notes,
+    )
 
 
-def _train_with_sklearn(cleaned: CleanedData, fallback_reason: str | None = None) -> TrainedModel:
+def _train_with_sklearn(
+    cleaned: CleanedData,
+    metric_preference: str,
+    fallback_reason: str | None = None,
+) -> TrainedModel:
     if cleaned.config.task_type == "classification":
         estimator = RandomForestClassifier(n_estimators=200, random_state=cleaned.config.random_state, n_jobs=-1)
     else:
@@ -57,16 +76,26 @@ def _train_with_sklearn(cleaned: CleanedData, fallback_reason: str | None = None
     model = Pipeline([("preprocessor", cleaned.preprocessor), ("estimator", estimator)])
     model.fit(cleaned.X_train, cleaned.y_train)
     importance = _feature_importance_from_pipeline(model, cleaned.feature_columns)
+    notes = []
     if fallback_reason:
+        notes.append(f"Used sklearn fallback because FLAML was unavailable or failed: {fallback_reason}")
         importance.insert(
             0,
             {
                 "feature": "__trainer_note__",
                 "importance": 0.0,
-                "note": f"Used sklearn fallback because FLAML was unavailable or failed: {fallback_reason}",
+                "note": notes[-1],
             },
         )
-    return TrainedModel(model=model, trainer_name="sklearn_random_forest", feature_importance=importance)
+    if metric_preference != "auto":
+        notes.append(f"Sklearn fallback ignores metric preference during optimization: {metric_preference}.")
+    return TrainedModel(
+        model=model,
+        trainer_name="sklearn_random_forest",
+        feature_importance=importance,
+        optimization_metric_used=None,
+        training_notes=notes,
+    )
 
 
 def _feature_importance_from_pipeline(model: Pipeline, fallback_features: list[str]) -> list[dict[str, Any]]:
@@ -86,3 +115,22 @@ def _feature_importance_from_pipeline(model: Pipeline, fallback_features: list[s
         for name, value in zip(names, importances)
     ]
     return sorted(rows, key=lambda row: row["importance"], reverse=True)[:50]
+
+
+def _map_metric_preference(task_type: str, metric_preference: str) -> tuple[str | None, str | None]:
+    if task_type == "classification":
+        mapping = {
+            "accuracy": "accuracy",
+            "roc_auc": "roc_auc",
+        }
+    else:
+        mapping = {
+            "rmse": "rmse",
+            "mae": "mae",
+            "r2": "r2",
+        }
+    if metric_preference in mapping:
+        return mapping[metric_preference], None
+    if metric_preference != "auto":
+        return None, f"FLAML optimization metric mapping was unavailable for requested metric: {metric_preference}."
+    return None, None

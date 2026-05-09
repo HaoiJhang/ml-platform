@@ -13,14 +13,17 @@ if str(SRC_DIR) not in sys.path:
 import pandas as pd
 import streamlit as st
 
+from ml_platform.artifacts import artifact_to_dict
 from ml_platform.automl import train_model
 from ml_platform.cleaning import CleanConfig, clean_and_split
 from ml_platform.config import Settings, load_settings
 from ml_platform.data_io import read_csv
 from ml_platform.eda import generate_eda_summary
 from ml_platform.evaluation import evaluate_model
-from ml_platform.llm_report import generate_report
+from ml_platform.llm_report import generate_report_result
+from ml_platform.planner import suggest_plan
 from ml_platform.storage import RunStorage
+from ml_platform.validation import build_recommendations, resolve_priority_metric, validate_postrun, validate_preflight
 
 
 st.set_page_config(page_title="ML Platform", layout="wide")
@@ -318,12 +321,31 @@ def _apply_design_system() -> None:
 
             button[kind="primary"],
             .stDownloadButton button {
-                border: 1px solid #b9481c !important;
-                background: #5c6672 !important;
+                border: 1px solid #4e5863 !important;
+                background: #4e5863 !important;
                 color: #ffffff !important;
                 font-weight: 800 !important;
                 box-shadow: 0 8px 18px rgba(21, 37, 54, 0.14);
                 transition: transform 160ms ease, box-shadow 160ms ease;
+            }
+
+            button[kind="primary"] *,
+            .stDownloadButton button * {
+                color: #ffffff !important;
+            }
+
+            button[kind="primary"]:disabled,
+            button[kind="primary"][disabled] {
+                border-color: #c3cad3 !important;
+                background: #e3e7ec !important;
+                color: #7b8592 !important;
+                box-shadow: none;
+                opacity: 1 !important;
+            }
+
+            button[kind="primary"]:disabled *,
+            button[kind="primary"][disabled] * {
+                color: #7b8592 !important;
             }
 
             button[kind="primary"]:hover,
@@ -353,9 +375,15 @@ def _apply_design_system() -> None:
             }
 
             .stTabs [aria-selected="true"] {
-                color: #ffffff;
+                color: #ffffff !important;
                 background: var(--lab-accent);
                 border-color: var(--lab-accent);
+            }
+
+            .stTabs [aria-selected="true"] *,
+            .stTabs [aria-selected="true"] p,
+            .stTabs [aria-selected="true"] span {
+                color: #ffffff !important;
             }
 
             [data-testid="stAlert"] {
@@ -451,6 +479,57 @@ def _infer_task_type(df: pd.DataFrame, target: str) -> str:
     return "regression"
 
 
+def _target_task_types(df: pd.DataFrame, targets: list[str], task_type_choice: str) -> dict[str, str]:
+    if task_type_choice in {"classification", "regression"}:
+        return {target: task_type_choice for target in targets}
+    return {target: _infer_task_type(df, target) for target in targets}
+
+
+def _initialize_experiment_state(columns: list[str]) -> None:
+    signature = tuple(columns)
+    if st.session_state.get("_dataset_signature") == signature:
+        return
+    st.session_state["_dataset_signature"] = signature
+    st.session_state["planner_brief"] = ""
+    st.session_state["target_columns"] = [columns[-1]]
+    st.session_state["task_type_choice"] = "auto"
+    st.session_state["time_budget"] = 30
+    st.session_state["priority_metric_choice"] = "auto"
+    st.session_state["excluded_columns"] = []
+    st.session_state["test_size"] = 0.2
+    st.session_state["high_missing_threshold"] = 0.9
+    st.session_state["random_state"] = 42
+
+
+def _apply_plan_suggestion(plan_suggestion: dict[str, object], columns: list[str]) -> None:
+    suggested_targets = [column for column in plan_suggestion.get("suggested_targets", []) if column in columns]
+    if suggested_targets:
+        st.session_state["target_columns"] = suggested_targets
+
+    suggested_task_type = plan_suggestion.get("suggested_task_type")
+    if suggested_task_type in {"auto", "classification", "regression"}:
+        st.session_state["task_type_choice"] = suggested_task_type
+
+    current_targets = set(st.session_state.get("target_columns", []))
+    excluded = [
+        column
+        for column in plan_suggestion.get("suggested_excluded_columns", [])
+        if column in columns and column not in current_targets
+    ]
+    st.session_state["excluded_columns"] = excluded
+
+    metric = plan_suggestion.get("priority_metric")
+    if metric in {"auto", "accuracy", "f1_weighted", "precision_weighted", "recall_weighted", "roc_auc", "rmse", "mae", "r2"}:
+        st.session_state["priority_metric_choice"] = metric
+
+
+def _render_issue_table(issues: list[dict[str, object]]) -> None:
+    if not issues:
+        st.caption("No issues surfaced.")
+        return
+    st.dataframe(pd.DataFrame(issues), use_container_width=True)
+
+
 def main() -> None:
     _apply_design_system()
     settings = _configure_llm_settings(load_settings())
@@ -474,42 +553,117 @@ def main() -> None:
 
     df = read_csv(uploaded_file)
     columns = list(df.columns)
+    _initialize_experiment_state(columns)
 
     st.subheader("Experiment setup")
     _section_caption("Choose the prediction target and tune the small number of parameters that affect the local run.")
     setup_cols = st.columns([1.2, 0.85, 1.15])
     with setup_cols[0]:
-        target = st.selectbox("Target variable", columns, index=len(columns) - 1)
+        target_columns = st.multiselect(
+            "Target variables",
+            columns,
+            key="target_columns",
+            help="Select one or more targets. Multi-target runs train one model per target.",
+        )
     with setup_cols[1]:
-        default_task = _infer_task_type(df, target)
-        task_type = st.radio(
+        task_type_choice = st.radio(
             "Task type",
-            ["classification", "regression"],
-            index=0 if default_task == "classification" else 1,
+            ["auto", "classification", "regression"],
             horizontal=True,
+            key="task_type_choice",
         )
     with setup_cols[2]:
-        time_budget = st.number_input("Training time budget seconds", value=30, min_value=5, step=5)
+        time_budget = st.number_input("Training time budget seconds", min_value=5, step=5, key="time_budget")
 
-    config_cols = st.columns(3)
+    if not target_columns:
+        st.warning("Select at least one target variable to continue.")
+        return
+
+    exclude_options = [column for column in columns if column not in target_columns]
+    excluded_columns = st.multiselect(
+        "Exclude columns from EDA and training features",
+        exclude_options,
+        key="excluded_columns",
+        help="Excluded columns are removed before EDA and are not used as model features.",
+    )
+    analysis_columns = [column for column in columns if column not in excluded_columns]
+    analysis_df = df[analysis_columns].copy()
+    primary_target = target_columns[0]
+    task_types = _target_task_types(analysis_df, target_columns, task_type_choice)
+    if len(target_columns) > 1:
+        st.caption(
+            "Multi-target mode trains and stores one independent run per target. "
+            "Other selected targets are excluded from each model's feature set."
+        )
+
+    config_cols = st.columns(4)
     with config_cols[0]:
-        test_size = st.slider("Test size", min_value=0.1, max_value=0.5, value=0.2, step=0.05)
+        test_size = st.slider("Test size", min_value=0.1, max_value=0.5, step=0.05, key="test_size")
     with config_cols[1]:
         high_missing_threshold = st.slider(
             "Drop feature when missing rate is above",
             min_value=0.5,
             max_value=1.0,
-            value=0.9,
             step=0.05,
+            key="high_missing_threshold",
         )
     with config_cols[2]:
-        random_state = st.number_input("Random state", value=42, step=1)
+        random_state = st.number_input("Random state", step=1, key="random_state")
+    with config_cols[3]:
+        priority_metric_choice = st.selectbox(
+            "Priority metric",
+            ["auto", "accuracy", "f1_weighted", "precision_weighted", "recall_weighted", "roc_auc", "rmse", "mae", "r2"],
+            key="priority_metric_choice",
+        )
+
+    eda_summary = generate_eda_summary(analysis_df, target=primary_target)
+    planner_brief = st.text_area(
+        "Planning brief",
+        key="planner_brief",
+        placeholder="Example: predict churn, optimize recall, ignore customer_id-like fields, keep this as a quick baseline.",
+        help="Optional natural-language brief used to suggest targets, task type, exclusions, and a priority metric.",
+    )
+    plan_suggestion = suggest_plan(
+        df=analysis_df,
+        eda_summary=eda_summary,
+        settings=settings,
+        user_brief=planner_brief,
+    )
+    plan_data = artifact_to_dict(plan_suggestion)
+    st.subheader("Execution plan")
+    _section_caption("Use the brief-driven suggestion as a starting point, then confirm the explicit controls before running.")
+    with st.expander("Planner suggestion", expanded=bool(planner_brief.strip())):
+        st.json(plan_data, expanded=False)
+        if st.button("Apply planner suggestions"):
+            _apply_plan_suggestion(plan_data, columns)
+            st.rerun()
+
+    priority_metrics = {
+        target: resolve_priority_metric(_target_task_types(analysis_df, [target], task_type_choice)[target], priority_metric_choice)
+        for target in target_columns
+    }
+    preflight_by_target = {
+        target: validate_preflight(
+            df=df,
+            target=target,
+            task_type=task_types[target],
+            excluded_columns=excluded_columns,
+            priority_metric=priority_metric_choice,
+            high_missing_threshold=float(high_missing_threshold),
+        )
+        for target in target_columns
+    }
+    with st.expander("Preflight validation", expanded=True):
+        for target in target_columns:
+            validation = artifact_to_dict(preflight_by_target[target])
+            st.write(f"{target} ({task_types[target]})")
+            st.caption(f"Resolved priority metric: {priority_metrics[target]}")
+            _render_issue_table(validation.get("issues", []))
 
     st.subheader("Data preview")
     _section_caption("First 50 rows are shown for quick sanity checks before training.")
-    st.dataframe(df.head(50), use_container_width=True)
+    st.dataframe(analysis_df.head(50), use_container_width=True)
 
-    eda_summary = generate_eda_summary(df, target=target)
     st.subheader("EDA summary")
     _section_caption("A compact quality audit for shape, duplicates, missingness, correlations, and target behavior.")
     metric_cols = st.columns(4)
@@ -525,9 +679,18 @@ def main() -> None:
     st.write("Column profile")
     st.dataframe(pd.DataFrame(eda_summary["columns"]).T, use_container_width=True)
 
-    if target in df.columns and eda_summary.get("target"):
-        st.write("Target profile")
+    if primary_target in analysis_df.columns and eda_summary.get("target"):
+        label = "Primary target profile" if len(target_columns) > 1 else "Target profile"
+        st.write(label)
         st.json(eda_summary["target"], expanded=False)
+    if len(target_columns) > 1:
+        st.write("Target task types")
+        st.dataframe(
+            pd.DataFrame(
+                [{"target": target, "task_type": task_type} for target, task_type in task_types.items()]
+            ),
+            use_container_width=True,
+        )
 
     eda_tabs = st.tabs(["Missingness", "Correlations", "Target relationships", "Quality warnings"])
     with eda_tabs[0]:
@@ -563,83 +726,191 @@ def main() -> None:
     if not st.button("Run training", type="primary"):
         return
 
-    config = CleanConfig(
-        target=target,
-        task_type=task_type,
-        test_size=float(test_size),
-        random_state=int(random_state),
-        high_missing_threshold=float(high_missing_threshold),
-    )
-
+    results = []
+    storage = RunStorage(settings.runs_dir)
     with st.spinner("Cleaning data and training model locally..."):
-        cleaned = clean_and_split(df, config)
-        trained = train_model(cleaned, time_budget=int(time_budget))
-        metrics, prediction_sample = evaluate_model(trained.model, cleaned, task_type=task_type)
+        failing_targets = [target for target, validation in preflight_by_target.items() if not validation.ok_to_run]
+        if failing_targets:
+            st.error(f"Resolve blocking preflight issues before training: {', '.join(failing_targets)}")
+            return
 
-        report = generate_report(
-            eda_summary=eda_summary,
-            cleaning_log=cleaned.cleaning_log,
-            metrics=metrics,
-            feature_importance=trained.feature_importance,
-            settings=settings,
-        )
+        feature_columns = [column for column in analysis_df.columns if column not in target_columns]
+        if not feature_columns:
+            st.error("No feature columns remain after excluding selected target and ignored columns.")
+            return
 
-        storage = RunStorage(settings.runs_dir)
-        run = storage.create_run(
-            config={
-                "target": target,
-                "task_type": task_type,
-                "test_size": test_size,
-                "high_missing_threshold": high_missing_threshold,
-                "random_state": random_state,
-                "time_budget": time_budget,
-                "trainer": trained.trainer_name,
-            }
-        )
-        storage.save_json(run, "eda_summary.json", eda_summary)
-        storage.save_json(run, "cleaning_log.json", cleaned.cleaning_log)
-        storage.save_json(run, "metrics.json", metrics)
-        storage.save_json(run, "feature_importance.json", trained.feature_importance)
-        report_path = storage.save_text(run, "report.md", report)
-        prediction_path = storage.save_predictions(run, prediction_sample)
-        model_path = storage.save_model(run, trained.model)
-        storage.record_run(run, metrics=metrics, status="completed")
+        for target in target_columns:
+            task_type = task_types[target]
+            priority_metric = priority_metrics[target]
+            preflight_validation = preflight_by_target[target]
+            target_df = analysis_df[feature_columns + [target]].copy()
+            target_eda_summary = generate_eda_summary(target_df, target=target)
+            config = CleanConfig(
+                target=target,
+                task_type=task_type,
+                test_size=float(test_size),
+                random_state=int(random_state),
+                high_missing_threshold=float(high_missing_threshold),
+            )
+            cleaned = clean_and_split(target_df, config)
+            trained = train_model(cleaned, time_budget=int(time_budget), metric_preference=priority_metric)
+            metrics, prediction_sample = evaluate_model(trained.model, cleaned, task_type=task_type)
+            planned_report_mode = "openai" if settings.llm_enabled else "rule_based"
+            postrun_validation = validate_postrun(
+                metrics=metrics,
+                prediction_sample=prediction_sample,
+                task_type=task_type,
+                priority_metric=priority_metric,
+                trainer_name=trained.trainer_name,
+                optimization_metric_used=trained.optimization_metric_used,
+                feature_importance=trained.feature_importance,
+                report_mode=planned_report_mode,
+            )
+            recommendations = build_recommendations(preflight_validation, postrun_validation)
 
-    st.success(f"Run completed: {run.run_id}")
+            report, report_mode = generate_report_result(
+                eda_summary=target_eda_summary,
+                cleaning_log=cleaned.cleaning_log,
+                metrics=metrics,
+                feature_importance=trained.feature_importance,
+                settings=settings,
+                plan_suggestion=plan_suggestion,
+                preflight_validation=preflight_validation,
+                postrun_validation=postrun_validation,
+                recommendations=recommendations,
+            )
+            postrun_validation = validate_postrun(
+                metrics=metrics,
+                prediction_sample=prediction_sample,
+                task_type=task_type,
+                priority_metric=priority_metric,
+                trainer_name=trained.trainer_name,
+                optimization_metric_used=trained.optimization_metric_used,
+                feature_importance=trained.feature_importance,
+                report_mode=report_mode,
+            )
+            recommendations = build_recommendations(preflight_validation, postrun_validation)
+            if report_mode != planned_report_mode:
+                report, report_mode = generate_report_result(
+                    eda_summary=target_eda_summary,
+                    cleaning_log=cleaned.cleaning_log,
+                    metrics=metrics,
+                    feature_importance=trained.feature_importance,
+                    settings=settings,
+                    plan_suggestion=plan_suggestion,
+                    preflight_validation=preflight_validation,
+                    postrun_validation=postrun_validation,
+                    recommendations=recommendations,
+                )
+
+            run = storage.create_run(
+                config={
+                    "target": target,
+                    "target_columns": target_columns,
+                    "task_type": task_type,
+                    "task_type_choice": task_type_choice,
+                    "excluded_columns": excluded_columns,
+                    "test_size": test_size,
+                    "high_missing_threshold": high_missing_threshold,
+                    "random_state": random_state,
+                    "time_budget": time_budget,
+                    "priority_metric": priority_metric,
+                    "trainer": trained.trainer_name,
+                    "planner_name": plan_suggestion.planner_name,
+                }
+            )
+            storage.save_json(run, "plan.json", artifact_to_dict(plan_suggestion))
+            storage.save_json(run, "eda_summary.json", target_eda_summary)
+            storage.save_json(run, "cleaning_log.json", cleaned.cleaning_log)
+            storage.save_json(run, "metrics.json", metrics)
+            storage.save_json(run, "feature_importance.json", trained.feature_importance)
+            storage.save_json(run, "validation_pre.json", artifact_to_dict(preflight_validation))
+            storage.save_json(run, "validation_post.json", artifact_to_dict(postrun_validation))
+            storage.save_json(run, "recommendations.json", artifact_to_dict(recommendations))
+            storage.save_json(
+                run,
+                "training_summary.json",
+                {
+                    "trainer_name": trained.trainer_name,
+                    "optimization_metric_used": trained.optimization_metric_used,
+                    "training_notes": trained.training_notes or [],
+                },
+            )
+            report_path = storage.save_text(run, "report.md", report)
+            prediction_path = storage.save_predictions(run, prediction_sample)
+            model_path = storage.save_model(run, trained.model)
+            storage.record_run(run, metrics=metrics, status="completed")
+            results.append(
+                {
+                    "target": target,
+                    "task_type": task_type,
+                    "run": run,
+                    "trained": trained,
+                    "metrics": metrics,
+                    "report": report,
+                    "preflight_validation": preflight_validation,
+                    "postrun_validation": postrun_validation,
+                    "recommendations": recommendations,
+                    "priority_metric": priority_metric,
+                    "report_path": report_path,
+                    "prediction_path": prediction_path,
+                    "model_path": model_path,
+                }
+            )
+
+    completed_ids = ", ".join(str(result["run"].run_id) for result in results)
+    st.success(f"Run completed: {completed_ids}")
     st.subheader("Artifacts")
     _section_caption("Export the model, generated analysis report, and prediction sample for downstream review.")
-    download_cols = st.columns(3)
-    with download_cols[0]:
-        st.download_button(
-            "Download model",
-            data=model_path.read_bytes(),
-            file_name=f"{run.run_id}_model.joblib",
-            mime="application/octet-stream",
-        )
-    with download_cols[1]:
-        st.download_button(
-            "Download report",
-            data=report_path.read_text(encoding="utf-8"),
-            file_name=f"{run.run_id}_report.md",
-            mime="text/markdown",
-        )
-    with download_cols[2]:
-        st.download_button(
-            "Download predictions",
-            data=prediction_path.read_text(encoding="utf-8"),
-            file_name=f"{run.run_id}_prediction_sample.csv",
-            mime="text/csv",
-        )
+    for result in results:
+        run = result["run"]
+        label = f"{result['target']} ({result['task_type']})"
+        with st.expander(label, expanded=len(results) == 1):
+            download_cols = st.columns(3)
+            with download_cols[0]:
+                st.download_button(
+                    "Download model",
+                    data=result["model_path"].read_bytes(),
+                    file_name=f"{run.run_id}_{result['target']}_model.joblib",
+                    mime="application/octet-stream",
+                )
+            with download_cols[1]:
+                st.download_button(
+                    "Download report",
+                    data=result["report_path"].read_text(encoding="utf-8"),
+                    file_name=f"{run.run_id}_{result['target']}_report.md",
+                    mime="text/markdown",
+                )
+            with download_cols[2]:
+                st.download_button(
+                    "Download predictions",
+                    data=result["prediction_path"].read_text(encoding="utf-8"),
+                    file_name=f"{run.run_id}_{result['target']}_prediction_sample.csv",
+                    mime="text/csv",
+                )
 
     st.subheader("Run results")
     _section_caption("Metrics, feature importance, and the generated report are shown below for immediate review.")
-    st.write("Metrics")
-    st.json(metrics)
-    st.write("Feature importance")
-    st.dataframe(pd.DataFrame(trained.feature_importance), use_container_width=True)
-    st.write("Analysis report")
-    st.markdown(report)
-    st.caption(f"Artifacts saved to {Path(run.path).resolve()}")
+    for result in results:
+        run = result["run"]
+        with st.expander(f"{result['target']} results", expanded=len(results) == 1):
+            st.write("Metrics")
+            st.json(result["metrics"])
+            st.write("Validation")
+            st.json(
+                {
+                    "preflight": artifact_to_dict(result["preflight_validation"]),
+                    "postrun": artifact_to_dict(result["postrun_validation"]),
+                    "recommendations": artifact_to_dict(result["recommendations"]),
+                    "priority_metric": result["priority_metric"],
+                },
+                expanded=False,
+            )
+            st.write("Feature importance")
+            st.dataframe(pd.DataFrame(result["trained"].feature_importance), use_container_width=True)
+            st.write("Analysis report")
+            st.markdown(result["report"])
+            st.caption(f"Artifacts saved to {Path(run.path).resolve()}")
 
 
 if __name__ == "__main__":

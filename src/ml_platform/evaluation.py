@@ -4,26 +4,29 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
-from sklearn.metrics import accuracy_score, f1_score, mean_absolute_error, mean_squared_error, r2_score, roc_auc_score
+from sklearn.metrics import (
+    accuracy_score,
+    f1_score,
+    mean_absolute_error,
+    mean_squared_error,
+    precision_score,
+    r2_score,
+    recall_score,
+    roc_auc_score,
+)
 
 from ml_platform.cleaning import CleanedData
 
 
 def evaluate_model(model: Any, cleaned: CleanedData, task_type: str) -> tuple[dict[str, float | None], pd.DataFrame]:
     y_pred = model.predict(cleaned.X_test)
+    y_pred_train = model.predict(cleaned.X_train)
     if task_type == "classification":
-        metrics: dict[str, float | None] = {
-            "accuracy": float(accuracy_score(cleaned.y_test, y_pred)),
-            "f1_weighted": float(f1_score(cleaned.y_test, y_pred, average="weighted", zero_division=0)),
-            "roc_auc": _safe_roc_auc(model, cleaned.X_test, cleaned.y_test),
-        }
+        metrics = _classification_metrics(model, cleaned.X_test, cleaned.y_test, y_pred)
+        metrics.update(_classification_metrics(model, cleaned.X_train, cleaned.y_train, y_pred_train, prefix="train_"))
     elif task_type == "regression":
-        mse = float(mean_squared_error(cleaned.y_test, y_pred))
-        metrics = {
-            "rmse": float(np.sqrt(mse)),
-            "mae": float(mean_absolute_error(cleaned.y_test, y_pred)),
-            "r2": float(r2_score(cleaned.y_test, y_pred)),
-        }
+        metrics = _regression_metrics(cleaned.y_test, y_pred)
+        metrics.update(_regression_metrics(cleaned.y_train, y_pred_train, prefix="train_"))
     else:
         raise ValueError("task_type must be 'classification' or 'regression'.")
 
@@ -31,6 +34,31 @@ def evaluate_model(model: Any, cleaned: CleanedData, task_type: str) -> tuple[di
     sample["actual"] = cleaned.y_test.head(20).to_numpy()
     sample["prediction"] = pd.Series(y_pred[:20], index=sample.index).to_numpy()
     return metrics, sample
+
+
+def _classification_metrics(
+    model: Any,
+    X: pd.DataFrame,
+    y: pd.Series,
+    y_pred: np.ndarray,
+    prefix: str = "",
+) -> dict[str, float | None]:
+    return {
+        f"{prefix}accuracy": float(accuracy_score(y, y_pred)),
+        f"{prefix}f1_weighted": float(f1_score(y, y_pred, average="weighted", zero_division=0)),
+        f"{prefix}precision_weighted": float(precision_score(y, y_pred, average="weighted", zero_division=0)),
+        f"{prefix}recall_weighted": float(recall_score(y, y_pred, average="weighted", zero_division=0)),
+        f"{prefix}roc_auc": _safe_roc_auc(model, X, y),
+    }
+
+
+def _regression_metrics(y: pd.Series, y_pred: np.ndarray, prefix: str = "") -> dict[str, float | None]:
+    mse = float(mean_squared_error(y, y_pred))
+    return {
+        f"{prefix}rmse": float(np.sqrt(mse)),
+        f"{prefix}mae": float(mean_absolute_error(y, y_pred)),
+        f"{prefix}r2": float(r2_score(y, y_pred)),
+    }
 
 
 def _safe_roc_auc(model: Any, X_test: pd.DataFrame, y_test: pd.Series) -> float | None:
