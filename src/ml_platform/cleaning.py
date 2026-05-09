@@ -6,11 +6,14 @@ from dataclasses import dataclass
 from typing import Any
 
 import pandas as pd
-from sklearn.compose import ColumnTransformer
+from sklearn.compose import ColumnTransformer, make_column_selector
 from sklearn.impute import SimpleImputer
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
+
+from ml_platform.artifacts import FeatureEngineeringOperation
+from ml_platform.feature_engineering import FeatureEngineeringTransformer
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +26,7 @@ class CleanConfig:
     random_state: int = 42
     high_missing_threshold: float = 0.9
     standardize_numeric: bool = True
+    feature_engineering_operations: list[FeatureEngineeringOperation] | None = None
 
 
 @dataclass
@@ -110,24 +114,30 @@ def clean_and_split(df: pd.DataFrame, config: CleanConfig) -> CleanedData:
     numeric_steps: list[tuple[str, Any]] = [("imputer", SimpleImputer(strategy="median"))]
     if config.standardize_numeric:
         numeric_steps.append(("scaler", StandardScaler()))
-    transformers: list[tuple[str, Any, list[str]]] = []
-    if numeric_features:
-        transformers.append(("numeric", Pipeline(numeric_steps), numeric_features))
-    if categorical_features:
-        transformers.append(
-            (
-                "categorical",
-                Pipeline(
-                    [
-                        ("imputer", SimpleImputer(strategy="most_frequent")),
-                        ("onehot", _make_one_hot_encoder()),
-                    ]
-                ),
-                categorical_features,
-            )
+    transformers: list[tuple[str, Any, Any]] = [
+        ("numeric", Pipeline(numeric_steps), make_column_selector(dtype_include="number")),
+        (
+            "categorical",
+            Pipeline(
+                [
+                    ("imputer", SimpleImputer(strategy="most_frequent")),
+                    ("onehot", _make_one_hot_encoder()),
+                ]
+            ),
+            make_column_selector(dtype_exclude="number"),
         )
-
-    preprocessor = ColumnTransformer(transformers=transformers, remainder="drop", verbose_feature_names_out=False)
+    ]
+    column_preprocessor = ColumnTransformer(transformers=transformers, remainder="drop", verbose_feature_names_out=False)
+    feature_operations = list(config.feature_engineering_operations or [])
+    if feature_operations:
+        preprocessor = Pipeline(
+            [
+                ("feature_engineering", FeatureEngineeringTransformer(feature_operations)),
+                ("columns", column_preprocessor),
+            ]
+        )
+    else:
+        preprocessor = column_preprocessor
     stratify = None
     if config.task_type == "classification" and y.nunique(dropna=True) > 1:
         class_counts = y.value_counts()
@@ -158,6 +168,7 @@ def clean_and_split(df: pd.DataFrame, config: CleanConfig) -> CleanedData:
             "numeric_features": numeric_features,
             "categorical_features": categorical_features,
             "standardize_numeric": config.standardize_numeric,
+            "feature_engineering_operations": [operation.operation for operation in feature_operations],
         }
     )
 

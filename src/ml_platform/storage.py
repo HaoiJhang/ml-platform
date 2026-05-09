@@ -23,6 +23,16 @@ class RunRecord:
     config: dict[str, Any]
 
 
+@dataclass(frozen=True)
+class RecordedRun:
+    run_id: str
+    created_at: str
+    path: Path
+    status: str
+    config: dict[str, Any]
+    metrics: dict[str, Any]
+
+
 class RunStorage:
     def __init__(self, runs_dir: str | Path = "runs") -> None:
         self.runs_dir = Path(runs_dir)
@@ -81,6 +91,41 @@ class RunStorage:
                 ),
             )
         logger.info("Run recorded in db run_id=%s status=%s", run.run_id, status)
+
+    def list_runs(self, limit: int = 50) -> list[RecordedRun]:
+        with sqlite3.connect(self.db_path) as conn:
+            rows = conn.execute(
+                """
+                SELECT run_id, created_at, path, status, config_json, metrics_json
+                FROM runs
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (int(limit),),
+            ).fetchall()
+        return [
+            RecordedRun(
+                run_id=row[0],
+                created_at=row[1],
+                path=Path(row[2]),
+                status=row[3],
+                config=json.loads(row[4]),
+                metrics=json.loads(row[5]),
+            )
+            for row in rows
+        ]
+
+    def load_json(self, run_path: str | Path, name: str) -> Any | None:
+        path = Path(run_path) / name
+        if not path.exists():
+            return None
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    def load_text(self, run_path: str | Path, name: str) -> str | None:
+        path = Path(run_path) / name
+        if not path.exists():
+            return None
+        return path.read_text(encoding="utf-8")
 
     def _init_db(self) -> None:
         with sqlite3.connect(self.db_path) as conn:

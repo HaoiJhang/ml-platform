@@ -28,6 +28,16 @@ METRIC_KEYWORDS: list[tuple[str, str]] = [
 ]
 
 
+def _string_list(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [value] if value.strip() else []
+    if isinstance(value, list):
+        return [str(item) for item in value if isinstance(item, str) and str(item).strip()]
+    return []
+
+
 def suggest_plan(
     df: pd.DataFrame,
     eda_summary: dict[str, Any],
@@ -126,14 +136,12 @@ def _generate_openai_plan(
     return PlanSuggestion(
         planner_name="openai",
         user_brief=user_brief,
-        suggested_targets=[str(item) for item in payload.get("suggested_targets", []) if isinstance(item, str)],
+        suggested_targets=_string_list(payload.get("suggested_targets")),
         suggested_task_type=str(payload.get("suggested_task_type", "auto")),
-        suggested_excluded_columns=[
-            str(item) for item in payload.get("suggested_excluded_columns", []) if isinstance(item, str)
-        ],
+        suggested_excluded_columns=_string_list(payload.get("suggested_excluded_columns")),
         priority_metric=str(payload.get("priority_metric", "auto")),
-        notes=[str(item) for item in payload.get("notes", []) if isinstance(item, str)],
-        risk_flags=[str(item) for item in payload.get("risk_flags", []) if isinstance(item, str)],
+        notes=_string_list(payload.get("notes")),
+        risk_flags=_string_list(payload.get("risk_flags")),
     )
 
 

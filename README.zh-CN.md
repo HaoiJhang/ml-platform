@@ -87,7 +87,21 @@ predict churn, optimize recall, ignore customer_id-like fields, keep this as a q
 
 系统会基于这段描述生成建议，包括推荐目标列、任务类型、应排除字段和优先指标。你可以查看 `Planner suggestion`，然后点击 `Apply planner suggestions` 自动把建议带入表单。
 
-### 4.5 Execution plan / Preflight validation
+### 4.5 Feature engineering plan
+
+如果启用 `Apply local whitelist feature engineering`，应用会根据当前 brief 和数据结构生成一份结构化特征工程计划。LLM 只负责提出 JSON 计划，不会写代码，也不会直接执行任意逻辑。
+
+当前本地白名单支持这些变换：
+
+- 日期拆分：从日期列生成 year、month、day、dayofweek、quarter 或 is_weekend。
+- 类别频次编码：把高基数类别列转换成训练集内拟合的频率特征。
+- 数值分箱：基于训练集分位点做数值 binning。
+- 数值字段组合：支持 ratio、difference、sum 和 product。
+- 类别规则映射：把指定类别值映射到本地分组标签，未命中值进入默认组。
+
+为了降低泄漏风险，频次编码和数值分箱会作为 sklearn pipeline 的一部分只在训练集 `fit`，测试集只 `transform`。目标列不会被允许进入特征工程计划；多目标训练时，其他目标列也不会作为特征输入。
+
+### 4.6 Execution plan / Preflight validation
 
 在真正训练之前，页面会先展示一些自动检查结果，例如：
 
@@ -101,7 +115,7 @@ predict churn, optimize recall, ignore customer_id-like fields, keep this as a q
 
 如果存在阻断级问题，训练不会继续。
 
-### 4.6 Data preview / EDA summary
+### 4.7 Data preview / EDA summary
 
 这里会展示数据前 50 行，以及面向 baseline 的紧凑 EDA，包括：
 
@@ -114,7 +128,7 @@ predict churn, optimize recall, ignore customer_id-like fields, keep this as a q
 - 目标关系摘要
 - 数据质量告警
 
-### 4.7 Run training
+### 4.8 Run training
 
 点击 `Run training` 后，应用会在本地执行完整流程：
 
@@ -125,7 +139,7 @@ predict churn, optimize recall, ignore customer_id-like fields, keep this as a q
 5. 生成报告
 6. 保存 artifacts
 
-### 4.8 Artifacts / Run results
+### 4.9 Artifacts / Run results
 
 训练完成后，你可以直接在页面中：
 
@@ -151,6 +165,7 @@ predict churn, optimize recall, ignore customer_id-like fields, keep this as a q
 - `cleaning_log.json`
 - `metrics.json`
 - `feature_importance.json`
+- `feature_engineering_plan.json`，仅在启用特征工程时生成
 - `prediction_sample.csv`
 - `validation_pre.json`
 - `validation_post.json`

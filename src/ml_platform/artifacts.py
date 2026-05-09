@@ -25,6 +25,42 @@ class PlanSuggestion:
 
 
 @dataclass(frozen=True)
+class FeatureEngineeringOperation:
+    operation: str
+    source_column: str | None = None
+    columns: list[str] = field(default_factory=list)
+    parts: list[str] = field(default_factory=list)
+    operator: str | None = None
+    bins: int | None = None
+    mapping: dict[str, str] = field(default_factory=dict)
+    default_value: str = "other"
+    rationale: str = ""
+
+
+@dataclass(frozen=True)
+class FeatureEngineeringPlan:
+    planner_name: str
+    operations: list[FeatureEngineeringOperation] = field(default_factory=list)
+    rejected_operations: list[str] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class NextRunPlan:
+    planner_name: str
+    parent_run_id: str
+    target: str
+    priority_metric: str = "auto"
+    excluded_columns_add: list[str] = field(default_factory=list)
+    time_budget: int | None = None
+    high_missing_threshold: float | None = None
+    feature_engineering_operations: list[FeatureEngineeringOperation] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
+    risk_flags: list[str] = field(default_factory=list)
+    rejected_changes: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
 class PreflightValidation:
     ok_to_run: bool
     task_type: str

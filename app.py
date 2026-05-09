@@ -6,6 +6,7 @@ import logging
 import os
 from pathlib import Path
 import sys
+from typing import Any
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 SRC_DIR = PROJECT_ROOT / "src"
@@ -22,6 +23,8 @@ from ml_platform.config import Settings, load_settings
 from ml_platform.data_io import read_csv
 from ml_platform.eda import generate_eda_summary
 from ml_platform.evaluation import evaluate_model
+from ml_platform.feature_engineering import suggest_feature_engineering_plan
+from ml_platform.iteration import dataset_fingerprint, suggest_next_run_plan
 from ml_platform.llm_report import generate_report_result
 from ml_platform.planner import suggest_plan
 from ml_platform.storage import RunStorage
@@ -42,7 +45,8 @@ st.set_page_config(page_title="ML Platform", layout="wide")
 
 HERO_IMAGE_PATH = Path("/Users/haoyi/Pictures/彩虹.jpg")
 LOCAL_LLM_CONFIG_PATH = PROJECT_ROOT / ".ml_platform.local.json"
-HELP_DOC_PATH = PROJECT_ROOT / "README.zh-CN.md"
+FEATURE_PLAN_CACHE_VERSION = 2
+NEXT_RUN_PLAN_CACHE_VERSION = 2
 
 
 def _load_local_llm_config() -> dict[str, str]:
@@ -75,16 +79,6 @@ def _delete_local_llm_config() -> None:
         LOCAL_LLM_CONFIG_PATH.unlink(missing_ok=True)
     except OSError as exc:
         logger.warning("Unable to delete local LLM config: %s", exc)
-
-
-def _load_help_markdown() -> str:
-    if not HELP_DOC_PATH.exists():
-        return ""
-    try:
-        return HELP_DOC_PATH.read_text(encoding="utf-8").strip()
-    except OSError as exc:
-        logger.warning("Unable to read help doc: %s", exc)
-        return ""
 
 
 def _load_hero_background() -> str:
@@ -547,9 +541,8 @@ def _render_hero() -> None:
 
 
 def _render_help_center() -> None:
-    help_markdown = _load_help_markdown()
     st.subheader("Help center")
-    _section_caption("Read the quick-start guidance in the app, or expand the full Chinese manual without leaving the page.")
+    _section_caption("Read the quick-start guidance in the app before configuring and running a local experiment.")
 
     quick_start = """
 1. In `Report engine`, optionally fill in `API key`, `Base URL`, and `Model`. If you want the page to remember them, enable `Remember LLM settings on this device`.
@@ -557,14 +550,7 @@ def _render_help_center() -> None:
 3. Use `Planning brief` to describe the baseline you want. Review `Planner suggestion`, `Preflight validation`, and `EDA summary` before running.
 4. Click `Run training`. After the run finishes, inspect `Run results` and download the model, report, and predictions from `Artifacts`.
 """
-    quick_tab, full_doc_tab = st.tabs(["Quick start", "Full guide"])
-    with quick_tab:
-        st.markdown(quick_start)
-    with full_doc_tab:
-        if help_markdown:
-            st.markdown(help_markdown)
-        else:
-            st.caption("The local help document is unavailable.")
+    st.markdown(quick_start)
 
 
 def _section_caption(text: str) -> None:
@@ -640,8 +626,8 @@ def _target_task_types(df: pd.DataFrame, targets: list[str], task_type_choice: s
     return {target: _infer_task_type(df, target) for target in targets}
 
 
-def _initialize_experiment_state(columns: list[str]) -> None:
-    signature = tuple(columns)
+def _initialize_experiment_state(dataset_signature: str, columns: list[str]) -> None:
+    signature = (dataset_signature, tuple(columns))
     if st.session_state.get("_dataset_signature") == signature:
         return
     st.session_state["_dataset_signature"] = signature
@@ -651,11 +637,17 @@ def _initialize_experiment_state(columns: list[str]) -> None:
     st.session_state["time_budget"] = 30
     st.session_state["time_budget_text"] = "30"
     st.session_state["priority_metric_choice"] = "auto"
+    st.session_state["apply_feature_engineering"] = False
     st.session_state["excluded_columns"] = []
     st.session_state["test_size"] = 0.2
     st.session_state["high_missing_threshold"] = 0.9
     st.session_state["random_state"] = 42
     st.session_state["random_state_text"] = "42"
+    st.session_state["_feature_engineering_plan_signature"] = None
+    st.session_state["_feature_engineering_plan"] = None
+    st.session_state["_feature_engineering_override_plan"] = None
+    st.session_state["_next_run_plan"] = None
+    st.session_state["_next_run_plan_signature"] = None
 
 
 def _queue_plan_suggestion(plan_suggestion: dict[str, object], columns: list[str]) -> None:
@@ -702,14 +694,62 @@ def _consume_pending_plan_suggestion(columns: list[str]) -> None:
         st.session_state["priority_metric_choice"] = metric
 
 
+def _queue_next_run_plan(plan_data: dict[str, Any]) -> None:
+    st.session_state["_pending_next_run_plan"] = plan_data
+
+
+def _consume_pending_next_run_plan(columns: list[str]) -> None:
+    pending = st.session_state.pop("_pending_next_run_plan", None)
+    if not pending:
+        return
+
+    excluded_add = [column for column in pending.get("excluded_columns_add", []) if column in columns]
+    current_excluded = list(st.session_state.get("excluded_columns", []))
+    st.session_state["excluded_columns"] = list(dict.fromkeys(current_excluded + excluded_add))
+
+    metric = pending.get("priority_metric")
+    if metric in {"auto", "accuracy", "f1_weighted", "precision_weighted", "recall_weighted", "roc_auc", "rmse", "mae", "r2"}:
+        st.session_state["priority_metric_choice"] = metric
+
+    time_budget = pending.get("time_budget")
+    if isinstance(time_budget, int) and time_budget >= 5:
+        st.session_state["time_budget"] = time_budget
+        st.session_state["time_budget_text"] = str(time_budget)
+
+    threshold = pending.get("high_missing_threshold")
+    if isinstance(threshold, (int, float)) and 0.5 <= float(threshold) <= 1.0:
+        st.session_state["high_missing_threshold"] = float(threshold)
+
+    feature_operations = pending.get("feature_engineering_operations", [])
+    if feature_operations:
+        st.session_state["apply_feature_engineering"] = True
+        st.session_state["_feature_engineering_override_plan"] = {
+            "planner_name": pending.get("planner_name", "local_whitelist"),
+            "operations": feature_operations,
+            "rejected_operations": pending.get("rejected_changes", []),
+            "notes": pending.get("notes", []),
+        }
+    else:
+        st.session_state["_feature_engineering_override_plan"] = None
+
+
 def _render_text_items(title: str, items: list[object], empty_text: str) -> None:
     st.write(title)
-    clean_items = [str(item) for item in items if str(item).strip()]
+    normalized_items = items if isinstance(items, list) else [items]
+    clean_items = [str(item) for item in normalized_items if str(item).strip()]
     if not clean_items:
         st.caption(empty_text)
         return
     for item in clean_items:
         st.write(f"- {item}")
+
+
+def _normalize_item_list(value: Any) -> list[object]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return value
+    return [value]
 
 
 def _render_planner_suggestion(plan_data: dict[str, object]) -> None:
@@ -739,12 +779,188 @@ def _render_planner_suggestion(plan_data: dict[str, object]) -> None:
 
     notes_cols = st.columns(2)
     with notes_cols[0]:
-        _render_text_items("Notes", list(plan_data.get("notes", [])), "No notes.")
+        _render_text_items("Notes", _normalize_item_list(plan_data.get("notes")), "No notes.")
     with notes_cols[1]:
-        _render_text_items("Risk flags", list(plan_data.get("risk_flags", [])), "No risk flags.")
+        _render_text_items("Risk flags", _normalize_item_list(plan_data.get("risk_flags")), "No risk flags.")
 
     with st.expander("Raw planner JSON", expanded=False):
         st.json(plan_data, expanded=True)
+
+
+def _render_feature_engineering_plan(plan_data: dict[str, object]) -> None:
+    operations = _normalize_item_list(plan_data.get("operations"))
+    rejected = _normalize_item_list(plan_data.get("rejected_operations"))
+    notes = _normalize_item_list(plan_data.get("notes"))
+
+    summary_cols = st.columns(3)
+    with summary_cols[0]:
+        st.metric("Planner", str(plan_data.get("planner_name") or "local_whitelist"))
+    with summary_cols[1]:
+        st.metric("Accepted ops", len(operations))
+    with summary_cols[2]:
+        st.metric("Rejected ops", len(rejected))
+
+    if operations:
+        rows = []
+        for operation in operations:
+            if not isinstance(operation, dict):
+                continue
+            rows.append(
+                {
+                    "operation": operation.get("operation"),
+                    "source": operation.get("source_column") or ", ".join(operation.get("columns", [])),
+                    "detail": operation.get("operator") or ", ".join(operation.get("parts", [])) or operation.get("bins") or "",
+                    "rationale": operation.get("rationale", ""),
+                }
+            )
+        st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
+    else:
+        st.caption("No feature engineering operations were accepted.")
+
+    detail_cols = st.columns(2)
+    with detail_cols[0]:
+        _render_text_items("Notes", notes, "No notes.")
+    with detail_cols[1]:
+        _render_text_items("Rejected operations", rejected, "No rejected operations.")
+
+
+def _feature_plan_operations(plan_data: Any) -> list[Any]:
+    if isinstance(plan_data, dict):
+        return list(plan_data.get("operations", []))
+    return list(getattr(plan_data, "operations", []))
+
+
+def _render_next_run_plan(plan_data: dict[str, object]) -> None:
+    summary_cols = st.columns(4)
+    with summary_cols[0]:
+        st.metric("Planner", str(plan_data.get("planner_name") or "local_whitelist"))
+    with summary_cols[1]:
+        st.metric("Add exclusions", len(_normalize_item_list(plan_data.get("excluded_columns_add"))))
+    with summary_cols[2]:
+        st.metric("Feature ops", len(_normalize_item_list(plan_data.get("feature_engineering_operations"))))
+    with summary_cols[3]:
+        st.metric("Parent run", str(plan_data.get("parent_run_id") or "-")[:12] or "-")
+
+    change_rows = [
+        {"field": "priority_metric", "value": plan_data.get("priority_metric", "auto")},
+        {"field": "time_budget", "value": plan_data.get("time_budget")},
+        {"field": "high_missing_threshold", "value": plan_data.get("high_missing_threshold")},
+    ]
+    st.dataframe(pd.DataFrame(change_rows), hide_index=True, use_container_width=True)
+    _render_text_items("Excluded columns to add", _normalize_item_list(plan_data.get("excluded_columns_add")), "No exclusion changes.")
+    if plan_data.get("feature_engineering_operations"):
+        _render_feature_engineering_plan(
+            {
+                "planner_name": plan_data.get("planner_name"),
+                "operations": _normalize_item_list(plan_data.get("feature_engineering_operations")),
+                "rejected_operations": _normalize_item_list(plan_data.get("rejected_changes")),
+                "notes": _normalize_item_list(plan_data.get("notes")),
+            }
+        )
+    else:
+        note_cols = st.columns(2)
+        with note_cols[0]:
+            _render_text_items("Notes", _normalize_item_list(plan_data.get("notes")), "No notes.")
+        with note_cols[1]:
+            _render_text_items("Risk flags", _normalize_item_list(plan_data.get("risk_flags")), "No risk flags.")
+    if plan_data.get("rejected_changes") and not plan_data.get("feature_engineering_operations"):
+        _render_text_items("Rejected changes", _normalize_item_list(plan_data.get("rejected_changes")), "No rejected changes.")
+
+
+def _get_feature_engineering_plan(
+    df: pd.DataFrame,
+    target: str,
+    settings: Settings,
+    user_brief: str,
+):
+    signature = (
+        FEATURE_PLAN_CACHE_VERSION,
+        tuple(str(column) for column in df.columns),
+        tuple(str(dtype) for dtype in df.dtypes),
+        len(df),
+        target,
+        user_brief.strip(),
+        bool(settings.openai_api_key),
+        settings.openai_base_url or "",
+        settings.openai_model,
+    )
+    if st.session_state.get("_feature_engineering_plan_signature") == signature:
+        return st.session_state.get("_feature_engineering_plan")
+
+    plan = suggest_feature_engineering_plan(
+        df=df,
+        target=target,
+        eda_summary=generate_eda_summary(df, target=target),
+        settings=settings,
+        user_brief=user_brief,
+    )
+    st.session_state["_feature_engineering_plan_signature"] = signature
+    st.session_state["_feature_engineering_plan"] = plan
+    return plan
+
+
+def _load_latest_matching_run(
+    storage: RunStorage,
+    current_dataset_fingerprint: str,
+    target: str,
+) -> dict[str, Any] | None:
+    for run in storage.list_runs(limit=30):
+        if run.config.get("dataset_fingerprint") != current_dataset_fingerprint:
+            continue
+        if run.config.get("target") != target:
+            continue
+        return {
+            "run_id": run.run_id,
+            "created_at": run.created_at,
+            "config": run.config,
+            "metrics": run.metrics,
+            "validation_pre": storage.load_json(run.path, "validation_pre.json") or {},
+            "validation_post": storage.load_json(run.path, "validation_post.json") or {},
+            "recommendations": storage.load_json(run.path, "recommendations.json") or {},
+            "feature_engineering_plan": storage.load_json(run.path, "feature_engineering_plan.json") or {},
+            "report": storage.load_text(run.path, "report.md") or "",
+        }
+    return None
+
+
+def _get_next_run_plan(
+    df: pd.DataFrame,
+    target: str,
+    current_config: dict[str, Any],
+    previous_run: dict[str, Any],
+    settings: Settings,
+    user_brief: str,
+) -> Any:
+    signature = (
+        NEXT_RUN_PLAN_CACHE_VERSION,
+        previous_run.get("run_id", ""),
+        target,
+        tuple(str(column) for column in df.columns),
+        tuple(str(dtype) for dtype in df.dtypes),
+        len(df),
+        user_brief.strip(),
+        current_config.get("priority_metric"),
+        tuple(current_config.get("excluded_columns", [])),
+        current_config.get("time_budget"),
+        current_config.get("high_missing_threshold"),
+        bool(settings.openai_api_key),
+        settings.openai_base_url or "",
+        settings.openai_model,
+    )
+    if st.session_state.get("_next_run_plan_signature") == signature:
+        return st.session_state.get("_next_run_plan")
+
+    plan = suggest_next_run_plan(
+        df=df,
+        target=target,
+        current_config=current_config,
+        previous_run=previous_run,
+        settings=settings,
+        user_brief=user_brief,
+    )
+    st.session_state["_next_run_plan_signature"] = signature
+    st.session_state["_next_run_plan"] = plan
+    return plan
 
 
 def _render_target_profile(target_data: dict[str, object]) -> None:
@@ -973,6 +1189,7 @@ def main() -> None:
     _render_hero()
     _render_help_center()
     settings = _configure_llm_settings(load_settings())
+    storage = RunStorage(settings.runs_dir)
 
     st.subheader("Dataset intake")
     _section_caption("Start with one local CSV. The app keeps the experiment artifacts under the configured runs directory.")
@@ -1006,9 +1223,11 @@ def main() -> None:
             )
             return
         df = read_csv(uploaded_file)
+    current_dataset_fingerprint = dataset_fingerprint(df)
     columns = list(df.columns)
-    _initialize_experiment_state(columns)
+    _initialize_experiment_state(current_dataset_fingerprint, columns)
     _consume_pending_plan_suggestion(columns)
+    _consume_pending_next_run_plan(columns)
 
     st.subheader("Experiment setup")
     _section_caption("Choose the prediction target and tune the small number of parameters that affect the local run.")
@@ -1044,6 +1263,7 @@ def main() -> None:
     analysis_columns = [column for column in columns if column not in excluded_columns]
     analysis_df = df[analysis_columns].copy()
     primary_target = target_columns[0]
+    candidate_feature_columns = [column for column in analysis_df.columns if column not in target_columns]
     task_types = _target_task_types(analysis_df, target_columns, task_type_choice)
     if len(target_columns) > 1:
         st.caption(
@@ -1092,6 +1312,55 @@ def main() -> None:
         if st.button("Apply planner suggestions"):
             _queue_plan_suggestion(plan_data, columns)
             st.rerun()
+
+    current_run_config = {
+        "target": primary_target,
+        "target_columns": target_columns,
+        "excluded_columns": excluded_columns,
+        "task_type_choice": task_type_choice,
+        "time_budget": int(time_budget),
+        "priority_metric": priority_metric_choice,
+        "high_missing_threshold": float(high_missing_threshold),
+        "dataset_fingerprint": current_dataset_fingerprint,
+    }
+    previous_run = _load_latest_matching_run(storage, current_dataset_fingerprint, primary_target)
+    if previous_run:
+        next_run_plan = _get_next_run_plan(
+            df=analysis_df[candidate_feature_columns + [primary_target]].copy(),
+            target=primary_target,
+            current_config=current_run_config,
+            previous_run=previous_run,
+            settings=settings,
+            user_brief=planner_brief,
+        )
+        with st.expander("Next run suggestion", expanded=False):
+            st.caption(f"Based on run {previous_run['run_id']} from {previous_run['created_at']}.")
+            next_run_plan_data = artifact_to_dict(next_run_plan)
+            _render_next_run_plan(next_run_plan_data)
+            if st.button("Apply next run suggestion"):
+                _queue_next_run_plan(next_run_plan_data)
+                st.rerun()
+
+    apply_feature_engineering = st.checkbox(
+        "Apply local whitelist feature engineering",
+        key="apply_feature_engineering",
+        help="LLM can propose a structured plan, but only local whitelisted transformations are executed inside the training pipeline.",
+    )
+    feature_plan = None
+    if apply_feature_engineering:
+        feature_plan_override = st.session_state.get("_feature_engineering_override_plan")
+        if isinstance(feature_plan_override, dict) and feature_plan_override.get("feature_engineering_operations"):
+            feature_plan = feature_plan_override
+        else:
+            feature_plan_df = analysis_df[candidate_feature_columns + [primary_target]].copy()
+            feature_plan = _get_feature_engineering_plan(
+                df=feature_plan_df,
+                target=primary_target,
+                settings=settings,
+                user_brief=planner_brief,
+            )
+        with st.expander("Feature engineering plan", expanded=True):
+            _render_feature_engineering_plan(artifact_to_dict(feature_plan))
 
     priority_metrics = {
         target: resolve_priority_metric(_target_task_types(analysis_df, [target], task_type_choice)[target], priority_metric_choice)
@@ -1182,7 +1451,6 @@ def main() -> None:
         return
 
     results = []
-    storage = RunStorage(settings.runs_dir)
     with st.spinner("Cleaning data and training model locally..."):
         failing_targets = [target for target, validation in preflight_by_target.items() if not validation.ok_to_run]
         if failing_targets:
@@ -1190,7 +1458,7 @@ def main() -> None:
             st.error(f"Resolve blocking preflight issues before training: {', '.join(failing_targets)}")
             return
 
-        feature_columns = [column for column in analysis_df.columns if column not in target_columns]
+        feature_columns = candidate_feature_columns
         if not feature_columns:
             logger.error("No feature columns remain after exclusions")
             st.error("No feature columns remain after excluding selected target and ignored columns.")
@@ -1210,6 +1478,7 @@ def main() -> None:
                 test_size=float(test_size),
                 random_state=int(random_state),
                 high_missing_threshold=float(high_missing_threshold),
+                feature_engineering_operations=_feature_plan_operations(feature_plan) if feature_plan else None,
             )
             cleaned = clean_and_split(target_df, config)
             trained = train_model(cleaned, time_budget=int(time_budget), metric_preference=priority_metric)
@@ -1276,9 +1545,14 @@ def main() -> None:
                     "priority_metric": priority_metric,
                     "trainer": trained.trainer_name,
                     "planner_name": plan_suggestion.planner_name,
+                    "feature_engineering_enabled": bool(feature_plan),
+                    "dataset_fingerprint": current_dataset_fingerprint,
+                    "parent_run_id": previous_run["run_id"] if previous_run else None,
                 }
             )
             storage.save_json(run, "plan.json", artifact_to_dict(plan_suggestion))
+            if feature_plan:
+                storage.save_json(run, "feature_engineering_plan.json", artifact_to_dict(feature_plan))
             storage.save_json(run, "eda_summary.json", target_eda_summary)
             storage.save_json(run, "cleaning_log.json", cleaned.cleaning_log)
             storage.save_json(run, "metrics.json", metrics)
