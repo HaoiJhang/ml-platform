@@ -45,6 +45,7 @@ st.set_page_config(page_title="ML Platform", layout="wide")
 
 HERO_IMAGE_PATH = Path("/Users/haoyi/Pictures/彩虹.jpg")
 LOCAL_LLM_CONFIG_PATH = PROJECT_ROOT / ".ml_platform.local.json"
+PLANNER_CACHE_VERSION = 1
 FEATURE_PLAN_CACHE_VERSION = 2
 
 
@@ -656,6 +657,8 @@ def _initialize_experiment_state(dataset_signature: str, columns: list[str]) -> 
     st.session_state["high_missing_threshold"] = 0.9
     st.session_state["random_state"] = 42
     st.session_state["random_state_text"] = "42"
+    st.session_state["_planner_signature"] = None
+    st.session_state["_planner_suggestion"] = None
     st.session_state["_feature_engineering_plan_signature"] = None
     st.session_state["_feature_engineering_plan"] = None
     st.session_state["_feature_engineering_override_plan"] = None
@@ -757,6 +760,38 @@ def _render_planner_suggestion(plan_data: dict[str, object]) -> None:
 
     with st.expander("Raw planner JSON", expanded=False):
         st.json(plan_data, expanded=True)
+
+
+def _get_planner_suggestion(
+    df: pd.DataFrame,
+    eda_summary: dict[str, Any],
+    settings: Settings,
+    user_brief: str,
+    dataset_fingerprint: str,
+):
+    signature = (
+        PLANNER_CACHE_VERSION,
+        dataset_fingerprint,
+        tuple(str(column) for column in df.columns),
+        tuple(str(dtype) for dtype in df.dtypes),
+        len(df),
+        user_brief.strip(),
+        bool(settings.openai_api_key),
+        settings.openai_base_url or "",
+        settings.openai_model,
+    )
+    if st.session_state.get("_planner_signature") == signature:
+        return st.session_state.get("_planner_suggestion")
+
+    plan = suggest_plan(
+        df=df,
+        eda_summary=eda_summary,
+        settings=settings,
+        user_brief=user_brief,
+    )
+    st.session_state["_planner_signature"] = signature
+    st.session_state["_planner_suggestion"] = plan
+    return plan
 
 
 def _render_feature_engineering_plan(plan_data: dict[str, object]) -> None:
@@ -1168,11 +1203,12 @@ def main() -> None:
         placeholder="Example: predict churn, optimize recall, ignore customer_id-like fields, keep this as a quick baseline.",
         help="Optional natural-language brief used to suggest targets, task type, exclusions, and a priority metric.",
     )
-    plan_suggestion = suggest_plan(
+    plan_suggestion = _get_planner_suggestion(
         df=analysis_df,
         eda_summary=eda_summary,
         settings=settings,
         user_brief=planner_brief,
+        dataset_fingerprint=current_dataset_fingerprint,
     )
     plan_data = artifact_to_dict(plan_suggestion)
     st.subheader("Execution plan")

@@ -12,6 +12,22 @@ from ml_platform.config import Settings
 
 logger = logging.getLogger(__name__)
 
+VALID_TASK_TYPES = {"auto", "classification", "regression"}
+METRIC_ALIASES = {
+    "accuracy": "accuracy",
+    "f1": "f1_weighted",
+    "f1_weighted": "f1_weighted",
+    "precision": "precision_weighted",
+    "precision_weighted": "precision_weighted",
+    "recall": "recall_weighted",
+    "recall_weighted": "recall_weighted",
+    "roc_auc": "roc_auc",
+    "auc": "roc_auc",
+    "rmse": "rmse",
+    "mae": "mae",
+    "r2": "r2",
+    "auto": "auto",
+}
 
 METRIC_KEYWORDS: list[tuple[str, str]] = [
     ("roc_auc", "roc_auc"),
@@ -36,6 +52,15 @@ def _string_list(value: Any) -> list[str]:
     if isinstance(value, list):
         return [str(item) for item in value if isinstance(item, str) and str(item).strip()]
     return []
+
+
+def _normalize_priority_metric(value: Any) -> str:
+    normalized = _normalize(str(value)) if value is not None else ""
+    return METRIC_ALIASES.get(normalized, "auto")
+
+
+def _dedupe_strings(values: list[str]) -> list[str]:
+    return list(dict.fromkeys(value for value in values if value))
 
 
 def suggest_plan(
@@ -137,9 +162,11 @@ def _generate_openai_plan(
         planner_name="openai",
         user_brief=user_brief,
         suggested_targets=_string_list(payload.get("suggested_targets")),
-        suggested_task_type=str(payload.get("suggested_task_type", "auto")),
+        suggested_task_type=str(payload.get("suggested_task_type", "auto"))
+        if str(payload.get("suggested_task_type", "auto")) in VALID_TASK_TYPES
+        else "auto",
         suggested_excluded_columns=_string_list(payload.get("suggested_excluded_columns")),
-        priority_metric=str(payload.get("priority_metric", "auto")),
+        priority_metric=_normalize_priority_metric(payload.get("priority_metric", "auto")),
         notes=_string_list(payload.get("notes")),
         risk_flags=_string_list(payload.get("risk_flags")),
     )
@@ -149,14 +176,17 @@ def _merge_plan(rule_based: PlanSuggestion, llm_plan: PlanSuggestion, columns: l
     valid_columns = set(columns)
     llm_targets = [column for column in llm_plan.suggested_targets if column in valid_columns]
     llm_excluded = [column for column in llm_plan.suggested_excluded_columns if column in valid_columns]
-    task_type = llm_plan.suggested_task_type if llm_plan.suggested_task_type in {"auto", "classification", "regression"} else rule_based.suggested_task_type
-    metric = llm_plan.priority_metric if llm_plan.priority_metric != "auto" else rule_based.priority_metric
+    merged_excluded = _dedupe_strings(llm_excluded + rule_based.suggested_excluded_columns)[:10]
+    task_type = llm_plan.suggested_task_type if llm_plan.suggested_task_type in VALID_TASK_TYPES else rule_based.suggested_task_type
+    metric = _normalize_priority_metric(llm_plan.priority_metric)
+    if metric == "auto":
+        metric = rule_based.priority_metric
     return PlanSuggestion(
         planner_name="openai+rule_based",
         user_brief=rule_based.user_brief,
         suggested_targets=llm_targets or rule_based.suggested_targets,
         suggested_task_type=task_type,
-        suggested_excluded_columns=llm_excluded or rule_based.suggested_excluded_columns,
+        suggested_excluded_columns=merged_excluded,
         priority_metric=metric,
         notes=(llm_plan.notes or []) + rule_based.notes,
         risk_flags=(llm_plan.risk_flags or []) + rule_based.risk_flags,
