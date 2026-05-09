@@ -46,21 +46,6 @@ class FeatureEngineeringPlan:
 
 
 @dataclass(frozen=True)
-class NextRunPlan:
-    planner_name: str
-    parent_run_id: str
-    target: str
-    priority_metric: str = "auto"
-    excluded_columns_add: list[str] = field(default_factory=list)
-    time_budget: int | None = None
-    high_missing_threshold: float | None = None
-    feature_engineering_operations: list[FeatureEngineeringOperation] = field(default_factory=list)
-    notes: list[str] = field(default_factory=list)
-    risk_flags: list[str] = field(default_factory=list)
-    rejected_changes: list[str] = field(default_factory=list)
-
-
-@dataclass(frozen=True)
 class PreflightValidation:
     ok_to_run: bool
     task_type: str
