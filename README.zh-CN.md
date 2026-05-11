@@ -53,6 +53,8 @@ UV_CACHE_DIR=.uv-cache uv run streamlit run app.py
 
 项目根目录已经包含 `uv.lock`，Streamlit Community Cloud 会把它作为依赖文件使用。当前项目声明的 Python 版本是 `>=3.11,<3.12`，所以部署时需要在 Advanced settings 里选择 Python 3.11，不要使用 Cloud 默认版本。
 
+为了让公网界面和本地基准样式保持一致，项目把 `streamlit` 固定在 `1.50.0`，不跟随新版上传组件布局变化。
+
 如果希望公网版本内置 OpenAI 兼容 API 配置，请在 Streamlit Community Cloud 的 Secrets 里填写，不要写进仓库：
 
 ```toml

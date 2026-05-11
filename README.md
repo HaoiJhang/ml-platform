@@ -49,6 +49,9 @@ as the Python dependency file. The project declares Python `>=3.11,<3.12`, so
 choose Python 3.11 in the deployment advanced settings instead of the
 Community Cloud default.
 
+To keep the hosted UI aligned with the local baseline, the project pins
+`streamlit==1.50.0` instead of floating to newer widget layouts.
+
 If you want the hosted app to use an OpenAI-compatible API key without asking
 each user to enter one, add secrets in Streamlit Community Cloud instead of
 committing them to the repository:
