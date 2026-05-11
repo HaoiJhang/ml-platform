@@ -43,7 +43,12 @@ logger = logging.getLogger("ml_platform")
 
 st.set_page_config(page_title="ML Platform", layout="wide")
 
-HERO_IMAGE_PATH = Path("/Users/haoyi/Pictures/彩虹.jpg")
+HERO_IMAGE_CANDIDATES = (
+    PROJECT_ROOT / "assets" / "hero.jpg",
+    PROJECT_ROOT / "assets" / "hero.jpeg",
+    PROJECT_ROOT / "assets" / "hero.png",
+    PROJECT_ROOT / "彩虹.jpg",
+)
 LOCAL_LLM_CONFIG_PATH = PROJECT_ROOT / ".ml_platform.local.json"
 PLANNER_CACHE_VERSION = 1
 FEATURE_PLAN_CACHE_VERSION = 2
@@ -106,12 +111,13 @@ def _dataset_fingerprint(df: pd.DataFrame) -> str:
 
 
 def _load_hero_background() -> str:
-    if not HERO_IMAGE_PATH.exists():
+    hero_image_path = next((path for path in HERO_IMAGE_CANDIDATES if path.exists()), None)
+    if hero_image_path is None:
         return (
             "linear-gradient(100deg, rgba(40, 64, 88, 0.98) 0 38%, "
             "rgba(39, 70, 101, 0.86) 38% 62%, rgba(42, 53, 67, 0.92) 62%)"
         )
-    encoded = base64.b64encode(HERO_IMAGE_PATH.read_bytes()).decode("ascii")
+    encoded = base64.b64encode(hero_image_path.read_bytes()).decode("ascii")
     return (
         "linear-gradient(100deg, rgba(18, 31, 43, 0.78) 0 36%, "
         "rgba(18, 31, 43, 0.54) 36% 68%, rgba(18, 31, 43, 0.34) 68%), "
