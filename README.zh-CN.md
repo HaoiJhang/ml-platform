@@ -1,8 +1,8 @@
 # ML Platform 中文使用说明
 
-这是一个本地单机使用的表格机器学习原型工具，覆盖了从 CSV 导入、数据概览、基础清洗、模型训练、结果评估到报告导出的完整流程。它适合做快速 baseline、数据质量初筛和小规模实验记录，不适合直接当成生产系统。
+这是一个 Streamlit 表格机器学习原型工具，覆盖了从 CSV 导入、数据概览、基础清洗、模型训练、结果评估到报告导出的完整流程。它适合做快速 baseline、数据质量初筛和小规模实验记录，不适合直接当成生产系统。
 
-当前版本的定位比较明确：强调本地试验、单用户、快速闭环。它没有做认证、多用户协作、云端部署、分布式训练和生产监控。
+当前版本的定位比较明确：强调快速试验、单用户工作流和快速闭环。它没有做认证、多用户协作、分布式训练和生产监控。
 
 ## 1. 你能用它做什么
 
@@ -40,7 +40,28 @@ UV_CACHE_DIR=.uv-cache uv run pytest
 UV_CACHE_DIR=.uv-cache uv run streamlit run app.py
 ```
 
-默认会监听本机地址 `http://127.0.0.1:8501`，这个项目按本地使用设计，不考虑公网暴露。
+默认访问地址是 `http://localhost:8501`。
+
+## 3.1 Streamlit Community Cloud 部署
+
+在 Streamlit Community Cloud 里从 GitHub 部署时使用这些参数：
+
+- Repository：`HaoiJhang/ml-platform`
+- Branch：你要部署的分支
+- Main file path：`app.py`
+- Python version：`3.11`
+
+项目根目录已经包含 `uv.lock`，Streamlit Community Cloud 会把它作为依赖文件使用。当前项目声明的 Python 版本是 `>=3.9,<3.12`，所以部署时需要在 Advanced settings 里选择 Python 3.11，不要使用 Cloud 默认版本。
+
+如果希望公网版本内置 OpenAI 兼容 API 配置，请在 Streamlit Community Cloud 的 Secrets 里填写，不要写进仓库：
+
+```toml
+OPENAI_API_KEY = "..."
+OPENAI_BASE_URL = "..."
+OPENAI_MODEL = "gpt-4o-mini"
+```
+
+公网部署时，页面里手动输入的 API key 只在当前会话使用，不会写入服务器文件。本地开发如果确实要恢复旧的“记住配置”能力，可以设置环境变量 `ML_PLATFORM_ALLOW_LOCAL_LLM_CONFIG=1`。
 
 ## 4. 页面使用流程
 
@@ -56,7 +77,7 @@ UV_CACHE_DIR=.uv-cache uv run streamlit run app.py
 
 如果你只想跑本地 baseline，这里可以不填。没有 API key 时，应用仍然可以完成训练和评估。
 
-如果你勾选了 `Remember LLM settings on this device`，配置会保存到当前项目目录下的本地文件 `.ml_platform.local.json`，刷新页面后会自动回填。这个文件已经被 `.gitignore` 忽略，不会默认提交到仓库。
+公网部署默认不会保存页面里输入的 API key。本地开发如果设置了 `ML_PLATFORM_ALLOW_LOCAL_LLM_CONFIG=1`，页面会显示 `Remember LLM settings on this device`，勾选后配置会保存到当前项目目录下的本地文件 `.ml_platform.local.json`；这个文件已经被 `.gitignore` 忽略，不会默认提交到仓库。
 
 ### 4.2 Dataset intake
 
@@ -188,7 +209,7 @@ predict churn, optimize recall, ignore customer_id-like fields, keep this as a q
 
 ### 7.1 页面刷新后 API key 丢失
 
-现在可以勾选 `Remember LLM settings on this device`。配置会保存到本地 `.ml_platform.local.json`，刷新后自动回填；如果不再需要，可以点击 `Forget saved LLM settings` 清除。
+公网部署中，页面输入的 API key 只在当前会话有效，刷新后可能需要重新输入；更稳定的做法是在 Streamlit Community Cloud 的 Secrets 中配置 `OPENAI_API_KEY`。本地开发如果设置了 `ML_PLATFORM_ALLOW_LOCAL_LLM_CONFIG=1`，可以勾选 `Remember LLM settings on this device`，配置会保存到本地 `.ml_platform.local.json`，刷新后自动回填。
 
 ### 7.2 看到 “LLM report generation failed” 但训练已经完成
 

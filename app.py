@@ -49,7 +49,13 @@ PLANNER_CACHE_VERSION = 1
 FEATURE_PLAN_CACHE_VERSION = 2
 
 
+def _local_llm_config_enabled() -> bool:
+    return os.getenv("ML_PLATFORM_ALLOW_LOCAL_LLM_CONFIG") == "1"
+
+
 def _load_local_llm_config() -> dict[str, str]:
+    if not _local_llm_config_enabled():
+        return {}
     if not LOCAL_LLM_CONFIG_PATH.exists():
         return {}
     try:
@@ -67,6 +73,8 @@ def _load_local_llm_config() -> dict[str, str]:
 
 
 def _save_local_llm_config(config: dict[str, str]) -> None:
+    if not _local_llm_config_enabled():
+        return
     try:
         LOCAL_LLM_CONFIG_PATH.write_text(json.dumps(config, indent=2), encoding="utf-8")
         os.chmod(LOCAL_LLM_CONFIG_PATH, 0o600)
@@ -75,6 +83,8 @@ def _save_local_llm_config(config: dict[str, str]) -> None:
 
 
 def _delete_local_llm_config() -> None:
+    if not _local_llm_config_enabled():
+        return
     try:
         LOCAL_LLM_CONFIG_PATH.unlink(missing_ok=True)
     except OSError as exc:
@@ -572,15 +582,21 @@ def _section_caption(text: str) -> None:
 
 
 def _configure_llm_settings(settings: Settings) -> Settings:
+    allow_local_llm_config = _local_llm_config_enabled()
     saved_config = _load_local_llm_config()
     saved_api_key = saved_config.get("openai_api_key", "")
     saved_base_url = saved_config.get("openai_base_url", "")
     saved_model = saved_config.get("openai_model", "")
 
     st.subheader("Report engine")
-    _section_caption(
-        "Optional LLM configuration for plan and report generation. Save the key locally to keep it after page reloads."
-    )
+    if allow_local_llm_config:
+        _section_caption(
+            "Optional LLM configuration for plan and report generation. Local persistence is enabled for this development environment."
+        )
+    else:
+        _section_caption(
+            "Optional LLM configuration for plan and report generation. On public deployments, enter a key per session or configure secrets in the host."
+        )
     config_cols = st.columns(3)
     with config_cols[0]:
         api_key = st.text_input(
@@ -598,22 +614,23 @@ def _configure_llm_settings(settings: Settings) -> Settings:
     with config_cols[2]:
         model = st.text_input("Model", value=saved_model or settings.openai_model)
 
-    remember_config = st.checkbox("Remember LLM settings on this device", value=bool(saved_api_key))
-    if remember_config and api_key:
-        _save_local_llm_config(
-            {
-                "openai_api_key": api_key,
-                "openai_base_url": base_url,
-                "openai_model": model,
-            }
-        )
-    elif not remember_config and saved_config:
-        _delete_local_llm_config()
-        saved_config = {}
+    if allow_local_llm_config:
+        remember_config = st.checkbox("Remember LLM settings on this device", value=bool(saved_api_key))
+        if remember_config and api_key:
+            _save_local_llm_config(
+                {
+                    "openai_api_key": api_key,
+                    "openai_base_url": base_url,
+                    "openai_model": model,
+                }
+            )
+        elif not remember_config and saved_config:
+            _delete_local_llm_config()
+            saved_config = {}
 
-    if saved_config and st.button("Forget saved LLM settings"):
-        _delete_local_llm_config()
-        st.rerun()
+        if saved_config and st.button("Forget saved LLM settings"):
+            _delete_local_llm_config()
+            st.rerun()
 
     return Settings(
         runs_dir=settings.runs_dir,
