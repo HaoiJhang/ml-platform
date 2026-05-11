@@ -14,7 +14,7 @@ multi-user workflows, distributed training, or production monitoring.
 Use `uv` for the Python environment:
 
 ```bash
-UV_CACHE_DIR=.uv-cache uv sync --python /usr/bin/python3
+UV_CACHE_DIR=.uv-cache uv sync --python 3.11
 UV_CACHE_DIR=.uv-cache uv run pytest
 ```
 
@@ -45,9 +45,9 @@ Deploy from GitHub with these settings:
 - Python version: `3.11`
 
 The repository includes `uv.lock`, which Streamlit Community Cloud recognizes
-as the Python dependency file. The project currently declares Python
-`>=3.9,<3.12`, so choose Python 3.11 in the deployment advanced settings instead
-of the Community Cloud default.
+as the Python dependency file. The project declares Python `>=3.11,<3.12`, so
+choose Python 3.11 in the deployment advanced settings instead of the
+Community Cloud default.
 
 If you want the hosted app to use an OpenAI-compatible API key without asking
 each user to enter one, add secrets in Streamlit Community Cloud instead of

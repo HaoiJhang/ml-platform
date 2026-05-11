@@ -12,12 +12,12 @@
 
 ## 2. 环境准备
 
-项目使用 `uv` 管理 Python 环境，要求 Python 版本在 `>=3.9,<3.12`。
+项目使用 `uv` 管理 Python 环境，要求 Python 版本在 `>=3.11,<3.12`。
 
 第一次进入项目后，建议执行：
 
 ```bash
-UV_CACHE_DIR=.uv-cache uv sync --python /usr/bin/python3
+UV_CACHE_DIR=.uv-cache uv sync --python 3.11
 ```
 
 如果你已经拉过代码但很久没同步过依赖，尤其是在代理环境下，先再跑一次：
@@ -51,7 +51,7 @@ UV_CACHE_DIR=.uv-cache uv run streamlit run app.py
 - Main file path：`app.py`
 - Python version：`3.11`
 
-项目根目录已经包含 `uv.lock`，Streamlit Community Cloud 会把它作为依赖文件使用。当前项目声明的 Python 版本是 `>=3.9,<3.12`，所以部署时需要在 Advanced settings 里选择 Python 3.11，不要使用 Cloud 默认版本。
+项目根目录已经包含 `uv.lock`，Streamlit Community Cloud 会把它作为依赖文件使用。当前项目声明的 Python 版本是 `>=3.11,<3.12`，所以部署时需要在 Advanced settings 里选择 Python 3.11，不要使用 Cloud 默认版本。
 
 如果希望公网版本内置 OpenAI 兼容 API 配置，请在 Streamlit Community Cloud 的 Secrets 里填写，不要写进仓库：
 
