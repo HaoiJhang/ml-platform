@@ -156,8 +156,7 @@ def _apply_design_system() -> None:
             input,
             textarea,
             select,
-            [data-baseweb="select"] > div,
-            [data-testid="stFileUploader"] section * {
+            [data-baseweb="select"] > div {
                 font-family: Exo, "Helvetica Neue", Helvetica, Arial, sans-serif !important;
             }
 
@@ -376,7 +375,11 @@ def _apply_design_system() -> None:
                 border-radius: 9px;
             }
 
-            [data-testid="stFileUploader"] section * {
+            [data-testid="stFileUploader"] section,
+            [data-testid="stFileUploader"] small,
+            [data-testid="stFileUploader"] p,
+            [data-testid="stFileUploader"] label,
+            [data-testid="stFileUploader"] [data-testid="stMarkdownContainer"] * {
                 color: #4d5562 !important;
             }
 
