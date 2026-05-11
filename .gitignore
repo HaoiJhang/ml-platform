@@ -12,6 +12,7 @@ __pycache__/
 .runtime/
 data/*
 !data/.gitkeep
+!data/demo_customer_churn.csv
 runs/*
 !runs/.gitkeep
 *.log
