@@ -17,11 +17,17 @@ from sklearn.metrics import (
 )
 
 from ml_platform.cleaning import CleanedData
+from ml_platform.data_flow import DataFlowTracker
 
 logger = logging.getLogger(__name__)
 
 
-def evaluate_model(model: Any, cleaned: CleanedData, task_type: str) -> tuple[dict[str, float | None], pd.DataFrame]:
+def evaluate_model(
+    model: Any,
+    cleaned: CleanedData,
+    task_type: str,
+    tracker: DataFlowTracker | None = None,
+) -> tuple[dict[str, float | None], pd.DataFrame]:
     logger.info("Evaluating model task_type=%s test_rows=%d", task_type, len(cleaned.X_test))
     y_pred = model.predict(cleaned.X_test)
     y_pred_train = model.predict(cleaned.X_train)
@@ -37,6 +43,16 @@ def evaluate_model(model: Any, cleaned: CleanedData, task_type: str) -> tuple[di
     sample = cleaned.X_test.copy().head(20)
     sample["actual"] = cleaned.y_test.head(20).to_numpy()
     sample["prediction"] = pd.Series(y_pred[:20], index=sample.index).to_numpy()
+    if tracker is not None:
+        tracker.snapshot_dataframe(
+            "prediction_sample",
+            "Prediction sample",
+            "evaluation",
+            sample,
+            partition="test",
+            preview=True,
+            metadata={"task_type": task_type},
+        )
     return metrics, sample
 
 

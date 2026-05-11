@@ -13,6 +13,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
 from ml_platform.artifacts import FeatureEngineeringOperation
+from ml_platform.data_flow import DataFlowTracker
 from ml_platform.feature_engineering import FeatureEngineeringTransformer
 
 logger = logging.getLogger(__name__)
@@ -52,7 +53,7 @@ def _make_one_hot_encoder() -> OneHotEncoder:
     return OneHotEncoder(**kwargs)
 
 
-def clean_and_split(df: pd.DataFrame, config: CleanConfig) -> CleanedData:
+def clean_and_split(df: pd.DataFrame, config: CleanConfig, tracker: DataFlowTracker | None = None) -> CleanedData:
     if config.target not in df.columns:
         raise ValueError(f"Target column not found: {config.target}")
     if config.task_type not in {"classification", "regression"}:
@@ -61,6 +62,14 @@ def clean_and_split(df: pd.DataFrame, config: CleanConfig) -> CleanedData:
     logger.info("Cleaning dataset rows=%d columns=%d target=%s task_type=%s", len(df), len(df.columns), config.target, config.task_type)
     working = df.copy()
     log: list[dict[str, Any]] = []
+    if tracker is not None:
+        tracker.snapshot_dataframe(
+            "cleaning_input",
+            "Cleaning input",
+            "cleaning",
+            working,
+            metadata={"target": config.target, "task_type": config.task_type},
+        )
 
     before_rows = len(working)
     working = working.dropna(subset=[config.target])
@@ -72,6 +81,14 @@ def clean_and_split(df: pd.DataFrame, config: CleanConfig) -> CleanedData:
             "rows_removed": before_rows - len(working),
         }
     )
+    if tracker is not None:
+        tracker.snapshot_dataframe(
+            "after_target_drop",
+            "After target drop",
+            "cleaning",
+            working,
+            metadata={"rows_removed": before_rows - len(working)},
+        )
     if working.empty:
         raise ValueError("No rows remain after dropping missing target values.")
 
@@ -91,6 +108,17 @@ def clean_and_split(df: pd.DataFrame, config: CleanConfig) -> CleanedData:
             "columns": high_missing_columns,
         }
     )
+    if tracker is not None:
+        tracker.snapshot_dataframe(
+            "after_high_missing_drop",
+            "After high-missing drop",
+            "cleaning",
+            working,
+            metadata={
+                "high_missing_threshold": config.high_missing_threshold,
+                "dropped_columns": high_missing_columns,
+            },
+        )
 
     feature_columns = [column for column in working.columns if column != config.target]
     constant_columns = [
@@ -100,6 +128,14 @@ def clean_and_split(df: pd.DataFrame, config: CleanConfig) -> CleanedData:
         working = working.drop(columns=constant_columns)
         logger.info("Dropped constant features count=%d", len(constant_columns))
     log.append({"step": "drop_constant_features", "columns": constant_columns})
+    if tracker is not None:
+        tracker.snapshot_dataframe(
+            "after_constant_drop",
+            "After constant drop",
+            "cleaning",
+            working,
+            metadata={"dropped_columns": constant_columns},
+        )
 
     feature_columns = [column for column in working.columns if column != config.target]
     if not feature_columns:
@@ -171,6 +207,34 @@ def clean_and_split(df: pd.DataFrame, config: CleanConfig) -> CleanedData:
             "feature_engineering_operations": [operation.operation for operation in feature_operations],
         }
     )
+    if tracker is not None:
+        tracker.snapshot_dataframe(
+            "train_split",
+            "Train split",
+            "cleaning",
+            X_train,
+            partition="train",
+            metadata={"target_rows": len(y_train)},
+        )
+        tracker.snapshot_dataframe(
+            "test_split",
+            "Test split",
+            "cleaning",
+            X_test,
+            partition="test",
+            metadata={"target_rows": len(y_test), "stratified": stratify is not None},
+        )
+        tracker.snapshot_artifact(
+            "preprocessor_plan",
+            "Preprocessor plan",
+            "cleaning",
+            metadata={
+                "numeric_features": numeric_features,
+                "categorical_features": categorical_features,
+                "standardize_numeric": config.standardize_numeric,
+                "feature_engineering_operations": [operation.operation for operation in feature_operations],
+            },
+        )
 
     return CleanedData(
         X_train=X_train,

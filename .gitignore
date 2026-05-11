@@ -16,3 +16,4 @@ data/*
 runs/*
 !runs/.gitkeep
 *.log
+/.claude

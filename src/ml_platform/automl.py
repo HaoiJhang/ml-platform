@@ -9,6 +9,7 @@ from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from sklearn.pipeline import Pipeline
 
 from ml_platform.cleaning import CleanedData
+from ml_platform.data_flow import DataFlowTracker
 
 logger = logging.getLogger(__name__)
 
@@ -22,21 +23,52 @@ class TrainedModel:
     training_notes: list[str] | None = None
 
 
-def train_model(cleaned: CleanedData, time_budget: int = 30, metric_preference: str = "auto") -> TrainedModel:
+def train_model(
+    cleaned: CleanedData,
+    time_budget: int = 30,
+    metric_preference: str = "auto",
+    tracker: DataFlowTracker | None = None,
+) -> TrainedModel:
     logger.info("Starting training rows=%d features=%d task=%s time_budget=%d", len(cleaned.X_train), len(cleaned.feature_columns), cleaned.config.task_type, time_budget)
     try:
-        return _train_with_flaml(cleaned, time_budget=time_budget, metric_preference=metric_preference)
+        return _train_with_flaml(cleaned, time_budget=time_budget, metric_preference=metric_preference, tracker=tracker)
     except Exception as exc:
         logger.warning("FLAML training failed, falling back to sklearn: %s", exc)
-        return _train_with_sklearn(cleaned, metric_preference=metric_preference, fallback_reason=str(exc))
+        return _train_with_sklearn(cleaned, metric_preference=metric_preference, fallback_reason=str(exc), tracker=tracker)
 
 
-def _train_with_flaml(cleaned: CleanedData, time_budget: int, metric_preference: str) -> TrainedModel:
+def _train_with_flaml(
+    cleaned: CleanedData,
+    time_budget: int,
+    metric_preference: str,
+    tracker: DataFlowTracker | None = None,
+) -> TrainedModel:
     from flaml import AutoML
 
     preprocessor = cleaned.preprocessor
     X_train = preprocessor.fit_transform(cleaned.X_train)
+    feature_names = _preprocessor_feature_names(preprocessor)
+    if tracker is not None:
+        tracker.snapshot_matrix(
+            "train_matrix",
+            "Train matrix",
+            "training",
+            matrix=X_train,
+            partition="train",
+            column_names=feature_names,
+            metadata={"feature_count": len(feature_names) if feature_names is not None else X_train.shape[1]},
+        )
     X_test_probe = preprocessor.transform(cleaned.X_test.head(1))
+    if tracker is not None:
+        tracker.snapshot_matrix(
+            "test_matrix_probe",
+            "Test matrix probe",
+            "training",
+            matrix=X_test_probe,
+            partition="test",
+            column_names=feature_names,
+            metadata={"probe_rows": int(X_test_probe.shape[0])},
+        )
     if X_test_probe.shape[1] == 0:
         raise ValueError("Preprocessor produced no features.")
 
@@ -59,19 +91,22 @@ def _train_with_flaml(cleaned: CleanedData, time_budget: int, metric_preference:
     model = Pipeline([("preprocessor", preprocessor), ("estimator", automl)])
     importance = _feature_importance_from_pipeline(model, cleaned.feature_columns)
     notes = [metric_note] if metric_note else []
-    return TrainedModel(
+    trained = TrainedModel(
         model=model,
         trainer_name="flaml",
         feature_importance=importance,
         optimization_metric_used=flaml_metric,
         training_notes=notes,
     )
+    _record_training_artifact(tracker, trained)
+    return trained
 
 
 def _train_with_sklearn(
     cleaned: CleanedData,
     metric_preference: str,
     fallback_reason: str | None = None,
+    tracker: DataFlowTracker | None = None,
 ) -> TrainedModel:
     logger.info("Training sklearn RandomForest features=%d", len(cleaned.feature_columns))
     if cleaned.config.task_type == "classification":
@@ -81,6 +116,31 @@ def _train_with_sklearn(
 
     model = Pipeline([("preprocessor", cleaned.preprocessor), ("estimator", estimator)])
     model.fit(cleaned.X_train, cleaned.y_train)
+    feature_names = _preprocessor_feature_names(model.named_steps["preprocessor"])
+    if tracker is not None:
+        tracker.snapshot_matrix(
+            "train_matrix",
+            "Train matrix",
+            "training",
+            rows=len(cleaned.X_train),
+            columns=len(feature_names) if feature_names is not None else len(cleaned.feature_columns),
+            partition="train",
+            column_names=feature_names,
+            metadata={
+                "feature_count": len(feature_names) if feature_names is not None else len(cleaned.feature_columns),
+                "materialized_after_fit": False,
+            },
+        )
+        X_test_probe = model.named_steps["preprocessor"].transform(cleaned.X_test.head(1))
+        tracker.snapshot_matrix(
+            "test_matrix_probe",
+            "Test matrix probe",
+            "training",
+            matrix=X_test_probe,
+            partition="test",
+            column_names=feature_names,
+            metadata={"probe_rows": int(X_test_probe.shape[0])},
+        )
     importance = _feature_importance_from_pipeline(model, cleaned.feature_columns)
     notes = []
     if fallback_reason:
@@ -95,13 +155,15 @@ def _train_with_sklearn(
         )
     if metric_preference != "auto":
         notes.append(f"Sklearn fallback ignores metric preference during optimization: {metric_preference}.")
-    return TrainedModel(
+    trained = TrainedModel(
         model=model,
         trainer_name="sklearn_random_forest",
         feature_importance=importance,
         optimization_metric_used=None,
         training_notes=notes,
     )
+    _record_training_artifact(tracker, trained)
+    return trained
 
 
 def _feature_importance_from_pipeline(model: Pipeline, fallback_features: list[str]) -> list[dict[str, Any]]:
@@ -121,6 +183,29 @@ def _feature_importance_from_pipeline(model: Pipeline, fallback_features: list[s
         for name, value in zip(names, importances)
     ]
     return sorted(rows, key=lambda row: row["importance"], reverse=True)[:50]
+
+
+def _preprocessor_feature_names(preprocessor: Any) -> list[str] | None:
+    try:
+        return [str(name) for name in preprocessor.get_feature_names_out()]
+    except Exception:
+        return None
+
+
+def _record_training_artifact(tracker: DataFlowTracker | None, trained: TrainedModel) -> None:
+    if tracker is None:
+        return
+    tracker.snapshot_artifact(
+        "trained_model",
+        "Trained model",
+        "training",
+        metadata={
+            "trainer_name": trained.trainer_name,
+            "optimization_metric_used": trained.optimization_metric_used,
+            "training_notes": trained.training_notes or [],
+            "feature_importance_count": len(trained.feature_importance),
+        },
+    )
 
 
 def _map_metric_preference(task_type: str, metric_preference: str) -> tuple[str | None, str | None]:

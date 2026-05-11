@@ -7,6 +7,7 @@ from ml_platform.artifacts import artifact_to_dict
 from ml_platform.automl import train_model
 from ml_platform.cleaning import CleanConfig, clean_and_split
 from ml_platform.eda import generate_eda_summary
+from ml_platform.data_flow import DataFlowTracker
 from ml_platform.evaluation import evaluate_model
 from ml_platform.llm_report import generate_report_result
 from ml_platform.planner import suggest_plan
@@ -20,11 +21,19 @@ def test_end_to_end_classification_smoke(tmp_path: Path) -> None:
     df = iris.frame.rename(columns={"target": "species"})
     df["dirty_constant"] = 1
     df.loc[df.index[:5], "sepal length (cm)"] = None
+    tracker = DataFlowTracker(target="species")
+    tracker.snapshot_dataframe("target_dataset", "Target dataset", "intake", df, preview=True)
 
     eda = generate_eda_summary(df, target="species")
-    cleaned = clean_and_split(df, CleanConfig(target="species", task_type="classification", test_size=0.25))
-    trained = train_model(cleaned, time_budget=2)
-    metrics, predictions = evaluate_model(trained.model, cleaned, "classification")
+    cleaned = clean_and_split(df, CleanConfig(target="species", task_type="classification", test_size=0.25), tracker=tracker)
+    trained = train_model(cleaned, time_budget=2, tracker=tracker)
+    metrics, predictions = evaluate_model(trained.model, cleaned, "classification", tracker=tracker)
+    tracker.snapshot_artifact(
+        "metrics_summary",
+        "Metrics summary",
+        "evaluation",
+        metadata={"metrics": metrics, "priority_metric": "accuracy"},
+    )
 
     settings = Settings(
         runs_dir=tmp_path,
@@ -69,6 +78,7 @@ def test_end_to_end_classification_smoke(tmp_path: Path) -> None:
     storage.save_json(run, "plan.json", artifact_to_dict(plan))
     storage.save_json(run, "eda_summary.json", eda)
     storage.save_json(run, "metrics.json", metrics)
+    storage.save_json(run, "data_flow.json", artifact_to_dict(tracker.to_trace()))
     storage.save_json(run, "validation_pre.json", artifact_to_dict(preflight))
     storage.save_json(run, "validation_post.json", artifact_to_dict(postrun))
     storage.save_json(run, "recommendations.json", artifact_to_dict(recommendations))
@@ -81,6 +91,13 @@ def test_end_to_end_classification_smoke(tmp_path: Path) -> None:
     assert metrics["train_accuracy"] is not None
     assert (run.path / "model.joblib").exists()
     assert (run.path / "plan.json").exists()
+    assert (run.path / "data_flow.json").exists()
     assert (run.path / "validation_pre.json").exists()
     assert (run.path / "validation_post.json").exists()
     assert (run.path / "report.md").read_text(encoding="utf-8")
+    data_flow = artifact_to_dict(tracker.to_trace())
+    steps = [snapshot["step"] for snapshot in data_flow["snapshots"]]
+    assert "target_dataset" in steps
+    assert "after_target_drop" in steps
+    assert "train_split" in steps
+    assert "prediction_sample" in steps

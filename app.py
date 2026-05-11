@@ -21,6 +21,7 @@ from ml_platform.artifacts import artifact_to_dict
 from ml_platform.automl import train_model
 from ml_platform.cleaning import CleanConfig, clean_and_split
 from ml_platform.config import Settings, load_settings
+from ml_platform.data_flow import DataFlowTracker
 from ml_platform.data_io import read_csv
 from ml_platform.eda import generate_eda_summary
 from ml_platform.evaluation import evaluate_model
@@ -1028,6 +1029,124 @@ def _render_metrics(metrics: dict[str, object], priority_metric: str | None = No
             st.caption("No train metrics.")
 
 
+def _preview_to_frame(preview: dict[str, object]) -> pd.DataFrame:
+    rows = preview.get("rows", [])
+    columns = [str(column) for column in preview.get("columns", [])]
+    if not isinstance(rows, list):
+        return pd.DataFrame(columns=columns)
+    frame = pd.DataFrame(rows)
+    ordered_columns = [column for column in columns if column in frame.columns]
+    remaining_columns = [column for column in frame.columns if column not in ordered_columns]
+    return frame[ordered_columns + remaining_columns] if not frame.empty or ordered_columns else frame
+
+
+def _shape_label(snapshot: dict[str, object]) -> str:
+    rows = snapshot.get("rows")
+    columns = snapshot.get("columns")
+    if rows is None and columns is None:
+        return "-"
+    if rows is None:
+        return f"? x {columns}"
+    if columns is None:
+        return f"{rows} x ?"
+    return f"{rows} x {columns}"
+
+
+def _render_data_flow(trace_data: dict[str, object]) -> None:
+    snapshots = [item for item in trace_data.get("snapshots", []) if isinstance(item, dict)]
+    if not snapshots:
+        st.caption("No data flow trace available.")
+        return
+
+    target_name = str(trace_data.get("target") or "run")
+    for start in range(0, len(snapshots), 4):
+        chunk = snapshots[start : start + 4]
+        columns = st.columns(len(chunk))
+        for index, snapshot in enumerate(chunk, start=start + 1):
+            with columns[index - start - 1]:
+                st.caption(f"{index}. {snapshot.get('label') or snapshot.get('step')}")
+                st.metric("Shape", _shape_label(snapshot))
+                partition = str(snapshot.get("partition") or "full")
+                stage = str(snapshot.get("stage") or "-")
+                delta = snapshot.get("rows_delta")
+                delta_text = "-" if delta is None else f"{int(delta):+d}"
+                st.caption(f"{stage} | {partition} | delta {delta_text}")
+
+    summary_rows = []
+    for index, snapshot in enumerate(snapshots, start=1):
+        summary_rows.append(
+            {
+                "index": index,
+                "step": snapshot.get("step"),
+                "label": snapshot.get("label"),
+                "stage": snapshot.get("stage"),
+                "partition": snapshot.get("partition"),
+                "kind": snapshot.get("data_kind"),
+                "shape": _shape_label(snapshot),
+                "rows_delta": snapshot.get("rows_delta"),
+                "added": len(snapshot.get("columns_added", [])),
+                "removed": len(snapshot.get("columns_removed", [])),
+            }
+        )
+    st.dataframe(pd.DataFrame(summary_rows), hide_index=True, use_container_width=True)
+
+    options = [
+        f"{index}. {snapshot.get('label') or snapshot.get('step')} [{snapshot.get('partition') or 'full'}]"
+        for index, snapshot in enumerate(snapshots, start=1)
+    ]
+    selected = st.selectbox(
+        "Inspect data flow step",
+        options,
+        key=f"data_flow_step_{target_name}",
+    )
+    selected_index = options.index(selected)
+    selected_snapshot = snapshots[selected_index]
+
+    metric_cols = st.columns(5)
+    with metric_cols[0]:
+        st.metric("Stage", str(selected_snapshot.get("stage") or "-"))
+    with metric_cols[1]:
+        st.metric("Partition", str(selected_snapshot.get("partition") or "-"))
+    with metric_cols[2]:
+        st.metric("Kind", str(selected_snapshot.get("data_kind") or "-"))
+    with metric_cols[3]:
+        st.metric("Shape", _shape_label(selected_snapshot))
+    with metric_cols[4]:
+        memory = selected_snapshot.get("memory_mb")
+        memory_text = "-" if memory is None else f"{float(memory):.4f} MB"
+        st.metric("Memory", memory_text)
+
+    delta_cols = st.columns(3)
+    with delta_cols[0]:
+        delta = selected_snapshot.get("rows_delta")
+        st.metric("Rows delta", "-" if delta is None else f"{int(delta):+d}")
+    with delta_cols[1]:
+        st.metric("Columns added", len(selected_snapshot.get("columns_added", [])))
+    with delta_cols[2]:
+        st.metric("Columns removed", len(selected_snapshot.get("columns_removed", [])))
+
+    metadata = selected_snapshot.get("metadata", {})
+    if isinstance(metadata, dict) and metadata:
+        st.write("Metadata")
+        st.json(metadata, expanded=True)
+
+    detail_cols = st.columns(2)
+    with detail_cols[0]:
+        added = [str(item) for item in selected_snapshot.get("columns_added", []) if str(item).strip()]
+        _render_text_items("Columns added", added, "No columns added.")
+    with detail_cols[1]:
+        removed = [str(item) for item in selected_snapshot.get("columns_removed", []) if str(item).strip()]
+        _render_text_items("Columns removed", removed, "No columns removed.")
+
+    preview = selected_snapshot.get("preview")
+    if isinstance(preview, dict):
+        st.write("Preview")
+        preview_frame = _preview_to_frame(preview)
+        st.dataframe(preview_frame, use_container_width=True)
+        if preview.get("truncated"):
+            st.caption("Preview truncated to the first rows.")
+
+
 def _render_validation_summary(
     preflight: dict[str, object],
     postrun: dict[str, object],
@@ -1374,7 +1493,31 @@ def main() -> None:
             task_type = task_types[target]
             priority_metric = priority_metrics[target]
             preflight_validation = preflight_by_target[target]
+            tracker = DataFlowTracker(target=target)
+            tracker.snapshot_dataframe(
+                "raw_dataset",
+                "Raw dataset",
+                "intake",
+                df,
+                preview=True,
+                metadata={"source_columns": list(df.columns)},
+            )
+            tracker.snapshot_dataframe(
+                "analysis_subset",
+                "Analysis subset",
+                "intake",
+                analysis_df,
+                metadata={"excluded_columns": excluded_columns},
+            )
             target_df = analysis_df[feature_columns + [target]].copy()
+            tracker.snapshot_dataframe(
+                "target_dataset",
+                "Target dataset",
+                "intake",
+                target_df,
+                preview=True,
+                metadata={"target": target, "feature_columns": feature_columns},
+            )
             target_eda_summary = generate_eda_summary(target_df, target=target)
             config = CleanConfig(
                 target=target,
@@ -1384,9 +1527,15 @@ def main() -> None:
                 high_missing_threshold=float(high_missing_threshold),
                 feature_engineering_operations=_feature_plan_operations(feature_plan) if feature_plan else None,
             )
-            cleaned = clean_and_split(target_df, config)
-            trained = train_model(cleaned, time_budget=int(time_budget), metric_preference=priority_metric)
-            metrics, prediction_sample = evaluate_model(trained.model, cleaned, task_type=task_type)
+            cleaned = clean_and_split(target_df, config, tracker=tracker)
+            trained = train_model(cleaned, time_budget=int(time_budget), metric_preference=priority_metric, tracker=tracker)
+            metrics, prediction_sample = evaluate_model(trained.model, cleaned, task_type=task_type, tracker=tracker)
+            tracker.snapshot_artifact(
+                "metrics_summary",
+                "Metrics summary",
+                "evaluation",
+                metadata={"metrics": metrics, "priority_metric": priority_metric},
+            )
             planned_report_mode = "openai" if settings.llm_enabled else "rule_based"
             postrun_validation = validate_postrun(
                 metrics=metrics,
@@ -1459,6 +1608,8 @@ def main() -> None:
             storage.save_json(run, "eda_summary.json", target_eda_summary)
             storage.save_json(run, "cleaning_log.json", cleaned.cleaning_log)
             storage.save_json(run, "metrics.json", metrics)
+            data_flow_payload = artifact_to_dict(tracker.to_trace())
+            storage.save_json(run, "data_flow.json", data_flow_payload)
             storage.save_json(run, "feature_importance.json", trained.feature_importance)
             storage.save_json(run, "validation_pre.json", artifact_to_dict(preflight_validation))
             storage.save_json(run, "validation_post.json", artifact_to_dict(postrun_validation))
@@ -1488,6 +1639,7 @@ def main() -> None:
                     "postrun_validation": postrun_validation,
                     "recommendations": recommendations,
                     "priority_metric": priority_metric,
+                    "data_flow": data_flow_payload,
                     "report_path": report_path,
                     "prediction_path": prediction_path,
                     "model_path": model_path,
@@ -1540,6 +1692,8 @@ def main() -> None:
                 recommendations=artifact_to_dict(result["recommendations"]),
                 priority_metric=result["priority_metric"],
             )
+            st.write("Data flow")
+            _render_data_flow(result["data_flow"])
             st.write("Feature importance")
             st.dataframe(pd.DataFrame(result["trained"].feature_importance), use_container_width=True)
             st.write("Analysis report")
