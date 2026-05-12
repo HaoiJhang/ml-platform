@@ -54,6 +54,7 @@ logger = logging.getLogger("ml_platform")
 st.set_page_config(page_title="ML Platform", layout="wide")
 
 HERO_IMAGE_CANDIDATES = (
+    PROJECT_ROOT / "data" / "hero.jpg",
     PROJECT_ROOT / "assets" / "hero.jpg",
     PROJECT_ROOT / "assets" / "hero.jpeg",
     PROJECT_ROOT / "assets" / "hero.png",
@@ -105,8 +106,6 @@ def _delete_local_llm_config() -> None:
         LOCAL_LLM_CONFIG_PATH.unlink(missing_ok=True)
     except OSError as exc:
         logger.warning("Unable to delete local LLM config: %s", exc)
-
-
 def _dataset_fingerprint(df: pd.DataFrame) -> str:
     payload = pd.util.hash_pandas_object(df, index=True).to_numpy().tobytes()
     schema = json.dumps(
@@ -611,17 +610,20 @@ def _configure_llm_settings(settings: Settings) -> Settings:
     st.subheader("Report engine")
     if allow_local_llm_config:
         _section_caption(
-            "Optional LLM configuration for plan and report generation. Local persistence is enabled for this environment."
+            "Optional LLM configuration for plan and report generation. "
+            "This environment can remember settings locally, and hosted deployments can also use OPENAI_API_KEY or Streamlit Secrets."
         )
     else:
         _section_caption(
-            "Optional LLM configuration for plan and report generation. Local persistence is disabled for this environment, so enter a key per session or configure host secrets."
+            "Optional LLM configuration for plan and report generation. "
+            "Local persistence is disabled here, so enter a key per session or configure OPENAI_API_KEY / Streamlit Secrets."
         )
     config_cols = st.columns(3)
     with config_cols[0]:
         api_key = st.text_input(
             "API key",
             value=saved_api_key,
+            key="_llm_api_key",
             type="password",
             placeholder="Uses OPENAI_API_KEY if empty",
         )
@@ -629,10 +631,11 @@ def _configure_llm_settings(settings: Settings) -> Settings:
         base_url = st.text_input(
             "Base URL",
             value=saved_base_url or settings.openai_base_url or "",
+            key="_llm_base_url",
             placeholder="OpenAI default or compatible API URL",
         )
     with config_cols[2]:
-        model = st.text_input("Model", value=saved_model or settings.openai_model)
+        model = st.text_input("Model", value=saved_model or settings.openai_model, key="_llm_model")
 
     if allow_local_llm_config:
         remember_config = st.checkbox("Remember LLM settings on this device", value=bool(saved_api_key))
@@ -656,7 +659,7 @@ def _configure_llm_settings(settings: Settings) -> Settings:
         runs_dir=settings.runs_dir,
         data_dir=settings.data_dir,
         openai_api_key=api_key or saved_api_key or settings.openai_api_key,
-        openai_base_url=base_url or None,
+        openai_base_url=base_url or settings.openai_base_url or None,
         openai_model=model or settings.openai_model,
     )
 
