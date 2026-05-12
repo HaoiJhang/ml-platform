@@ -63,7 +63,7 @@ OPENAI_BASE_URL = "..."
 OPENAI_MODEL = "gpt-4o-mini"
 ```
 
-公网部署时，页面里手动输入的 API key 只在当前会话使用，不会写入服务器文件。本地开发如果确实要恢复旧的“记住配置”能力，可以设置环境变量 `ML_PLATFORM_ALLOW_LOCAL_LLM_CONFIG=1`。
+默认情况下，只要勾选页面里的 `Remember LLM settings on this device`，应用就会把 LLM 配置保存到当前项目目录下的本地文件 `.ml_platform.local.json`。如果是共享机器或公网部署，建议显式设置环境变量 `ML_PLATFORM_ALLOW_LOCAL_LLM_CONFIG=0` 关闭这个能力，改用宿主环境 secrets。
 
 ## 4. 页面使用流程
 
@@ -79,7 +79,7 @@ OPENAI_MODEL = "gpt-4o-mini"
 
 如果你只想跑本地 baseline，这里可以不填。没有 API key 时，应用仍然可以完成训练和评估。
 
-公网部署默认不会保存页面里输入的 API key。本地开发如果设置了 `ML_PLATFORM_ALLOW_LOCAL_LLM_CONFIG=1`，页面会显示 `Remember LLM settings on this device`，勾选后配置会保存到当前项目目录下的本地文件 `.ml_platform.local.json`；这个文件已经被 `.gitignore` 忽略，不会默认提交到仓库。
+默认会显示 `Remember LLM settings on this device`。勾选后，配置会保存到当前项目目录下的本地文件 `.ml_platform.local.json`；这个文件已经被 `.gitignore` 忽略，不会默认提交到仓库。如果是共享机器或公网部署，建议设置 `ML_PLATFORM_ALLOW_LOCAL_LLM_CONFIG=0` 禁用本地持久化。
 
 ### 4.2 Dataset intake
 
@@ -211,7 +211,7 @@ predict churn, optimize recall, ignore customer_id-like fields, keep this as a q
 
 ### 7.1 页面刷新后 API key 丢失
 
-公网部署中，页面输入的 API key 只在当前会话有效，刷新后可能需要重新输入；更稳定的做法是在 Streamlit Community Cloud 的 Secrets 中配置 `OPENAI_API_KEY`。本地开发如果设置了 `ML_PLATFORM_ALLOW_LOCAL_LLM_CONFIG=1`，可以勾选 `Remember LLM settings on this device`，配置会保存到本地 `.ml_platform.local.json`，刷新后自动回填。
+如果本地持久化是开启状态，勾选 `Remember LLM settings on this device` 后，配置会保存到本地 `.ml_platform.local.json`，刷新后自动回填。如果你在共享机器或公网部署里显式设置了 `ML_PLATFORM_ALLOW_LOCAL_LLM_CONFIG=0`，那页面输入的 API key 只在当前会话有效；这类环境更稳妥的做法是在 Streamlit Community Cloud 的 Secrets 中配置 `OPENAI_API_KEY`。
 
 ### 7.2 看到 “LLM report generation failed” 但训练已经完成
 

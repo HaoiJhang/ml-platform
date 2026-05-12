@@ -62,9 +62,11 @@ OPENAI_BASE_URL = "..."
 OPENAI_MODEL = "gpt-4o-mini"
 ```
 
-For public deployments, the app does not persist API keys entered in the UI.
-Local file persistence can be re-enabled for local development only by setting
-`ML_PLATFORM_ALLOW_LOCAL_LLM_CONFIG=1`.
+By default, the app can persist API keys entered in the UI to the local
+`.ml_platform.local.json` file when the user enables
+`Remember LLM settings on this device`. On shared or public deployments, disable
+this behavior with `ML_PLATFORM_ALLOW_LOCAL_LLM_CONFIG=0` and prefer host
+secrets instead.
 
 Feature work is developed on small `dev/*` branches, committed after tests pass,
 and merged back to `main`.

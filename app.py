@@ -56,7 +56,7 @@ FEATURE_PLAN_CACHE_VERSION = 2
 
 
 def _local_llm_config_enabled() -> bool:
-    return os.getenv("ML_PLATFORM_ALLOW_LOCAL_LLM_CONFIG") == "1"
+    return os.getenv("ML_PLATFORM_ALLOW_LOCAL_LLM_CONFIG", "1") != "0"
 
 
 def _load_local_llm_config() -> dict[str, str]:
@@ -601,11 +601,11 @@ def _configure_llm_settings(settings: Settings) -> Settings:
     st.subheader("Report engine")
     if allow_local_llm_config:
         _section_caption(
-            "Optional LLM configuration for plan and report generation. Local persistence is enabled for this development environment."
+            "Optional LLM configuration for plan and report generation. Local persistence is enabled for this environment."
         )
     else:
         _section_caption(
-            "Optional LLM configuration for plan and report generation. On public deployments, enter a key per session or configure secrets in the host."
+            "Optional LLM configuration for plan and report generation. Local persistence is disabled for this environment, so enter a key per session or configure host secrets."
         )
     config_cols = st.columns(3)
     with config_cols[0]:
@@ -667,6 +667,36 @@ def _target_task_types(df: pd.DataFrame, targets: list[str], task_type_choice: s
     return {target: _infer_task_type(df, target) for target in targets}
 
 
+def _experiment_signature(
+    *,
+    dataset_fingerprint: str,
+    target_columns: list[str],
+    task_type_choice: str,
+    time_budget: int,
+    excluded_columns: list[str],
+    test_size: float,
+    high_missing_threshold: float,
+    random_state: int,
+    priority_metric_choice: str,
+    planner_brief: str,
+    feature_plan: Any,
+) -> str:
+    payload = {
+        "dataset_fingerprint": dataset_fingerprint,
+        "target_columns": target_columns,
+        "task_type_choice": task_type_choice,
+        "time_budget": time_budget,
+        "excluded_columns": excluded_columns,
+        "test_size": test_size,
+        "high_missing_threshold": high_missing_threshold,
+        "random_state": random_state,
+        "priority_metric_choice": priority_metric_choice,
+        "planner_brief": planner_brief.strip(),
+        "feature_engineering_operations": _feature_plan_operations(feature_plan) if feature_plan else [],
+    }
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=True).encode("utf-8")).hexdigest()
+
+
 def _initialize_experiment_state(dataset_signature: str, columns: list[str]) -> None:
     signature = (dataset_signature, tuple(columns))
     if st.session_state.get("_dataset_signature") == signature:
@@ -689,6 +719,61 @@ def _initialize_experiment_state(dataset_signature: str, columns: list[str]) -> 
     st.session_state["_feature_engineering_plan_signature"] = None
     st.session_state["_feature_engineering_plan"] = None
     st.session_state["_feature_engineering_override_plan"] = None
+    st.session_state["_latest_results_signature"] = None
+    st.session_state["_latest_results"] = []
+
+
+def _render_run_outputs(results: list[dict[str, object]]) -> None:
+    st.subheader("Artifacts")
+    _section_caption("Export the model, generated analysis report, and prediction sample for downstream review.")
+    for result in results:
+        run = result["run"]
+        label = f"{result['target']} ({result['task_type']})"
+        with st.expander(label, expanded=len(results) == 1):
+            download_cols = st.columns(3)
+            with download_cols[0]:
+                st.download_button(
+                    "Download model",
+                    data=result["model_path"].read_bytes(),
+                    file_name=f"{run.run_id}_{result['target']}_model.joblib",
+                    mime="application/octet-stream",
+                )
+            with download_cols[1]:
+                st.download_button(
+                    "Download report",
+                    data=result["report_path"].read_text(encoding="utf-8"),
+                    file_name=f"{run.run_id}_{result['target']}_report.md",
+                    mime="text/markdown",
+                )
+            with download_cols[2]:
+                st.download_button(
+                    "Download predictions",
+                    data=result["prediction_path"].read_text(encoding="utf-8"),
+                    file_name=f"{run.run_id}_{result['target']}_prediction_sample.csv",
+                    mime="text/csv",
+                )
+
+    st.subheader("Run results")
+    _section_caption("Metrics, feature importance, and the generated report are shown below for immediate review.")
+    for result in results:
+        run = result["run"]
+        with st.expander(f"{result['target']} results", expanded=len(results) == 1):
+            st.write("Metrics")
+            _render_metrics(result["metrics"], priority_metric=result["priority_metric"])
+            st.write("Validation")
+            _render_validation_summary(
+                preflight=artifact_to_dict(result["preflight_validation"]),
+                postrun=artifact_to_dict(result["postrun_validation"]),
+                recommendations=artifact_to_dict(result["recommendations"]),
+                priority_metric=result["priority_metric"],
+            )
+            st.write("Data flow")
+            _render_data_flow(result["data_flow"])
+            st.write("Feature importance")
+            st.dataframe(pd.DataFrame(result["trained"].feature_importance), use_container_width=True)
+            st.write("Analysis report")
+            st.markdown(result["report"])
+            st.caption(f"Artifacts saved to {Path(run.path).resolve()}")
 
 
 def _queue_plan_suggestion(plan_suggestion: dict[str, object], columns: list[str]) -> None:
@@ -1385,6 +1470,20 @@ def main() -> None:
         with st.expander("Feature engineering plan", expanded=True):
             _render_feature_engineering_plan(artifact_to_dict(feature_plan))
 
+    current_experiment_signature = _experiment_signature(
+        dataset_fingerprint=current_dataset_fingerprint,
+        target_columns=target_columns,
+        task_type_choice=task_type_choice,
+        time_budget=int(time_budget),
+        excluded_columns=excluded_columns,
+        test_size=float(test_size),
+        high_missing_threshold=float(high_missing_threshold),
+        random_state=int(random_state),
+        priority_metric_choice=priority_metric_choice,
+        planner_brief=planner_brief,
+        feature_plan=feature_plan,
+    )
+
     priority_metrics = {
         target: resolve_priority_metric(_target_task_types(analysis_df, [target], task_type_choice)[target], priority_metric_choice)
         for target in target_columns
@@ -1470,108 +1569,87 @@ def main() -> None:
 
     st.subheader("Training run")
     _section_caption("Launch the local pipeline after reviewing the setup and data audit.")
-    if not st.button("Run training", type="primary"):
-        return
+    results: list[dict[str, object]] = []
+    if st.session_state.get("_latest_results_signature") == current_experiment_signature:
+        results = list(st.session_state.get("_latest_results", []))
 
-    results = []
-    with st.spinner("Cleaning data and training model locally..."):
-        failing_targets = [target for target, validation in preflight_by_target.items() if not validation.ok_to_run]
-        if failing_targets:
-            logger.error("Blocking preflight issues targets=%s", failing_targets)
-            st.error(f"Resolve blocking preflight issues before training: {', '.join(failing_targets)}")
-            return
+    if st.button("Run training", type="primary"):
+        results = []
+        with st.spinner("Cleaning data and training model locally..."):
+            failing_targets = [target for target, validation in preflight_by_target.items() if not validation.ok_to_run]
+            if failing_targets:
+                logger.error("Blocking preflight issues targets=%s", failing_targets)
+                st.error(f"Resolve blocking preflight issues before training: {', '.join(failing_targets)}")
+                return
 
-        feature_columns = candidate_feature_columns
-        if not feature_columns:
-            logger.error("No feature columns remain after exclusions")
-            st.error("No feature columns remain after excluding selected target and ignored columns.")
-            return
+            feature_columns = candidate_feature_columns
+            if not feature_columns:
+                logger.error("No feature columns remain after exclusions")
+                st.error("No feature columns remain after excluding selected target and ignored columns.")
+                return
 
-        logger.info("Starting training pipeline targets=%s task_types=%s", target_columns, task_types)
-        for target in target_columns:
-            logger.info("Training target=%s task_type=%s", target, task_types[target])
-            task_type = task_types[target]
-            priority_metric = priority_metrics[target]
-            preflight_validation = preflight_by_target[target]
-            tracker = DataFlowTracker(target=target)
-            tracker.snapshot_dataframe(
-                "raw_dataset",
-                "Raw dataset",
-                "intake",
-                df,
-                preview=True,
-                metadata={"source_columns": list(df.columns)},
-            )
-            tracker.snapshot_dataframe(
-                "analysis_subset",
-                "Analysis subset",
-                "intake",
-                analysis_df,
-                metadata={"excluded_columns": excluded_columns},
-            )
-            target_df = analysis_df[feature_columns + [target]].copy()
-            tracker.snapshot_dataframe(
-                "target_dataset",
-                "Target dataset",
-                "intake",
-                target_df,
-                preview=True,
-                metadata={"target": target, "feature_columns": feature_columns},
-            )
-            target_eda_summary = generate_eda_summary(target_df, target=target)
-            config = CleanConfig(
-                target=target,
-                task_type=task_type,
-                test_size=float(test_size),
-                random_state=int(random_state),
-                high_missing_threshold=float(high_missing_threshold),
-                feature_engineering_operations=_feature_plan_operations(feature_plan) if feature_plan else None,
-            )
-            cleaned = clean_and_split(target_df, config, tracker=tracker)
-            trained = train_model(cleaned, time_budget=int(time_budget), metric_preference=priority_metric, tracker=tracker)
-            metrics, prediction_sample = evaluate_model(trained.model, cleaned, task_type=task_type, tracker=tracker)
-            tracker.snapshot_artifact(
-                "metrics_summary",
-                "Metrics summary",
-                "evaluation",
-                metadata={"metrics": metrics, "priority_metric": priority_metric},
-            )
-            planned_report_mode = "openai" if settings.llm_enabled else "rule_based"
-            postrun_validation = validate_postrun(
-                metrics=metrics,
-                prediction_sample=prediction_sample,
-                task_type=task_type,
-                priority_metric=priority_metric,
-                trainer_name=trained.trainer_name,
-                optimization_metric_used=trained.optimization_metric_used,
-                feature_importance=trained.feature_importance,
-                report_mode=planned_report_mode,
-            )
-            recommendations = build_recommendations(preflight_validation, postrun_validation)
+            logger.info("Starting training pipeline targets=%s task_types=%s", target_columns, task_types)
+            for target in target_columns:
+                logger.info("Training target=%s task_type=%s", target, task_types[target])
+                task_type = task_types[target]
+                priority_metric = priority_metrics[target]
+                preflight_validation = preflight_by_target[target]
+                tracker = DataFlowTracker(target=target)
+                tracker.snapshot_dataframe(
+                    "raw_dataset",
+                    "Raw dataset",
+                    "intake",
+                    df,
+                    preview=True,
+                    metadata={"source_columns": list(df.columns)},
+                )
+                tracker.snapshot_dataframe(
+                    "analysis_subset",
+                    "Analysis subset",
+                    "intake",
+                    analysis_df,
+                    metadata={"excluded_columns": excluded_columns},
+                )
+                target_df = analysis_df[feature_columns + [target]].copy()
+                tracker.snapshot_dataframe(
+                    "target_dataset",
+                    "Target dataset",
+                    "intake",
+                    target_df,
+                    preview=True,
+                    metadata={"target": target, "feature_columns": feature_columns},
+                )
+                target_eda_summary = generate_eda_summary(target_df, target=target)
+                config = CleanConfig(
+                    target=target,
+                    task_type=task_type,
+                    test_size=float(test_size),
+                    random_state=int(random_state),
+                    high_missing_threshold=float(high_missing_threshold),
+                    feature_engineering_operations=_feature_plan_operations(feature_plan) if feature_plan else None,
+                )
+                cleaned = clean_and_split(target_df, config, tracker=tracker)
+                trained = train_model(cleaned, time_budget=int(time_budget), metric_preference=priority_metric, tracker=tracker)
+                metrics, prediction_sample = evaluate_model(trained.model, cleaned, task_type=task_type, tracker=tracker)
+                tracker.snapshot_artifact(
+                    "metrics_summary",
+                    "Metrics summary",
+                    "evaluation",
+                    metadata={"metrics": metrics, "priority_metric": priority_metric},
+                )
+                planned_report_mode = "openai" if settings.llm_enabled else "rule_based"
+                postrun_validation = validate_postrun(
+                    metrics=metrics,
+                    prediction_sample=prediction_sample,
+                    task_type=task_type,
+                    priority_metric=priority_metric,
+                    trainer_name=trained.trainer_name,
+                    optimization_metric_used=trained.optimization_metric_used,
+                    feature_importance=trained.feature_importance,
+                    report_mode=planned_report_mode,
+                )
+                recommendations = build_recommendations(preflight_validation, postrun_validation)
 
-            report, report_mode = generate_report_result(
-                eda_summary=target_eda_summary,
-                cleaning_log=cleaned.cleaning_log,
-                metrics=metrics,
-                feature_importance=trained.feature_importance,
-                settings=settings,
-                plan_suggestion=plan_suggestion,
-                preflight_validation=preflight_validation,
-                postrun_validation=postrun_validation,
-                recommendations=recommendations,
-            )
-            postrun_validation = validate_postrun(
-                metrics=metrics,
-                prediction_sample=prediction_sample,
-                task_type=task_type,
-                priority_metric=priority_metric,
-                trainer_name=trained.trainer_name,
-                optimization_metric_used=trained.optimization_metric_used,
-                feature_importance=trained.feature_importance,
-                report_mode=report_mode,
-            )
-            recommendations = build_recommendations(preflight_validation, postrun_validation)
-            if report_mode != planned_report_mode:
                 report, report_mode = generate_report_result(
                     eda_summary=target_eda_summary,
                     cleaning_log=cleaned.cleaning_log,
@@ -1583,122 +1661,100 @@ def main() -> None:
                     postrun_validation=postrun_validation,
                     recommendations=recommendations,
                 )
-
-            run = storage.create_run(
-                config={
-                    "target": target,
-                    "target_columns": target_columns,
-                    "task_type": task_type,
-                    "task_type_choice": task_type_choice,
-                    "excluded_columns": excluded_columns,
-                    "test_size": test_size,
-                    "high_missing_threshold": high_missing_threshold,
-                    "random_state": random_state,
-                    "time_budget": time_budget,
-                    "priority_metric": priority_metric,
-                    "trainer": trained.trainer_name,
-                    "planner_name": plan_suggestion.planner_name,
-                    "feature_engineering_enabled": bool(feature_plan),
-                    "dataset_fingerprint": current_dataset_fingerprint,
-                }
-            )
-            storage.save_json(run, "plan.json", artifact_to_dict(plan_suggestion))
-            if feature_plan:
-                storage.save_json(run, "feature_engineering_plan.json", artifact_to_dict(feature_plan))
-            storage.save_json(run, "eda_summary.json", target_eda_summary)
-            storage.save_json(run, "cleaning_log.json", cleaned.cleaning_log)
-            storage.save_json(run, "metrics.json", metrics)
-            data_flow_payload = artifact_to_dict(tracker.to_trace())
-            storage.save_json(run, "data_flow.json", data_flow_payload)
-            storage.save_json(run, "feature_importance.json", trained.feature_importance)
-            storage.save_json(run, "validation_pre.json", artifact_to_dict(preflight_validation))
-            storage.save_json(run, "validation_post.json", artifact_to_dict(postrun_validation))
-            storage.save_json(run, "recommendations.json", artifact_to_dict(recommendations))
-            storage.save_json(
-                run,
-                "training_summary.json",
-                {
-                    "trainer_name": trained.trainer_name,
-                    "optimization_metric_used": trained.optimization_metric_used,
-                    "training_notes": trained.training_notes or [],
-                },
-            )
-            report_path = storage.save_text(run, "report.md", report)
-            prediction_path = storage.save_predictions(run, prediction_sample)
-            model_path = storage.save_model(run, trained.model)
-            storage.record_run(run, metrics=metrics, status="completed")
-            results.append(
-                {
-                    "target": target,
-                    "task_type": task_type,
-                    "run": run,
-                    "trained": trained,
-                    "metrics": metrics,
-                    "report": report,
-                    "preflight_validation": preflight_validation,
-                    "postrun_validation": postrun_validation,
-                    "recommendations": recommendations,
-                    "priority_metric": priority_metric,
-                    "data_flow": data_flow_payload,
-                    "report_path": report_path,
-                    "prediction_path": prediction_path,
-                    "model_path": model_path,
-                }
-            )
-
-    completed_ids = ", ".join(str(result["run"].run_id) for result in results)
-    logger.info("Training pipeline complete run_ids=%s", completed_ids)
-    st.success(f"Run completed: {completed_ids}")
-    st.subheader("Artifacts")
-    _section_caption("Export the model, generated analysis report, and prediction sample for downstream review.")
-    for result in results:
-        run = result["run"]
-        label = f"{result['target']} ({result['task_type']})"
-        with st.expander(label, expanded=len(results) == 1):
-            download_cols = st.columns(3)
-            with download_cols[0]:
-                st.download_button(
-                    "Download model",
-                    data=result["model_path"].read_bytes(),
-                    file_name=f"{run.run_id}_{result['target']}_model.joblib",
-                    mime="application/octet-stream",
+                postrun_validation = validate_postrun(
+                    metrics=metrics,
+                    prediction_sample=prediction_sample,
+                    task_type=task_type,
+                    priority_metric=priority_metric,
+                    trainer_name=trained.trainer_name,
+                    optimization_metric_used=trained.optimization_metric_used,
+                    feature_importance=trained.feature_importance,
+                    report_mode=report_mode,
                 )
-            with download_cols[1]:
-                st.download_button(
-                    "Download report",
-                    data=result["report_path"].read_text(encoding="utf-8"),
-                    file_name=f"{run.run_id}_{result['target']}_report.md",
-                    mime="text/markdown",
+                recommendations = build_recommendations(preflight_validation, postrun_validation)
+                if report_mode != planned_report_mode:
+                    report, report_mode = generate_report_result(
+                        eda_summary=target_eda_summary,
+                        cleaning_log=cleaned.cleaning_log,
+                        metrics=metrics,
+                        feature_importance=trained.feature_importance,
+                        settings=settings,
+                        plan_suggestion=plan_suggestion,
+                        preflight_validation=preflight_validation,
+                        postrun_validation=postrun_validation,
+                        recommendations=recommendations,
+                    )
+
+                run = storage.create_run(
+                    config={
+                        "target": target,
+                        "target_columns": target_columns,
+                        "task_type": task_type,
+                        "task_type_choice": task_type_choice,
+                        "excluded_columns": excluded_columns,
+                        "test_size": test_size,
+                        "high_missing_threshold": high_missing_threshold,
+                        "random_state": random_state,
+                        "time_budget": time_budget,
+                        "priority_metric": priority_metric,
+                        "trainer": trained.trainer_name,
+                        "planner_name": plan_suggestion.planner_name,
+                        "feature_engineering_enabled": bool(feature_plan),
+                        "dataset_fingerprint": current_dataset_fingerprint,
+                    }
                 )
-            with download_cols[2]:
-                st.download_button(
-                    "Download predictions",
-                    data=result["prediction_path"].read_text(encoding="utf-8"),
-                    file_name=f"{run.run_id}_{result['target']}_prediction_sample.csv",
-                    mime="text/csv",
+                storage.save_json(run, "plan.json", artifact_to_dict(plan_suggestion))
+                if feature_plan:
+                    storage.save_json(run, "feature_engineering_plan.json", artifact_to_dict(feature_plan))
+                storage.save_json(run, "eda_summary.json", target_eda_summary)
+                storage.save_json(run, "cleaning_log.json", cleaned.cleaning_log)
+                storage.save_json(run, "metrics.json", metrics)
+                data_flow_payload = artifact_to_dict(tracker.to_trace())
+                storage.save_json(run, "data_flow.json", data_flow_payload)
+                storage.save_json(run, "feature_importance.json", trained.feature_importance)
+                storage.save_json(run, "validation_pre.json", artifact_to_dict(preflight_validation))
+                storage.save_json(run, "validation_post.json", artifact_to_dict(postrun_validation))
+                storage.save_json(run, "recommendations.json", artifact_to_dict(recommendations))
+                storage.save_json(
+                    run,
+                    "training_summary.json",
+                    {
+                        "trainer_name": trained.trainer_name,
+                        "optimization_metric_used": trained.optimization_metric_used,
+                        "training_notes": trained.training_notes or [],
+                    },
+                )
+                report_path = storage.save_text(run, "report.md", report)
+                prediction_path = storage.save_predictions(run, prediction_sample)
+                model_path = storage.save_model(run, trained.model)
+                storage.record_run(run, metrics=metrics, status="completed")
+                results.append(
+                    {
+                        "target": target,
+                        "task_type": task_type,
+                        "run": run,
+                        "trained": trained,
+                        "metrics": metrics,
+                        "report": report,
+                        "preflight_validation": preflight_validation,
+                        "postrun_validation": postrun_validation,
+                        "recommendations": recommendations,
+                        "priority_metric": priority_metric,
+                        "data_flow": data_flow_payload,
+                        "report_path": report_path,
+                        "prediction_path": prediction_path,
+                        "model_path": model_path,
+                    }
                 )
 
-    st.subheader("Run results")
-    _section_caption("Metrics, feature importance, and the generated report are shown below for immediate review.")
-    for result in results:
-        run = result["run"]
-        with st.expander(f"{result['target']} results", expanded=len(results) == 1):
-            st.write("Metrics")
-            _render_metrics(result["metrics"], priority_metric=result["priority_metric"])
-            st.write("Validation")
-            _render_validation_summary(
-                preflight=artifact_to_dict(result["preflight_validation"]),
-                postrun=artifact_to_dict(result["postrun_validation"]),
-                recommendations=artifact_to_dict(result["recommendations"]),
-                priority_metric=result["priority_metric"],
-            )
-            st.write("Data flow")
-            _render_data_flow(result["data_flow"])
-            st.write("Feature importance")
-            st.dataframe(pd.DataFrame(result["trained"].feature_importance), use_container_width=True)
-            st.write("Analysis report")
-            st.markdown(result["report"])
-            st.caption(f"Artifacts saved to {Path(run.path).resolve()}")
+        st.session_state["_latest_results_signature"] = current_experiment_signature
+        st.session_state["_latest_results"] = list(results)
+        completed_ids = ", ".join(str(result["run"].run_id) for result in results)
+        logger.info("Training pipeline complete run_ids=%s", completed_ids)
+        st.success(f"Run completed: {completed_ids}")
+
+    if results:
+        _render_run_outputs(results)
 
 
 if __name__ == "__main__":
