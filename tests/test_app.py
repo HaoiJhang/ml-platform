@@ -37,13 +37,13 @@ def test_data_flow_selection_does_not_drop_latest_results(monkeypatch, tmp_path)
     run_training.click()
     app.run(timeout=120)
 
-    assert any(subheader.value == "Run results" for subheader in app.subheader)
+    assert any(subheader.value == "11. Run results" for subheader in app.subheader)
 
     data_flow_select = next(selectbox for selectbox in app.selectbox if selectbox.label == "Inspect data flow step")
     data_flow_select.set_value(data_flow_select.options[1])
     app.run(timeout=120)
 
-    assert any(subheader.value == "Run results" for subheader in app.subheader)
+    assert any(subheader.value == "11. Run results" for subheader in app.subheader)
     selected_again = next(selectbox for selectbox in app.selectbox if selectbox.label == "Inspect data flow step")
     assert selected_again.value == selected_again.options[1]
 

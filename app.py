@@ -595,7 +595,7 @@ def _render_hero() -> None:
 
 
 def _render_help_center() -> None:
-    st.subheader("Help center")
+    st.subheader("1. Help center")
     _section_caption("Read the quick-start guidance in the app before configuring and running a local experiment.")
 
     quick_start = """
@@ -618,7 +618,7 @@ def _configure_llm_settings(settings: Settings) -> Settings:
     saved_base_url = saved_config.get("llm_base_url", "")
     saved_model = saved_config.get("llm_model", "")
 
-    st.subheader("Report engine")
+    st.subheader("2. Report engine")
     if allow_local_llm_config:
         _section_caption(
             "Optional LLM configuration for plan and report generation. "
@@ -755,7 +755,7 @@ def _initialize_experiment_state(dataset_signature: str, columns: list[str]) -> 
 
 
 def _render_run_outputs(results: list[dict[str, object]]) -> None:
-    st.subheader("Artifacts")
+    st.subheader("10. Artifacts")
     _section_caption("Export the model, generated analysis report, and prediction sample for downstream review.")
     for result in results:
         run = result["run"]
@@ -784,25 +784,25 @@ def _render_run_outputs(results: list[dict[str, object]]) -> None:
                     mime="text/csv",
                 )
 
-    st.subheader("Run results")
+    st.subheader("11. Run results")
     _section_caption("Metrics, feature importance, and the generated report are shown below for immediate review.")
     for result in results:
         run = result["run"]
         with st.expander(f"{result['target']} results", expanded=len(results) == 1):
-            st.write("Metrics")
+            st.write("11.1 Metrics")
             _render_metrics(result["metrics"], priority_metric=result["priority_metric"])
-            st.write("Validation")
+            st.write("11.2 Validation")
             _render_validation_summary(
                 preflight=artifact_to_dict(result["preflight_validation"]),
                 postrun=artifact_to_dict(result["postrun_validation"]),
                 recommendations=artifact_to_dict(result["recommendations"]),
                 priority_metric=result["priority_metric"],
             )
-            st.write("Data flow")
+            st.write("11.3 Data flow")
             _render_data_flow(result["data_flow"])
-            st.write("Feature importance")
+            st.write("11.4 Feature importance")
             st.dataframe(pd.DataFrame(result["trained"].feature_importance), use_container_width=True)
-            st.write("Analysis report")
+            st.write("11.5 Analysis report")
             st.markdown(result["report"])
             st.caption(f"Artifacts saved to {Path(run.path).resolve()}")
 
@@ -1586,7 +1586,7 @@ def main() -> None:
     settings = _configure_llm_settings(load_settings())
     storage = RunStorage(settings.runs_dir)
 
-    st.subheader("Dataset intake")
+    st.subheader("3. Dataset intake")
     _section_caption("Start with one local CSV. The app keeps the experiment artifacts under the configured runs directory.")
 
     demo_csvs = sorted(Path(p).name for p in PROJECT_ROOT.glob("data/*.csv") if p.is_file())
@@ -1623,7 +1623,7 @@ def main() -> None:
     _initialize_experiment_state(current_dataset_fingerprint, columns)
     _consume_pending_plan_suggestion(columns)
 
-    st.subheader("Experiment setup")
+    st.subheader("4. Experiment setup")
     _section_caption("Choose the prediction target and tune the small number of parameters that affect the local run.")
     setup_cols = st.columns([1.2, 0.85, 1.15])
     with setup_cols[0]:
@@ -1720,7 +1720,7 @@ def main() -> None:
         dataset_fingerprint=current_dataset_fingerprint,
     )
     plan_data = artifact_to_dict(plan_suggestion)
-    st.subheader("Execution plan")
+    st.subheader("5. Execution plan")
     _section_caption("Use the brief-driven suggestion as a starting point, then confirm the explicit controls before running.")
     with st.expander("Planner suggestion", expanded=bool(planner_brief.strip())):
         _render_planner_suggestion(plan_data)
@@ -1728,7 +1728,7 @@ def main() -> None:
             _queue_plan_suggestion(plan_data, columns)
             st.rerun()
 
-    st.subheader("Manual cleaning rules")
+    st.subheader("6. Manual cleaning rules")
     _section_caption(
         "Draft local whitelist cleaning rules from a brief, edit them row by row, then apply them before EDA or only before training."
     )
@@ -1898,13 +1898,13 @@ def main() -> None:
             st.caption(f"Resolved priority metric: {priority_metrics[target]}")
             _render_issue_table(validation.get("issues", []))
 
-    st.subheader("Data preview")
+    st.subheader("7. Data preview")
     _section_caption("First 50 rows are shown for quick sanity checks before training.")
     if manual_cleaning_plan is not None and any(rule.enabled for rule in manual_cleaning_plan.rules) and manual_cleaning_plan.effect_stage == "pre_training":
         st.info("Manual cleaning rules are set to apply only before training. The data preview and EDA below still show the pre-cleaning analysis subset.")
     st.dataframe(analysis_df.head(50), use_container_width=True)
 
-    st.subheader("EDA summary")
+    st.subheader("8. EDA summary")
     _section_caption("A compact quality audit for shape, duplicates, missingness, correlations, and target behavior.")
     metric_cols = st.columns(4)
     with metric_cols[0]:
@@ -1961,7 +1961,7 @@ def main() -> None:
         for warning in eda_summary["quality_warnings"]:
             st.warning(warning)
 
-    st.subheader("Training run")
+    st.subheader("9. Training run")
     _section_caption("Launch the local pipeline after reviewing the setup and data audit.")
     results: list[dict[str, object]] = []
     if st.session_state.get("_latest_results_signature") == current_experiment_signature:

@@ -3,12 +3,16 @@ from __future__ import annotations
 import json
 from importlib import import_module
 import logging
+import re
 from typing import Any
 
 from ml_platform.artifacts import artifact_to_dict
 from ml_platform.config import Settings
 
 logger = logging.getLogger(__name__)
+
+_ATX_HEADING_RE = re.compile(r"^(#{1,6})\s+(.*\S)\s*$")
+_NUMBERED_HEADING_RE = re.compile(r"^\d+(?:\.\d+)*[.)]?\s+")
 
 
 def generate_report(
@@ -60,6 +64,7 @@ def generate_report_result(
                 postrun_validation=postrun_validation,
                 recommendations=recommendations,
             )
+            report = _add_heading_number_prefixes(report)
             logger.info("LLM report generated length=%d", len(report))
             return report, "llm"
         except Exception as exc:
@@ -74,21 +79,72 @@ def generate_report_result(
                 postrun_validation=postrun_validation,
                 recommendations=recommendations,
             )
+            fallback = _add_heading_number_prefixes(fallback)
             return fallback + f"\n\nLLM report generation failed, so this local rule-based report was used. Error: {exc}", "rule_based"
     logger.info("Using rule-based report (llm_enabled=%s)", settings.llm_enabled)
     return (
-        _generate_rule_based_report(
-            eda_summary,
-            cleaning_log,
-            metrics,
-            feature_importance,
-            plan_suggestion=plan_suggestion,
-            preflight_validation=preflight_validation,
-            postrun_validation=postrun_validation,
-            recommendations=recommendations,
+        _add_heading_number_prefixes(
+            _generate_rule_based_report(
+                eda_summary,
+                cleaning_log,
+                metrics,
+                feature_importance,
+                plan_suggestion=plan_suggestion,
+                preflight_validation=preflight_validation,
+                postrun_validation=postrun_validation,
+                recommendations=recommendations,
+            )
         ),
         "rule_based",
     )
+
+
+def _add_heading_number_prefixes(report: str) -> str:
+    if not report.strip():
+        return report
+
+    lines = report.splitlines()
+    numbered_lines: list[str] = []
+    counters = [0] * 6
+    base_level: int | None = None
+    previous_depth = 0
+    in_code_block = False
+
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("```"):
+            in_code_block = not in_code_block
+            numbered_lines.append(line)
+            continue
+
+        if in_code_block:
+            numbered_lines.append(line)
+            continue
+
+        match = _ATX_HEADING_RE.match(line)
+        if not match:
+            numbered_lines.append(line)
+            continue
+
+        hashes, title = match.groups()
+        level = len(hashes)
+        if base_level is None:
+            base_level = level
+
+        depth = max(1, level - base_level + 1)
+        if previous_depth and depth > previous_depth + 1:
+            depth = previous_depth + 1
+
+        counters[depth - 1] += 1
+        for index in range(depth, len(counters)):
+            counters[index] = 0
+        previous_depth = depth
+
+        number_prefix = ".".join(str(value) for value in counters[:depth])
+        normalized_title = title if _NUMBERED_HEADING_RE.match(title) else f"{number_prefix}. {title}"
+        numbered_lines.append(f"{hashes} {normalized_title}")
+
+    return "\n".join(numbered_lines)
 
 
 def _generate_rule_based_report(
