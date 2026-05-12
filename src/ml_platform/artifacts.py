@@ -46,6 +46,27 @@ class FeatureEngineeringPlan:
 
 
 @dataclass(frozen=True)
+class ManualCleaningRule:
+    id: str
+    enabled: bool = True
+    rule_type: str = "filter_row"
+    column: str = ""
+    operator: str | None = None
+    value: str | list[str] | None = None
+    rationale: str = ""
+
+
+@dataclass(frozen=True)
+class ManualCleaningPlan:
+    planner_name: str
+    user_brief: str = ""
+    effect_stage: str = "pre_eda"
+    rules: list[ManualCleaningRule] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
+    rejected_rules: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
 class PreflightValidation:
     ok_to_run: bool
     task_type: str

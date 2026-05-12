@@ -27,6 +27,15 @@ from ml_platform.eda import generate_eda_summary
 from ml_platform.evaluation import evaluate_model
 from ml_platform.feature_engineering import suggest_feature_engineering_plan
 from ml_platform.llm_report import generate_report_result
+from ml_platform.manual_cleaning import (
+    DEFAULT_EFFECT_STAGE,
+    FILTER_OPERATORS,
+    VALID_EFFECT_STAGES,
+    VALID_RULE_TYPES,
+    apply_manual_cleaning_plan,
+    suggest_manual_cleaning_plan,
+    validate_manual_cleaning_plan,
+)
 from ml_platform.planner import suggest_plan
 from ml_platform.storage import RunStorage
 from ml_platform.validation import build_recommendations, resolve_priority_metric, validate_postrun, validate_preflight
@@ -53,6 +62,7 @@ HERO_IMAGE_CANDIDATES = (
 LOCAL_LLM_CONFIG_PATH = PROJECT_ROOT / ".ml_platform.local.json"
 PLANNER_CACHE_VERSION = 1
 FEATURE_PLAN_CACHE_VERSION = 2
+MANUAL_CLEANING_PLAN_CACHE_VERSION = 1
 
 
 def _local_llm_config_enabled() -> bool:
@@ -680,6 +690,7 @@ def _experiment_signature(
     priority_metric_choice: str,
     planner_brief: str,
     feature_plan: Any,
+    manual_cleaning_plan: Any,
 ) -> str:
     payload = {
         "dataset_fingerprint": dataset_fingerprint,
@@ -693,6 +704,7 @@ def _experiment_signature(
         "priority_metric_choice": priority_metric_choice,
         "planner_brief": planner_brief.strip(),
         "feature_engineering_operations": _feature_plan_operations(feature_plan) if feature_plan else [],
+        "manual_cleaning_plan": artifact_to_dict(manual_cleaning_plan) if manual_cleaning_plan else None,
     }
     return hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=True).encode("utf-8")).hexdigest()
 
@@ -719,6 +731,11 @@ def _initialize_experiment_state(dataset_signature: str, columns: list[str]) -> 
     st.session_state["_feature_engineering_plan_signature"] = None
     st.session_state["_feature_engineering_plan"] = None
     st.session_state["_feature_engineering_override_plan"] = None
+    st.session_state["manual_cleaning_brief"] = ""
+    st.session_state["_manual_cleaning_plan_signature"] = None
+    st.session_state["_manual_cleaning_suggested_plan"] = None
+    st.session_state["_manual_cleaning_plan"] = None
+    st.session_state["_manual_cleaning_override_plan"] = None
     st.session_state["_latest_results_signature"] = None
     st.session_state["_latest_results"] = []
 
@@ -979,6 +996,234 @@ def _get_feature_engineering_plan(
     st.session_state["_feature_engineering_plan_signature"] = signature
     st.session_state["_feature_engineering_plan"] = plan
     return plan
+
+
+def _clone_json_data(value: Any) -> Any:
+    return json.loads(json.dumps(artifact_to_dict(value), ensure_ascii=False))
+
+
+def _new_manual_cleaning_rule(column: str = "", *, rule_type: str = "filter_row") -> dict[str, object]:
+    return {
+        "id": f"manual_rule_{os.urandom(4).hex()}",
+        "enabled": True,
+        "rule_type": rule_type,
+        "column": column,
+        "operator": "equals" if rule_type == "filter_row" else None,
+        "value": None,
+        "rationale": "",
+    }
+
+
+def _blank_manual_cleaning_plan(user_brief: str = "") -> dict[str, object]:
+    return {
+        "planner_name": "manual",
+        "user_brief": user_brief,
+        "effect_stage": DEFAULT_EFFECT_STAGE,
+        "rules": [_new_manual_cleaning_rule()],
+        "notes": [],
+        "rejected_rules": [],
+    }
+
+
+def _manual_cleaning_rule_value_text(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, list):
+        return ", ".join(str(item) for item in value if str(item).strip())
+    return str(value)
+
+
+def _manual_cleaning_effect_stage_label(effect_stage: str) -> str:
+    if effect_stage == "pre_training":
+        return "Apply only before training"
+    return "Apply before EDA and training"
+
+
+def _manual_cleaning_rule_rows(plan_data: dict[str, object]) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    for rule in plan_data.get("rules", []):
+        if not isinstance(rule, dict):
+            continue
+        rows.append(
+            {
+                "enabled": bool(rule.get("enabled", True)),
+                "rule_type": rule.get("rule_type"),
+                "column": rule.get("column"),
+                "operator": rule.get("operator") or "-",
+                "value": _manual_cleaning_rule_value_text(rule.get("value")) or "-",
+                "rationale": rule.get("rationale") or "",
+            }
+        )
+    return rows
+
+
+def _get_manual_cleaning_plan(
+    df: pd.DataFrame,
+    target: str,
+    settings: Settings,
+    user_brief: str,
+):
+    signature = (
+        MANUAL_CLEANING_PLAN_CACHE_VERSION,
+        tuple(str(column) for column in df.columns),
+        tuple(str(dtype) for dtype in df.dtypes),
+        len(df),
+        target,
+        user_brief.strip(),
+        bool(settings.openai_api_key),
+        settings.openai_base_url or "",
+        settings.openai_model,
+    )
+    if st.session_state.get("_manual_cleaning_plan_signature") == signature:
+        return st.session_state.get("_manual_cleaning_suggested_plan")
+
+    plan = suggest_manual_cleaning_plan(
+        df=df,
+        target=target,
+        settings=settings,
+        user_brief=user_brief,
+    )
+    st.session_state["_manual_cleaning_plan_signature"] = signature
+    st.session_state["_manual_cleaning_suggested_plan"] = plan
+    return plan
+
+
+def _render_manual_cleaning_editor(
+    draft_plan: dict[str, object],
+    *,
+    available_columns: list[str],
+) -> dict[str, object]:
+    current_rules = [item for item in draft_plan.get("rules", []) if isinstance(item, dict)]
+    effect_stage_value = str(draft_plan.get("effect_stage") or DEFAULT_EFFECT_STAGE)
+    if effect_stage_value not in VALID_EFFECT_STAGES:
+        effect_stage_value = DEFAULT_EFFECT_STAGE
+    effect_stage_options = ["pre_eda", "pre_training"]
+    effect_stage = st.radio(
+        "Rule effect stage",
+        effect_stage_options,
+        index=effect_stage_options.index(effect_stage_value),
+        format_func=_manual_cleaning_effect_stage_label,
+        horizontal=True,
+    )
+
+    updated_rules: list[dict[str, object]] = []
+    delete_rule_id: str | None = None
+    for index, rule in enumerate(current_rules, start=1):
+        rule_id = str(rule.get("id") or f"manual_rule_{index}")
+        enabled_default = bool(rule.get("enabled", True))
+        rule_type_default = str(rule.get("rule_type") or "filter_row")
+        if rule_type_default not in VALID_RULE_TYPES:
+            rule_type_default = "filter_row"
+        column_default = str(rule.get("column") or "")
+        operator_default = str(rule.get("operator") or "equals") if rule_type_default == "filter_row" else ""
+        if operator_default not in FILTER_OPERATORS:
+            operator_default = "equals"
+        value_default = _manual_cleaning_rule_value_text(rule.get("value"))
+        rationale_default = str(rule.get("rationale") or "")
+
+        title = f"Rule {index}: {column_default or 'Select column'}"
+        with st.expander(title, expanded=len(current_rules) == 1):
+            top_cols = st.columns([0.8, 1.0, 1.3, 0.9])
+            with top_cols[0]:
+                enabled = st.checkbox("Enabled", value=enabled_default, key=f"manual_rule_enabled_{rule_id}")
+            with top_cols[1]:
+                rule_type = st.selectbox(
+                    "Rule type",
+                    ["drop_column", "filter_row"],
+                    index=["drop_column", "filter_row"].index(rule_type_default),
+                    key=f"manual_rule_type_{rule_id}",
+                )
+            with top_cols[2]:
+                column_options = ["", *available_columns]
+                column_index = column_options.index(column_default) if column_default in column_options else 0
+                column = st.selectbox(
+                    "Column",
+                    column_options,
+                    index=column_index,
+                    key=f"manual_rule_column_{rule_id}",
+                )
+            with top_cols[3]:
+                delete_clicked = st.button("Delete rule", key=f"manual_rule_delete_{rule_id}")
+                if delete_clicked:
+                    delete_rule_id = rule_id
+
+            operator: str | None = None
+            parsed_value: str | list[str] | None = None
+            if rule_type == "filter_row":
+                operator_cols = st.columns([1.1, 1.9])
+                with operator_cols[0]:
+                    operator_options = [
+                        "is_null",
+                        "not_null",
+                        "equals",
+                        "not_equals",
+                        "in",
+                        "not_in",
+                        "contains",
+                        "not_contains",
+                        "gt",
+                        "gte",
+                        "lt",
+                        "lte",
+                    ]
+                    operator = st.selectbox(
+                        "Operator",
+                        operator_options,
+                        index=operator_options.index(operator_default),
+                        key=f"manual_rule_operator_{rule_id}",
+                    )
+                with operator_cols[1]:
+                    if operator in {"is_null", "not_null"}:
+                        st.caption("No value is needed for this operator.")
+                    else:
+                        label = "Values (comma-separated)" if operator in {"in", "not_in"} else "Value"
+                        raw_value = st.text_input(label, value=value_default, key=f"manual_rule_value_{rule_id}")
+                        if operator in {"in", "not_in"}:
+                            parsed_value = [item.strip() for item in raw_value.split(",") if item.strip()]
+                        else:
+                            parsed_value = raw_value.strip() or None
+            else:
+                st.caption("This rule drops the selected column before downstream processing.")
+
+            rationale = st.text_input("Rationale", value=rationale_default, key=f"manual_rule_rationale_{rule_id}")
+            updated_rules.append(
+                {
+                    "id": rule_id,
+                    "enabled": enabled,
+                    "rule_type": rule_type,
+                    "column": column,
+                    "operator": operator,
+                    "value": parsed_value,
+                    "rationale": rationale,
+                }
+            )
+
+    if delete_rule_id:
+        updated_rules = [rule for rule in updated_rules if str(rule.get("id")) != delete_rule_id]
+
+    controls = st.columns(2)
+    add_blank_rule = controls[0].button("Add blank rule")
+    reset_draft = controls[1].button("Reset draft")
+
+    updated_plan = {
+        "planner_name": str(draft_plan.get("planner_name") or "manual"),
+        "user_brief": str(draft_plan.get("user_brief") or ""),
+        "effect_stage": effect_stage,
+        "rules": updated_rules,
+        "notes": list(draft_plan.get("notes", [])) if isinstance(draft_plan.get("notes"), list) else [],
+        "rejected_rules": [],
+    }
+    if add_blank_rule:
+        updated_plan["rules"].append(_new_manual_cleaning_rule())
+    if reset_draft:
+        applied = st.session_state.get("_manual_cleaning_plan")
+        st.session_state["_manual_cleaning_override_plan"] = _clone_json_data(applied) if applied else None
+        st.rerun()
+
+    st.session_state["_manual_cleaning_override_plan"] = updated_plan
+    if delete_rule_id or add_blank_rule:
+        st.rerun()
+    return updated_plan
 
 
 def _render_target_profile(target_data: dict[str, object]) -> None:
@@ -1396,8 +1641,28 @@ def main() -> None:
         help="Excluded columns are removed before EDA and are not used as model features.",
     )
     analysis_columns = [column for column in columns if column not in excluded_columns]
-    analysis_df = df[analysis_columns].copy()
+    base_analysis_df = df[analysis_columns].copy()
     primary_target = target_columns[0]
+    applied_manual_cleaning_payload = st.session_state.get("_manual_cleaning_plan")
+    manual_cleaning_plan = None
+    analysis_manual_cleaning_log: list[dict[str, object]] = []
+    analysis_manual_cleaning_impact: dict[str, object] = {}
+    analysis_df = base_analysis_df
+    if isinstance(applied_manual_cleaning_payload, dict):
+        manual_cleaning_plan = validate_manual_cleaning_plan(
+            applied_manual_cleaning_payload,
+            base_analysis_df,
+            primary_target,
+            protected_columns=target_columns,
+        )
+        if any(rule.enabled for rule in manual_cleaning_plan.rules) and manual_cleaning_plan.effect_stage == "pre_eda":
+            analysis_df, analysis_manual_cleaning_log, analysis_manual_cleaning_impact = apply_manual_cleaning_plan(
+                base_analysis_df,
+                manual_cleaning_plan,
+                primary_target,
+                protected_columns=target_columns,
+            )
+
     candidate_feature_columns = [column for column in analysis_df.columns if column not in target_columns]
     task_types = _target_task_types(analysis_df, target_columns, task_type_choice)
     if len(target_columns) > 1:
@@ -1449,6 +1714,111 @@ def main() -> None:
             _queue_plan_suggestion(plan_data, columns)
             st.rerun()
 
+    st.subheader("Manual cleaning rules")
+    _section_caption(
+        "Draft local whitelist cleaning rules from a brief, edit them row by row, then apply them before EDA or only before training."
+    )
+    manual_cleaning_brief = st.text_area(
+        "Cleaning rules brief",
+        key="manual_cleaning_brief",
+        placeholder="Example: drop customer_id and keep rows where monthly_spend > 20 and churn equals 1.",
+        help="Natural-language rules are converted into a structured draft. Nothing is applied until you confirm.",
+    )
+    manual_rule_controls = st.columns(3)
+    with manual_rule_controls[0]:
+        if st.button("Generate cleaning rules"):
+            suggested_manual_plan = _get_manual_cleaning_plan(
+                df=base_analysis_df,
+                target=primary_target,
+                settings=settings,
+                user_brief=manual_cleaning_brief,
+            )
+            st.session_state["_manual_cleaning_override_plan"] = _clone_json_data(suggested_manual_plan)
+            st.rerun()
+    with manual_rule_controls[1]:
+        if st.button("Start with blank rule"):
+            st.session_state["_manual_cleaning_override_plan"] = _blank_manual_cleaning_plan(manual_cleaning_brief)
+            st.rerun()
+    with manual_rule_controls[2]:
+        if st.session_state.get("_manual_cleaning_plan") and st.button("Clear applied manual rules"):
+            st.session_state["_manual_cleaning_plan"] = None
+            st.session_state["_manual_cleaning_override_plan"] = None
+            st.rerun()
+
+    if st.session_state.get("_manual_cleaning_override_plan") is None and manual_cleaning_plan is not None:
+        st.session_state["_manual_cleaning_override_plan"] = _clone_json_data(manual_cleaning_plan)
+
+    draft_manual_plan = st.session_state.get("_manual_cleaning_override_plan")
+    if isinstance(draft_manual_plan, dict):
+        draft_manual_plan["user_brief"] = manual_cleaning_brief
+        edited_manual_plan = _render_manual_cleaning_editor(
+            draft_manual_plan,
+            available_columns=list(base_analysis_df.columns),
+        )
+        validated_manual_preview = validate_manual_cleaning_plan(
+            edited_manual_plan,
+            base_analysis_df,
+            primary_target,
+            protected_columns=target_columns,
+        )
+        preview_df, preview_log, preview_impact = apply_manual_cleaning_plan(
+            base_analysis_df,
+            validated_manual_preview,
+            primary_target,
+            protected_columns=target_columns,
+        )
+        preview_plan_data = artifact_to_dict(validated_manual_preview)
+        summary_cols = st.columns(5)
+        with summary_cols[0]:
+            st.metric("Planner", str(preview_plan_data.get("planner_name") or "manual"))
+        with summary_cols[1]:
+            st.metric("Effect stage", _manual_cleaning_effect_stage_label(validated_manual_preview.effect_stage))
+        with summary_cols[2]:
+            st.metric("Accepted rules", len(preview_plan_data.get("rules", [])))
+        with summary_cols[3]:
+            st.metric("Rejected rules", len(preview_plan_data.get("rejected_rules", [])))
+        with summary_cols[4]:
+            st.metric("Rows removed", int(preview_impact.get("rows_removed") or 0))
+
+        rule_rows = _manual_cleaning_rule_rows(preview_plan_data)
+        if rule_rows:
+            st.dataframe(pd.DataFrame(rule_rows), hide_index=True, use_container_width=True)
+        else:
+            st.caption("No manual cleaning rules are in the current draft.")
+
+        impact_cols = st.columns(3)
+        with impact_cols[0]:
+            st.metric("Columns removed", len(preview_impact.get("columns_removed", [])))
+        with impact_cols[1]:
+            st.metric("Rows after", int(preview_impact.get("rows_after") or len(base_analysis_df)))
+        with impact_cols[2]:
+            st.metric("Columns after", int(preview_impact.get("columns_after") or len(base_analysis_df.columns)))
+
+        detail_cols = st.columns(2)
+        with detail_cols[0]:
+            _render_text_items("Notes", preview_plan_data.get("notes", []), "No notes.")
+        with detail_cols[1]:
+            _render_text_items("Rejected rules", preview_plan_data.get("rejected_rules", []), "No rejected rules.")
+
+        with st.expander("Manual cleaning preview impact", expanded=False):
+            st.json(preview_impact, expanded=True)
+            st.dataframe(preview_df.head(20), use_container_width=True)
+            if preview_log:
+                st.write("Planned cleaning log")
+                st.json(preview_log, expanded=True)
+
+        apply_cols = st.columns(2)
+        with apply_cols[0]:
+            if st.button("Apply manual cleaning rules", type="primary"):
+                st.session_state["_manual_cleaning_plan"] = preview_plan_data
+                st.session_state["_manual_cleaning_override_plan"] = _clone_json_data(preview_plan_data)
+                st.rerun()
+        with apply_cols[1]:
+            if st.session_state.get("_manual_cleaning_plan"):
+                st.caption("Applied rules remain active until you clear them or apply a different draft.")
+    else:
+        st.caption("Generate rules from a brief or start with a blank rule to configure manual cleaning.")
+
     apply_feature_engineering = st.checkbox(
         "Apply local whitelist feature engineering",
         key="apply_feature_engineering",
@@ -1482,23 +1852,31 @@ def main() -> None:
         priority_metric_choice=priority_metric_choice,
         planner_brief=planner_brief,
         feature_plan=feature_plan,
+        manual_cleaning_plan=manual_cleaning_plan,
     )
 
     priority_metrics = {
         target: resolve_priority_metric(_target_task_types(analysis_df, [target], task_type_choice)[target], priority_metric_choice)
         for target in target_columns
     }
-    preflight_by_target = {
-        target: validate_preflight(
-            df=df,
+    preflight_by_target: dict[str, object] = {}
+    for target in target_columns:
+        preflight_input = analysis_df[[column for column in analysis_df.columns if column not in target_columns or column == target]].copy()
+        if manual_cleaning_plan is not None and any(rule.enabled for rule in manual_cleaning_plan.rules) and manual_cleaning_plan.effect_stage == "pre_training":
+            preflight_input, _, _ = apply_manual_cleaning_plan(
+                preflight_input,
+                manual_cleaning_plan,
+                target,
+                protected_columns=target_columns,
+            )
+        preflight_by_target[target] = validate_preflight(
+            df=preflight_input,
             target=target,
             task_type=task_types[target],
-            excluded_columns=excluded_columns,
+            excluded_columns=[],
             priority_metric=priority_metric_choice,
             high_missing_threshold=float(high_missing_threshold),
         )
-        for target in target_columns
-    }
     with st.expander("Preflight validation", expanded=True):
         for target in target_columns:
             validation = artifact_to_dict(preflight_by_target[target])
@@ -1508,6 +1886,8 @@ def main() -> None:
 
     st.subheader("Data preview")
     _section_caption("First 50 rows are shown for quick sanity checks before training.")
+    if manual_cleaning_plan is not None and any(rule.enabled for rule in manual_cleaning_plan.rules) and manual_cleaning_plan.effect_stage == "pre_training":
+        st.info("Manual cleaning rules are set to apply only before training. The data preview and EDA below still show the pre-cleaning analysis subset.")
     st.dataframe(analysis_df.head(50), use_container_width=True)
 
     st.subheader("EDA summary")
@@ -1607,9 +1987,18 @@ def main() -> None:
                     "analysis_subset",
                     "Analysis subset",
                     "intake",
-                    analysis_df,
+                    base_analysis_df,
                     metadata={"excluded_columns": excluded_columns},
                 )
+                if manual_cleaning_plan is not None and any(rule.enabled for rule in manual_cleaning_plan.rules) and manual_cleaning_plan.effect_stage == "pre_eda":
+                    tracker.snapshot_dataframe(
+                        "after_manual_cleaning_pre_eda",
+                        "After manual cleaning (EDA + training)",
+                        "intake",
+                        analysis_df,
+                        metadata=analysis_manual_cleaning_impact,
+                    )
+
                 target_df = analysis_df[feature_columns + [target]].copy()
                 tracker.snapshot_dataframe(
                     "target_dataset",
@@ -1619,6 +2008,30 @@ def main() -> None:
                     preview=True,
                     metadata={"target": target, "feature_columns": feature_columns},
                 )
+                training_input_df = target_df
+                manual_cleaning_log = list(analysis_manual_cleaning_log)
+                manual_cleaning_impact = dict(analysis_manual_cleaning_impact)
+                if manual_cleaning_plan is not None and any(rule.enabled for rule in manual_cleaning_plan.rules) and manual_cleaning_plan.effect_stage == "pre_training":
+                    target_manual_plan = validate_manual_cleaning_plan(
+                        manual_cleaning_plan,
+                        target_df,
+                        target,
+                        protected_columns=target_columns,
+                    )
+                    training_input_df, manual_cleaning_log, manual_cleaning_impact = apply_manual_cleaning_plan(
+                        target_df,
+                        target_manual_plan,
+                        target,
+                        protected_columns=target_columns,
+                    )
+                    tracker.snapshot_dataframe(
+                        "after_manual_cleaning_pre_training",
+                        "After manual cleaning (training only)",
+                        "intake",
+                        training_input_df,
+                        metadata=manual_cleaning_impact,
+                    )
+
                 target_eda_summary = generate_eda_summary(target_df, target=target)
                 config = CleanConfig(
                     target=target,
@@ -1628,7 +2041,9 @@ def main() -> None:
                     high_missing_threshold=float(high_missing_threshold),
                     feature_engineering_operations=_feature_plan_operations(feature_plan) if feature_plan else None,
                 )
-                cleaned = clean_and_split(target_df, config, tracker=tracker)
+                cleaned = clean_and_split(training_input_df, config, tracker=tracker)
+                if manual_cleaning_log:
+                    cleaned.cleaning_log = manual_cleaning_log + cleaned.cleaning_log
                 trained = train_model(cleaned, time_budget=int(time_budget), metric_preference=priority_metric, tracker=tracker)
                 metrics, prediction_sample = evaluate_model(trained.model, cleaned, task_type=task_type, tracker=tracker)
                 tracker.snapshot_artifact(
@@ -1700,12 +2115,16 @@ def main() -> None:
                         "trainer": trained.trainer_name,
                         "planner_name": plan_suggestion.planner_name,
                         "feature_engineering_enabled": bool(feature_plan),
+                        "manual_cleaning_enabled": bool(manual_cleaning_plan and any(rule.enabled for rule in manual_cleaning_plan.rules)),
+                        "manual_cleaning_effect_stage": manual_cleaning_plan.effect_stage if manual_cleaning_plan else None,
                         "dataset_fingerprint": current_dataset_fingerprint,
                     }
                 )
                 storage.save_json(run, "plan.json", artifact_to_dict(plan_suggestion))
                 if feature_plan:
                     storage.save_json(run, "feature_engineering_plan.json", artifact_to_dict(feature_plan))
+                if manual_cleaning_plan:
+                    storage.save_json(run, "manual_cleaning_plan.json", artifact_to_dict(manual_cleaning_plan))
                 storage.save_json(run, "eda_summary.json", target_eda_summary)
                 storage.save_json(run, "cleaning_log.json", cleaned.cleaning_log)
                 storage.save_json(run, "metrics.json", metrics)
@@ -1722,6 +2141,10 @@ def main() -> None:
                         "trainer_name": trained.trainer_name,
                         "optimization_metric_used": trained.optimization_metric_used,
                         "training_notes": trained.training_notes or [],
+                        "manual_cleaning_effect_stage": manual_cleaning_plan.effect_stage if manual_cleaning_plan else None,
+                        "manual_cleaning_applied_rules": 0
+                        if not manual_cleaning_plan
+                        else sum(1 for rule in manual_cleaning_plan.rules if rule.enabled),
                     },
                 )
                 report_path = storage.save_text(run, "report.md", report)

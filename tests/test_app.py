@@ -46,3 +46,33 @@ def test_data_flow_selection_does_not_drop_latest_results(monkeypatch, tmp_path)
     assert any(subheader.value == "Run results" for subheader in app.subheader)
     selected_again = next(selectbox for selectbox in app.selectbox if selectbox.label == "Inspect data flow step")
     assert selected_again.value == selected_again.options[1]
+
+
+def test_manual_cleaning_rules_only_change_eda_after_apply(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("ML_PLATFORM_RUNS_DIR", str(tmp_path / "runs"))
+
+    app = AppTest.from_file("app.py")
+    app.run(timeout=120)
+
+    app.radio[0].set_value("Demo: demo_customer_churn.csv")
+    app.run(timeout=120)
+
+    def rows_metric_value() -> str:
+        return next(metric.value for metric in app.metric if metric.label == "Rows")
+
+    assert rows_metric_value() == "24"
+
+    app.text_area(key="manual_cleaning_brief").set_value("keep rows where churn equals yes")
+    app.run(timeout=120)
+
+    generate_button = next(button for button in app.button if button.label == "Generate cleaning rules")
+    generate_button.click()
+    app.run(timeout=120)
+
+    assert rows_metric_value() == "24"
+
+    apply_button = next(button for button in app.button if button.label == "Apply manual cleaning rules")
+    apply_button.click()
+    app.run(timeout=120)
+
+    assert rows_metric_value() == "10"
