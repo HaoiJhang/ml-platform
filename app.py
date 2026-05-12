@@ -2055,7 +2055,7 @@ def main() -> None:
                     "evaluation",
                     metadata={"metrics": metrics, "priority_metric": priority_metric},
                 )
-                planned_report_mode = "openai" if settings.llm_enabled else "rule_based"
+                planned_report_mode = "llm" if settings.llm_enabled else "rule_based"
                 postrun_validation = validate_postrun(
                     metrics=metrics,
                     prediction_sample=prediction_sample,

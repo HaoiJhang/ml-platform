@@ -211,7 +211,7 @@ def validate_postrun(
             )
         )
 
-    if report_mode not in {"", "pending", "openai"}:
+    if report_mode not in {"", "pending", "llm"}:
         issues.append(
             ValidationIssue(
                 "info",
@@ -259,7 +259,7 @@ def build_recommendations(
             next_steps.append("Inspect feature leakage, reduce model complexity, and compare with cross-validation.")
         if any(issue.code == "priority_metric_unavailable" for issue in postrun.issues):
             next_steps.append(f"Pick a metric compatible with {postrun.task_type} or adjust the task definition.")
-        if postrun.report_mode not in {"", "pending", "openai"}:
+        if postrun.report_mode not in {"", "pending", "llm"}:
             next_steps.append("Provide an API key if you want a narrative report beyond the local rules.")
 
     if not summary:

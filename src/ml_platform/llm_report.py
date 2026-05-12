@@ -59,10 +59,10 @@ def generate_report_result(
                 postrun_validation=postrun_validation,
                 recommendations=recommendations,
             )
-            logger.info("OpenAI report generated length=%d", len(report))
-            return report, "openai"
+            logger.info("LLM report generated length=%d", len(report))
+            return report, "llm"
         except Exception as exc:
-            logger.warning("OpenAI report generation failed, using rule-based fallback: %s", exc)
+            logger.warning("LLM report generation failed, using rule-based fallback: %s", exc)
             fallback = _generate_rule_based_report(
                 eda_summary,
                 cleaning_log,
