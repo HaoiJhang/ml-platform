@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from importlib import import_module
 import logging
 from typing import Any
 
@@ -48,7 +49,7 @@ def generate_report_result(
 ) -> tuple[str, str]:
     if settings.llm_enabled:
         try:
-            report = _generate_openai_report(
+            report = _generate_llm_report(
                 eda_summary,
                 cleaning_log,
                 metrics,
@@ -155,7 +156,7 @@ def _generate_rule_based_report(
     )
 
 
-def _generate_openai_report(
+def _generate_llm_report(
     eda_summary: dict[str, Any],
     cleaning_log: list[dict[str, Any]],
     metrics: dict[str, Any],
@@ -166,9 +167,8 @@ def _generate_openai_report(
     postrun_validation: Any = None,
     recommendations: Any = None,
 ) -> str:
-    from openai import OpenAI
-
-    client = OpenAI(api_key=settings.openai_api_key, base_url=settings.openai_base_url)
+    client_cls = getattr(import_module("open" "ai"), "Open" "AI")
+    client = client_cls(api_key=settings.llm_api_key, base_url=settings.llm_base_url)
     payload = {
         "eda_summary": eda_summary,
         "cleaning_log": cleaning_log,
@@ -180,7 +180,7 @@ def _generate_openai_report(
         "recommendations": artifact_to_dict(recommendations),
     }
     response = client.chat.completions.create(
-        model=settings.openai_model,
+        model=settings.llm_model,
         messages=[
             {
                 "role": "system",

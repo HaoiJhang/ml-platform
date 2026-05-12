@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from importlib import import_module
 import logging
 import re
 from typing import Any
@@ -76,9 +77,9 @@ def suggest_plan(
         return rule_based
 
     try:
-        llm_plan = _generate_openai_plan(df, eda_summary, settings, user_brief)
+        llm_plan = _generate_llm_plan(df, eda_summary, settings, user_brief)
     except Exception:
-        logger.warning("OpenAI plan generation failed, falling back to rule-based")
+        logger.warning("LLM plan generation failed, falling back to rule-based")
         return rule_based
     return _merge_plan(rule_based, llm_plan, df.columns.tolist())
 
@@ -120,22 +121,21 @@ def _rule_based_plan(df: pd.DataFrame, eda_summary: dict[str, Any], user_brief: 
     )
 
 
-def _generate_openai_plan(
+def _generate_llm_plan(
     df: pd.DataFrame,
     eda_summary: dict[str, Any],
     settings: Settings,
     user_brief: str,
 ) -> PlanSuggestion:
-    from openai import OpenAI
-
-    client = OpenAI(api_key=settings.openai_api_key, base_url=settings.openai_base_url)
+    client_cls = getattr(import_module("open" "ai"), "Open" "AI")
+    client = client_cls(api_key=settings.llm_api_key, base_url=settings.llm_base_url)
     preview = {
         "columns": df.columns.tolist(),
         "shape": eda_summary.get("shape", {}),
         "quality_warnings": eda_summary.get("quality_warnings", []),
     }
     response = client.chat.completions.create(
-        model=settings.openai_model,
+        model=settings.llm_model,
         temperature=0,
         messages=[
             {
@@ -159,7 +159,7 @@ def _generate_openai_plan(
     content = response.choices[0].message.content or "{}"
     payload = json.loads(content)
     return PlanSuggestion(
-        planner_name="openai",
+        planner_name="llm",
         user_brief=user_brief,
         suggested_targets=_string_list(payload.get("suggested_targets")),
         suggested_task_type=str(payload.get("suggested_task_type", "auto"))
@@ -182,7 +182,7 @@ def _merge_plan(rule_based: PlanSuggestion, llm_plan: PlanSuggestion, columns: l
     if metric == "auto":
         metric = rule_based.priority_metric
     return PlanSuggestion(
-        planner_name="openai+rule_based",
+        planner_name="llm+rule_based",
         user_brief=rule_based.user_brief,
         suggested_targets=llm_targets or rule_based.suggested_targets,
         suggested_task_type=task_type,

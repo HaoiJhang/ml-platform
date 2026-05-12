@@ -32,7 +32,7 @@ directory containing `config.json`, `eda_summary.json`, `cleaning_log.json`,
 `model.joblib`, and `report.md`. Run metadata is also recorded in
 `runs/runs.sqlite`.
 
-LLM report generation is optional. If `OPENAI_API_KEY` is not configured, the
+LLM report generation is optional. If `LLM_API_KEY` is not configured, the
 pipeline still completes and writes a local rule-based report.
 
 ## Streamlit Community Cloud
@@ -52,21 +52,21 @@ Community Cloud default.
 To keep the hosted UI aligned with the local baseline, the project pins
 `streamlit==1.50.0` instead of floating to newer widget layouts.
 
-If you want the hosted app to use an OpenAI-compatible API key without asking
+If you want the hosted app to use a compatible LLM API key without asking
 each user to enter one, add secrets in Streamlit Community Cloud instead of
 committing them to the repository:
 
 ```toml
-OPENAI_API_KEY = "..."
-OPENAI_BASE_URL = "..."
-OPENAI_MODEL = "gpt-4o-mini"
+LLM_API_KEY = "..."
+LLM_BASE_URL = "..."
+LLM_MODEL = "gpt-4o-mini"
 ```
 
 By default, the app can persist API keys entered in the UI to the local
 `.ml_platform.local.json` file when the user enables
 `Remember LLM settings on this device`. On shared or public deployments, disable
 this behavior with `ML_PLATFORM_ALLOW_LOCAL_LLM_CONFIG=0` and prefer host
-secrets instead.
+secrets instead. The app also accepts legacy provider-prefixed variable names for compatibility.
 
 Feature work is developed on small `dev/*` branches, committed after tests pass,
 and merged back to `main`.

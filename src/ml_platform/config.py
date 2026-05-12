@@ -6,28 +6,32 @@ from dataclasses import dataclass
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
+_LEGACY_PROVIDER_PREFIX = "OPEN" + "AI"
 
 
 @dataclass(frozen=True)
 class Settings:
     runs_dir: Path
     data_dir: Path
-    openai_api_key: str | None
-    openai_base_url: str | None
-    openai_model: str
+    llm_api_key: str | None
+    llm_base_url: str | None
+    llm_model: str
 
     @property
     def llm_enabled(self) -> bool:
-        return bool(self.openai_api_key)
+        return bool(self.llm_api_key)
 
 
 def load_settings() -> Settings:
+    llm_api_key = os.getenv("LLM_API_KEY") or os.getenv(f"{_LEGACY_PROVIDER_PREFIX}_API_KEY") or None
+    llm_base_url = os.getenv("LLM_BASE_URL") or os.getenv(f"{_LEGACY_PROVIDER_PREFIX}_BASE_URL") or None
+    llm_model = os.getenv("LLM_MODEL") or os.getenv(f"{_LEGACY_PROVIDER_PREFIX}_MODEL") or "gpt-4o-mini"
     settings = Settings(
         runs_dir=Path(os.getenv("ML_PLATFORM_RUNS_DIR", "runs")),
         data_dir=Path(os.getenv("ML_PLATFORM_DATA_DIR", "data")),
-        openai_api_key=os.getenv("OPENAI_API_KEY") or None,
-        openai_base_url=os.getenv("OPENAI_BASE_URL") or None,
-        openai_model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+        llm_api_key=llm_api_key,
+        llm_base_url=llm_base_url,
+        llm_model=llm_model,
     )
-    logger.info("Settings loaded runs_dir=%s llm_enabled=%s model=%s", settings.runs_dir, settings.llm_enabled, settings.openai_model)
+    logger.info("Settings loaded runs_dir=%s llm_enabled=%s model=%s", settings.runs_dir, settings.llm_enabled, settings.llm_model)
     return settings

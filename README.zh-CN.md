@@ -55,12 +55,12 @@ UV_CACHE_DIR=.uv-cache uv run streamlit run app.py
 
 为了让公网界面和本地基准样式保持一致，项目把 `streamlit` 固定在 `1.50.0`，不跟随新版上传组件布局变化。
 
-如果希望公网版本内置 OpenAI 兼容 API 配置，请在 Streamlit Community Cloud 的 Secrets 里填写，不要写进仓库：
+如果希望公网版本内置兼容 LLM API 的配置，请在 Streamlit Community Cloud 的 Secrets 里填写，不要写进仓库：
 
 ```toml
-OPENAI_API_KEY = "..."
-OPENAI_BASE_URL = "..."
-OPENAI_MODEL = "gpt-4o-mini"
+LLM_API_KEY = "..."
+LLM_BASE_URL = "..."
+LLM_MODEL = "gpt-4o-mini"
 ```
 
 默认情况下，只要勾选页面里的 `Remember LLM settings on this device`，应用就会把 LLM 配置保存到当前项目目录下的本地文件 `.ml_platform.local.json`。如果是共享机器或公网部署，建议显式设置环境变量 `ML_PLATFORM_ALLOW_LOCAL_LLM_CONFIG=0` 关闭这个能力，改用宿主环境 secrets。
@@ -201,9 +201,9 @@ predict churn, optimize recall, ignore customer_id-like fields, keep this as a q
 
 ## 6. LLM 配置说明
 
-如果设置了 `OPENAI_API_KEY` 环境变量，应用会自动读取；如果页面中手动输入了 API key，则优先使用页面值。
+如果设置了 `LLM_API_KEY` 环境变量，应用会自动读取；如果页面中手动输入了 API key，则优先使用页面值。
 
-`Base URL` 支持 OpenAI 兼容接口。如果你接的是代理或兼容服务，可以在这里填写对应地址。
+`Base URL` 支持兼容接口。如果你接的是代理或兼容服务，可以在这里填写对应地址。
 
 如果 LLM 调用失败，应用会自动回退到本地规则版 planner 或 report，不会因为 LLM 不可用而阻断整个训练流程。
 
@@ -211,7 +211,7 @@ predict churn, optimize recall, ignore customer_id-like fields, keep this as a q
 
 ### 7.1 页面刷新后 API key 丢失
 
-如果本地持久化是开启状态，勾选 `Remember LLM settings on this device` 后，配置会保存到本地 `.ml_platform.local.json`，刷新后自动回填。如果你在共享机器或公网部署里显式设置了 `ML_PLATFORM_ALLOW_LOCAL_LLM_CONFIG=0`，那页面输入的 API key 只在当前会话有效；这类环境更稳妥的做法是在 Streamlit Community Cloud 的 Secrets 中配置 `OPENAI_API_KEY`。
+如果本地持久化是开启状态，勾选 `Remember LLM settings on this device` 后，配置会保存到本地 `.ml_platform.local.json`，刷新后自动回填。如果你在共享机器或公网部署里显式设置了 `ML_PLATFORM_ALLOW_LOCAL_LLM_CONFIG=0`，那页面输入的 API key 只在当前会话有效；这类环境更稳妥的做法是在 Streamlit Community Cloud 的 Secrets 中配置 `LLM_API_KEY`。
 
 ### 7.2 看到 “LLM report generation failed” 但训练已经完成
 

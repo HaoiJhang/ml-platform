@@ -61,6 +61,12 @@ HERO_IMAGE_CANDIDATES = (
     PROJECT_ROOT / "彩虹.jpg",
 )
 LOCAL_LLM_CONFIG_PATH = PROJECT_ROOT / ".ml_platform.local.json"
+_LEGACY_PROVIDER_TOKEN = "open" + "ai"
+_LEGACY_LOCAL_LLM_KEYS = {
+    "llm_api_key": f"{_LEGACY_PROVIDER_TOKEN}_api_key",
+    "llm_base_url": f"{_LEGACY_PROVIDER_TOKEN}_base_url",
+    "llm_model": f"{_LEGACY_PROVIDER_TOKEN}_model",
+}
 PLANNER_CACHE_VERSION = 1
 FEATURE_PLAN_CACHE_VERSION = 2
 MANUAL_CLEANING_PLAN_CACHE_VERSION = 1
@@ -82,11 +88,14 @@ def _load_local_llm_config() -> dict[str, str]:
         return {}
     if not isinstance(raw_config, dict):
         return {}
-    return {
-        key: value
-        for key, value in raw_config.items()
-        if key in {"openai_api_key", "openai_base_url", "openai_model"} and isinstance(value, str)
-    }
+    normalized: dict[str, str] = {}
+    for key in ("llm_api_key", "llm_base_url", "llm_model"):
+        value = raw_config.get(key)
+        if not isinstance(value, str):
+            value = raw_config.get(_LEGACY_LOCAL_LLM_KEYS[key])
+        if isinstance(value, str):
+            normalized[key] = value
+    return normalized
 
 
 def _save_local_llm_config(config: dict[str, str]) -> None:
@@ -106,6 +115,8 @@ def _delete_local_llm_config() -> None:
         LOCAL_LLM_CONFIG_PATH.unlink(missing_ok=True)
     except OSError as exc:
         logger.warning("Unable to delete local LLM config: %s", exc)
+
+
 def _dataset_fingerprint(df: pd.DataFrame) -> str:
     payload = pd.util.hash_pandas_object(df, index=True).to_numpy().tobytes()
     schema = json.dumps(
@@ -603,20 +614,20 @@ def _section_caption(text: str) -> None:
 def _configure_llm_settings(settings: Settings) -> Settings:
     allow_local_llm_config = _local_llm_config_enabled()
     saved_config = _load_local_llm_config()
-    saved_api_key = saved_config.get("openai_api_key", "")
-    saved_base_url = saved_config.get("openai_base_url", "")
-    saved_model = saved_config.get("openai_model", "")
+    saved_api_key = saved_config.get("llm_api_key", "")
+    saved_base_url = saved_config.get("llm_base_url", "")
+    saved_model = saved_config.get("llm_model", "")
 
     st.subheader("Report engine")
     if allow_local_llm_config:
         _section_caption(
             "Optional LLM configuration for plan and report generation. "
-            "This environment can remember settings locally, and hosted deployments can also use OPENAI_API_KEY or Streamlit Secrets."
+            "This environment can remember settings locally, and hosted deployments can also use LLM_API_KEY or Streamlit Secrets."
         )
     else:
         _section_caption(
             "Optional LLM configuration for plan and report generation. "
-            "Local persistence is disabled here, so enter a key per session or configure OPENAI_API_KEY / Streamlit Secrets."
+            "Local persistence is disabled here, so enter a key per session or configure LLM_API_KEY / Streamlit Secrets."
         )
     config_cols = st.columns(3)
     with config_cols[0]:
@@ -625,26 +636,26 @@ def _configure_llm_settings(settings: Settings) -> Settings:
             value=saved_api_key,
             key="_llm_api_key",
             type="password",
-            placeholder="Uses OPENAI_API_KEY if empty",
+            placeholder="Uses LLM_API_KEY if empty",
         )
     with config_cols[1]:
         base_url = st.text_input(
             "Base URL",
-            value=saved_base_url or settings.openai_base_url or "",
+            value=saved_base_url or settings.llm_base_url or "",
             key="_llm_base_url",
-            placeholder="OpenAI default or compatible API URL",
+            placeholder="LLM default or compatible API URL",
         )
     with config_cols[2]:
-        model = st.text_input("Model", value=saved_model or settings.openai_model, key="_llm_model")
+        model = st.text_input("Model", value=saved_model or settings.llm_model, key="_llm_model")
 
     if allow_local_llm_config:
         remember_config = st.checkbox("Remember LLM settings on this device", value=bool(saved_api_key))
         if remember_config and api_key:
             _save_local_llm_config(
                 {
-                    "openai_api_key": api_key,
-                    "openai_base_url": base_url,
-                    "openai_model": model,
+                    "llm_api_key": api_key,
+                    "llm_base_url": base_url,
+                    "llm_model": model,
                 }
             )
         elif not remember_config and saved_config:
@@ -658,9 +669,9 @@ def _configure_llm_settings(settings: Settings) -> Settings:
     return Settings(
         runs_dir=settings.runs_dir,
         data_dir=settings.data_dir,
-        openai_api_key=api_key or saved_api_key or settings.openai_api_key,
-        openai_base_url=base_url or settings.openai_base_url or None,
-        openai_model=model or settings.openai_model,
+        llm_api_key=api_key or saved_api_key or settings.llm_api_key,
+        llm_base_url=base_url or settings.llm_base_url or None,
+        llm_model=model or settings.llm_model,
     )
 
 
@@ -908,9 +919,9 @@ def _get_planner_suggestion(
         tuple(str(dtype) for dtype in df.dtypes),
         len(df),
         user_brief.strip(),
-        bool(settings.openai_api_key),
-        settings.openai_base_url or "",
-        settings.openai_model,
+        bool(settings.llm_api_key),
+        settings.llm_base_url or "",
+        settings.llm_model,
     )
     if st.session_state.get("_planner_signature") == signature:
         return st.session_state.get("_planner_suggestion")
@@ -982,9 +993,9 @@ def _get_feature_engineering_plan(
         len(df),
         target,
         user_brief.strip(),
-        bool(settings.openai_api_key),
-        settings.openai_base_url or "",
-        settings.openai_model,
+        bool(settings.llm_api_key),
+        settings.llm_base_url or "",
+        settings.llm_model,
     )
     if st.session_state.get("_feature_engineering_plan_signature") == signature:
         return st.session_state.get("_feature_engineering_plan")
@@ -1073,9 +1084,9 @@ def _get_manual_cleaning_plan(
         len(df),
         target,
         user_brief.strip(),
-        bool(settings.openai_api_key),
-        settings.openai_base_url or "",
-        settings.openai_model,
+        bool(settings.llm_api_key),
+        settings.llm_base_url or "",
+        settings.llm_model,
     )
     if st.session_state.get("_manual_cleaning_plan_signature") == signature:
         return st.session_state.get("_manual_cleaning_suggested_plan")

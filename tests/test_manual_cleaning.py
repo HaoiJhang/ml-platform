@@ -10,9 +10,9 @@ def _settings() -> Settings:
     return Settings(
         runs_dir=Path("runs"),
         data_dir=Path("data"),
-        openai_api_key=None,
-        openai_base_url=None,
-        openai_model="gpt-4o-mini",
+        llm_api_key=None,
+        llm_base_url=None,
+        llm_model="gpt-4o-mini",
     )
 
 

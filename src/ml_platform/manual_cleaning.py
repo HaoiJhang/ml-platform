@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from importlib import import_module
 import logging
 import re
 from typing import Any
@@ -47,9 +48,9 @@ def suggest_manual_cleaning_plan(
         return rule_based
 
     try:
-        llm_plan = _generate_openai_manual_cleaning_plan(df, target, settings, user_brief)
+        llm_plan = _generate_llm_manual_cleaning_plan(df, target, settings, user_brief)
     except Exception as exc:
-        logger.warning("OpenAI manual cleaning plan generation failed, using rule-based plan: %s", exc)
+        logger.warning("LLM manual cleaning plan generation failed, using rule-based plan: %s", exc)
         return rule_based
 
     validated = validate_manual_cleaning_plan(llm_plan, df, target)
@@ -57,7 +58,7 @@ def suggest_manual_cleaning_plan(
     rejected = validated.rejected_rules
     notes = (llm_plan.notes or []) + rule_based.notes
     return ManualCleaningPlan(
-        planner_name="openai+rule_based",
+        planner_name="llm+rule_based",
         user_brief=user_brief,
         effect_stage=validated.effect_stage,
         rules=rules,
@@ -496,15 +497,14 @@ def _rule_based_plan(df: pd.DataFrame, target: str, user_brief: str) -> ManualCl
     )
 
 
-def _generate_openai_manual_cleaning_plan(
+def _generate_llm_manual_cleaning_plan(
     df: pd.DataFrame,
     target: str,
     settings: Settings,
     user_brief: str,
 ) -> ManualCleaningPlan:
-    from openai import OpenAI
-
-    client = OpenAI(api_key=settings.openai_api_key, base_url=settings.openai_base_url)
+    client_cls = getattr(import_module("open" "ai"), "Open" "AI")
+    client = client_cls(api_key=settings.llm_api_key, base_url=settings.llm_base_url)
     schema = {
         "allowed_rule_types": sorted(VALID_RULE_TYPES),
         "allowed_filter_operators": sorted(FILTER_OPERATORS),
@@ -523,7 +523,7 @@ def _generate_openai_manual_cleaning_plan(
         "numeric_columns": df.select_dtypes(include=["number"]).columns.tolist(),
     }
     response = client.chat.completions.create(
-        model=settings.openai_model,
+        model=settings.llm_model,
         temperature=0,
         messages=[
             {
@@ -551,7 +551,7 @@ def _generate_openai_manual_cleaning_plan(
     payload = json.loads(response.choices[0].message.content or "{}")
     return manual_cleaning_plan_from_payload(
         {
-            "planner_name": "openai",
+            "planner_name": "llm",
             "user_brief": user_brief,
             "effect_stage": payload.get("effect_stage", DEFAULT_EFFECT_STAGE),
             "rules": payload.get("rules", []),

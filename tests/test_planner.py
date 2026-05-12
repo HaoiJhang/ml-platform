@@ -18,9 +18,9 @@ def test_planner_suggests_target_metric_and_identifier_exclusion(tmp_path) -> No
     settings = Settings(
         runs_dir=tmp_path,
         data_dir=tmp_path / "data",
-        openai_api_key=None,
-        openai_base_url=None,
-        openai_model="test",
+        llm_api_key=None,
+        llm_base_url=None,
+        llm_model="test",
     )
 
     plan = suggest_plan(
@@ -47,14 +47,14 @@ def test_planner_merges_llm_and_rule_based_exclusions_and_normalizes_metric(tmp_
     settings = Settings(
         runs_dir=tmp_path,
         data_dir=tmp_path / "data",
-        openai_api_key="test-key",
-        openai_base_url=None,
-        openai_model="test",
+        llm_api_key="test-key",
+        llm_base_url=None,
+        llm_model="test",
     )
 
-    def _fake_openai_plan(*args, **kwargs) -> PlanSuggestion:
+    def _fake_llm_plan(*args, **kwargs) -> PlanSuggestion:
         return PlanSuggestion(
-            planner_name="openai",
+            planner_name="llm",
             user_brief="predict churn and optimize recall",
             suggested_targets=["churn"],
             suggested_task_type="classification",
@@ -64,7 +64,7 @@ def test_planner_merges_llm_and_rule_based_exclusions_and_normalizes_metric(tmp_
             risk_flags=[],
         )
 
-    monkeypatch.setattr("ml_platform.planner._generate_openai_plan", _fake_openai_plan)
+    monkeypatch.setattr("ml_platform.planner._generate_llm_plan", _fake_llm_plan)
 
     plan = suggest_plan(
         df=df,

@@ -38,9 +38,9 @@ def test_end_to_end_classification_smoke(tmp_path: Path) -> None:
     settings = Settings(
         runs_dir=tmp_path,
         data_dir=tmp_path / "data",
-        openai_api_key=None,
-        openai_base_url=None,
-        openai_model="test",
+        llm_api_key=None,
+        llm_base_url=None,
+        llm_model="test",
     )
     plan = suggest_plan(df, eda, settings, user_brief="predict species with a quick baseline and optimize f1")
     preflight = validate_preflight(

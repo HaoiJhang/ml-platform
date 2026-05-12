@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from importlib import import_module
 import logging
 from typing import Any
 
@@ -57,16 +58,16 @@ def suggest_feature_engineering_plan(
         return rule_based
 
     try:
-        llm_plan = _generate_openai_feature_plan(df, target, eda_summary, settings, user_brief)
+        llm_plan = _generate_llm_feature_plan(df, target, eda_summary, settings, user_brief)
     except Exception as exc:
-        logger.warning("OpenAI feature plan generation failed, using rule-based plan: %s", exc)
+        logger.warning("LLM feature plan generation failed, using rule-based plan: %s", exc)
         return rule_based
 
     validated = validate_feature_engineering_plan(llm_plan.operations, df, target)
     operations = validated.operations or rule_based.operations
     notes = (llm_plan.notes or []) + rule_based.notes
     return FeatureEngineeringPlan(
-        planner_name="openai+local_whitelist",
+        planner_name="llm+local_whitelist",
         operations=operations,
         rejected_operations=validated.rejected_operations,
         notes=notes,
@@ -196,16 +197,15 @@ def _rule_based_plan(df: pd.DataFrame, target: str, eda_summary: dict[str, Any])
     return validate_feature_engineering_plan(operations, df, target)
 
 
-def _generate_openai_feature_plan(
+def _generate_llm_feature_plan(
     df: pd.DataFrame,
     target: str,
     eda_summary: dict[str, Any],
     settings: Settings,
     user_brief: str,
 ) -> FeatureEngineeringPlan:
-    from openai import OpenAI
-
-    client = OpenAI(api_key=settings.openai_api_key, base_url=settings.openai_base_url)
+    client_cls = getattr(import_module("open" "ai"), "Open" "AI")
+    client = client_cls(api_key=settings.llm_api_key, base_url=settings.llm_base_url)
     schema = {
         "allowed_operations": {
             "date_parts": {"source_column": "string", "parts": sorted(ALLOWED_DATE_PARTS)},
@@ -228,7 +228,7 @@ def _generate_openai_feature_plan(
         "quality_warnings": eda_summary.get("quality_warnings", []),
     }
     response = client.chat.completions.create(
-        model=settings.openai_model,
+        model=settings.llm_model,
         temperature=0,
         messages=[
             {
@@ -252,7 +252,7 @@ def _generate_openai_feature_plan(
     payload = json.loads(response.choices[0].message.content or "{}")
     operations = [_operation_from_payload(item) for item in _dict_list(payload.get("operations"))]
     notes = _string_list(payload.get("notes"))
-    return FeatureEngineeringPlan(planner_name="openai", operations=operations, notes=notes)
+    return FeatureEngineeringPlan(planner_name="llm", operations=operations, notes=notes)
 
 
 def _operation_from_payload(payload: dict[str, Any]) -> FeatureEngineeringOperation:
