@@ -595,16 +595,12 @@ def _render_hero() -> None:
 
 
 def _render_help_center() -> None:
-    st.subheader("1. Help center")
-    _section_caption("Start with the dataset. AI settings are optional and only help with suggestions and report wording.")
-
-    quick_start = """
-1. In `Dataset intake`, upload a CSV or choose a demo dataset. Then select one or more target columns in `Experiment setup`.
-2. If you want AI-generated suggestions or a more natural-language report, open `Optional AI help` and fill in `API key`, `Base URL`, and `Model`.
-3. Use `Planning brief` to describe the baseline you want. Review `Planner suggestion`, `Preflight validation`, and `EDA summary` before running.
-4. Click `Run training`. After the run finishes, inspect `Run results` and download the model, report, and predictions from `Artifacts`.
-"""
-    st.markdown(quick_start)
+    st.subheader("Quick start")
+    _section_caption("This page is organized as a guided first run. Advanced settings stay out of the way until you need them.")
+    st.info(
+        "Upload a dataset, choose the column to predict, review the checks, then run training. "
+        "Optional AI help and advanced adjustments can stay closed for a first pass."
+    )
 
 
 def _section_caption(text: str) -> None:
@@ -775,7 +771,31 @@ def _initialize_experiment_state(dataset_signature: str, columns: list[str]) -> 
 
 def _render_run_outputs(results: list[dict[str, object]]) -> None:
     st.subheader("5. Review results")
-    _section_caption("Review the run details first, then download any files you want to share or inspect later.")
+    _section_caption("Training has finished. Start with the short summary below, then open details or download files.")
+    completed_targets = ", ".join(str(result["target"]) for result in results)
+    _render_step_status(
+        f"Training finished for: {completed_targets}.",
+        "Check the validation notes first, then download the report, model, or prediction sample you need.",
+        level="success",
+    )
+    summary_cols = st.columns(3)
+    with summary_cols[0]:
+        st.metric("Completed runs", len(results))
+    with summary_cols[1]:
+        st.metric("Targets trained", len({str(result["target"]) for result in results}))
+    with summary_cols[2]:
+        st.metric("Result files per run", 3)
+    summary_rows = [
+        {
+            "target": str(result["target"]),
+            "task_type": str(result["task_type"]),
+            "priority_metric": str(result["priority_metric"]),
+            "trainer": str(result["trained"].trainer_name),
+        }
+        for result in results
+    ]
+    st.write("Run summary")
+    st.dataframe(pd.DataFrame(summary_rows), hide_index=True, use_container_width=True)
     st.write("Download files")
     for result in results:
         run = result["run"]
@@ -1705,6 +1725,7 @@ def main() -> None:
                 "Priority metric",
                 ["auto", "accuracy", "f1_weighted", "precision_weighted", "recall_weighted", "roc_auc", "rmse", "mae", "r2"],
                 key="priority_metric_choice",
+                help="This is the score the trainer treats as most important when choosing the best baseline.",
             )
 
         config_cols = st.columns(3)
@@ -1756,10 +1777,11 @@ def main() -> None:
     st.subheader("3. Check data before training")
     _section_caption("Use the brief, validation checks, and data summary to catch issues before you spend time training.")
     st.write("Planning help")
+    _section_caption("This optional brief lets you describe your goal in plain language so the app can suggest a sensible first setup.")
     planner_brief = st.text_area(
         "Planning brief",
         key="planner_brief",
-        placeholder="Example: predict churn, optimize recall, ignore customer_id-like fields, keep this as a quick baseline.",
+        placeholder="Example: predict churn, treat customer_id as reference only, and keep this as a quick first pass.",
         help="Optional natural-language brief used to suggest targets, task type, exclusions, and a priority metric.",
     )
     plan_suggestion = _get_planner_suggestion(
@@ -1955,6 +1977,8 @@ def main() -> None:
             "You can start training after this review, or adjust the setup first.",
             level="success",
         )
+    st.write("Preflight validation")
+    _section_caption("This check looks for blocking issues before training, such as missing target values or no usable feature columns.")
     with st.expander("Preflight validation", expanded=True):
         for target in target_columns:
             validation = artifact_to_dict(preflight_by_target[target])
@@ -1969,7 +1993,7 @@ def main() -> None:
     st.dataframe(analysis_df.head(50), use_container_width=True)
 
     st.write("EDA summary")
-    _section_caption("This quick audit summarizes shape, duplicates, missing values, correlations, and target behavior.")
+    _section_caption("EDA means a quick health check for the dataset: shape, duplicates, missing values, correlations, and target behavior.")
     metric_cols = st.columns(4)
     with metric_cols[0]:
         st.metric("Rows", eda_summary["shape"]["rows"])

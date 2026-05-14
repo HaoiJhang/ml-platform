@@ -78,6 +78,7 @@ def test_data_flow_selection_does_not_drop_latest_results(monkeypatch, tmp_path)
     app.run(timeout=120)
 
     assert any(subheader.value == "5. Review results" for subheader in app.subheader)
+    assert any(metric.label == "Completed runs" for metric in app.metric)
 
     data_flow_select = next(selectbox for selectbox in app.selectbox if selectbox.label == "Inspect data flow step")
     data_flow_select.set_value(data_flow_select.options[1])
