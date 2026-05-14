@@ -349,12 +349,16 @@ def _t(text: str, **kwargs: Any) -> str:
 
 
 def _render_language_switcher() -> None:
-    st.sidebar.selectbox(
-        _t("Language / 语言"),
-        UI_LANGUAGE_OPTIONS,
-        key="ui_language",
-        format_func=lambda code: UI_LANGUAGE_LABELS.get(code, code),
-    )
+    topbar_cols = st.columns([0.82, 0.18])
+    with topbar_cols[1]:
+        st.caption(_t("Language / 语言"))
+        st.selectbox(
+            _t("Language / 语言"),
+            UI_LANGUAGE_OPTIONS,
+            key="ui_language",
+            label_visibility="collapsed",
+            format_func=lambda code: UI_LANGUAGE_LABELS.get(code, code),
+        )
 
 
 def _local_llm_config_enabled() -> bool:
