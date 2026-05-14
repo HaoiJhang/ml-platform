@@ -106,3 +106,44 @@ def test_cleaning_tracker_captures_row_and_column_changes() -> None:
     assert snapshots["train_split"]["rows"] + snapshots["test_split"]["rows"] == snapshots["after_constant_drop"]["rows"]
     assert snapshots["preprocessor_plan"]["metadata"]["numeric_features"] == ["amount"]
     assert cleaned.feature_columns == ["amount", "segment"]
+
+
+def test_cleaning_uses_user_selected_imputation_strategies() -> None:
+    df = pd.DataFrame(
+        {
+            "target": [0, 1, 0, 1, 0, 1],
+            "amount": [10.0, None, 30.0, None, 50.0, 60.0],
+            "segment": ["a", None, "b", "b", None, "c"],
+        }
+    )
+
+    cleaned = clean_and_split(
+        df,
+        CleanConfig(
+            target="target",
+            task_type="classification",
+            test_size=0.33,
+            random_state=3,
+            numeric_imputation_strategy="mean",
+            categorical_imputation_strategy="constant_missing",
+            standardize_numeric=False,
+        ),
+    )
+
+    preprocessor = cleaned.preprocessor
+    transformed = preprocessor.fit_transform(cleaned.X_train)
+    numeric_pipeline = preprocessor.named_transformers_["numeric"]
+    categorical_pipeline = preprocessor.named_transformers_["categorical"]
+
+    assert transformed.shape[0] == len(cleaned.X_train)
+    assert numeric_pipeline.named_steps["imputer"].strategy == "mean"
+    assert categorical_pipeline.named_steps["imputer"].strategy == "constant"
+    assert categorical_pipeline.named_steps["imputer"].fill_value == "missing"
+    assert "scaler" not in numeric_pipeline.named_steps
+    assert any(
+        step.get("step") == "build_preprocessor"
+        and step.get("numeric_imputation_strategy") == "mean"
+        and step.get("categorical_imputation_strategy") == "constant_missing"
+        and step.get("standardize_numeric") is False
+        for step in cleaned.cleaning_log
+    )

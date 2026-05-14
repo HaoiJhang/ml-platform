@@ -1002,6 +1002,9 @@ def _experiment_signature(
     high_missing_threshold: float,
     random_state: int,
     priority_metric_choice: str,
+    numeric_imputation_strategy: str,
+    categorical_imputation_strategy: str,
+    standardize_numeric: bool,
     planner_brief: str,
     feature_plan: Any,
     manual_cleaning_plan: Any,
@@ -1016,6 +1019,9 @@ def _experiment_signature(
         "high_missing_threshold": high_missing_threshold,
         "random_state": random_state,
         "priority_metric_choice": priority_metric_choice,
+        "numeric_imputation_strategy": numeric_imputation_strategy,
+        "categorical_imputation_strategy": categorical_imputation_strategy,
+        "standardize_numeric": standardize_numeric,
         "planner_brief": planner_brief.strip(),
         "feature_engineering_operations": _feature_plan_operations(feature_plan) if feature_plan else [],
         "manual_cleaning_plan": artifact_to_dict(manual_cleaning_plan) if manual_cleaning_plan else None,
@@ -1040,6 +1046,9 @@ def _initialize_experiment_state(dataset_signature: str, columns: list[str]) -> 
     st.session_state["high_missing_threshold"] = 0.9
     st.session_state["random_state"] = 42
     st.session_state["random_state_text"] = "42"
+    st.session_state["numeric_imputation_strategy"] = "median"
+    st.session_state["categorical_imputation_strategy"] = "most_frequent"
+    st.session_state["standardize_numeric"] = True
     st.session_state["_planner_signature"] = None
     st.session_state["_planner_suggestion"] = None
     st.session_state["_feature_engineering_plan_signature"] = None
@@ -2029,6 +2038,26 @@ def main() -> None:
                 help=_t("This is the score the trainer treats as most important when choosing the best baseline."),
             )
 
+        prep_cols = st.columns(3)
+        with prep_cols[0]:
+            numeric_imputation_strategy = st.selectbox(
+                "Numeric missing-value handling",
+                ["median", "mean", "most_frequent", "constant_zero"],
+                key="numeric_imputation_strategy",
+            )
+        with prep_cols[1]:
+            categorical_imputation_strategy = st.selectbox(
+                "Categorical missing-value handling",
+                ["most_frequent", "constant_missing"],
+                key="categorical_imputation_strategy",
+            )
+        with prep_cols[2]:
+            standardize_numeric = st.checkbox(
+                "Standardize numeric features",
+                key="standardize_numeric",
+                help="Apply scaling after numeric imputation.",
+            )
+
         config_cols = st.columns(3)
         with config_cols[0]:
             test_size = st.slider(_t("Test size"), min_value=0.1, max_value=0.5, step=0.05, key="test_size")
@@ -2232,6 +2261,9 @@ def main() -> None:
         high_missing_threshold=float(high_missing_threshold),
         random_state=int(random_state),
         priority_metric_choice=priority_metric_choice,
+        numeric_imputation_strategy=numeric_imputation_strategy,
+        categorical_imputation_strategy=categorical_imputation_strategy,
+        standardize_numeric=bool(standardize_numeric),
         planner_brief=planner_brief,
         feature_plan=feature_plan,
         manual_cleaning_plan=manual_cleaning_plan,
@@ -2447,6 +2479,9 @@ def main() -> None:
                     test_size=float(test_size),
                     random_state=int(random_state),
                     high_missing_threshold=float(high_missing_threshold),
+                    numeric_imputation_strategy=numeric_imputation_strategy,
+                    categorical_imputation_strategy=categorical_imputation_strategy,
+                    standardize_numeric=bool(standardize_numeric),
                     feature_engineering_operations=_feature_plan_operations(feature_plan) if feature_plan else None,
                 )
                 cleaned = clean_and_split(training_input_df, config, tracker=tracker)
@@ -2518,6 +2553,9 @@ def main() -> None:
                         "test_size": test_size,
                         "high_missing_threshold": high_missing_threshold,
                         "random_state": random_state,
+                        "numeric_imputation_strategy": numeric_imputation_strategy,
+                        "categorical_imputation_strategy": categorical_imputation_strategy,
+                        "standardize_numeric": bool(standardize_numeric),
                         "time_budget": time_budget,
                         "priority_metric": priority_metric,
                         "trainer": trained.trainer_name,

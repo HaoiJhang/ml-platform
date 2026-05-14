@@ -26,6 +26,8 @@ class CleanConfig:
     test_size: float = 0.2
     random_state: int = 42
     high_missing_threshold: float = 0.9
+    numeric_imputation_strategy: str = "median"
+    categorical_imputation_strategy: str = "most_frequent"
     standardize_numeric: bool = True
     feature_engineering_operations: list[FeatureEngineeringOperation] | None = None
 
@@ -53,11 +55,27 @@ def _make_one_hot_encoder() -> OneHotEncoder:
     return OneHotEncoder(**kwargs)
 
 
+def _numeric_imputer(strategy_name: str) -> SimpleImputer:
+    if strategy_name == "constant_zero":
+        return SimpleImputer(strategy="constant", fill_value=0.0)
+    return SimpleImputer(strategy=strategy_name)
+
+
+def _categorical_imputer(strategy_name: str) -> SimpleImputer:
+    if strategy_name == "constant_missing":
+        return SimpleImputer(strategy="constant", fill_value="missing")
+    return SimpleImputer(strategy=strategy_name)
+
+
 def clean_and_split(df: pd.DataFrame, config: CleanConfig, tracker: DataFlowTracker | None = None) -> CleanedData:
     if config.target not in df.columns:
         raise ValueError(f"Target column not found: {config.target}")
     if config.task_type not in {"classification", "regression"}:
         raise ValueError("task_type must be 'classification' or 'regression'.")
+    if config.numeric_imputation_strategy not in {"median", "mean", "most_frequent", "constant_zero"}:
+        raise ValueError("Unsupported numeric_imputation_strategy.")
+    if config.categorical_imputation_strategy not in {"most_frequent", "constant_missing"}:
+        raise ValueError("Unsupported categorical_imputation_strategy.")
 
     logger.info("Cleaning dataset rows=%d columns=%d target=%s task_type=%s", len(df), len(df.columns), config.target, config.task_type)
     working = df.copy()
@@ -147,7 +165,7 @@ def clean_and_split(df: pd.DataFrame, config: CleanConfig, tracker: DataFlowTrac
     numeric_features = X.select_dtypes(include=["number"]).columns.tolist()
     categorical_features = [column for column in X.columns if column not in numeric_features]
 
-    numeric_steps: list[tuple[str, Any]] = [("imputer", SimpleImputer(strategy="median"))]
+    numeric_steps: list[tuple[str, Any]] = [("imputer", _numeric_imputer(config.numeric_imputation_strategy))]
     if config.standardize_numeric:
         numeric_steps.append(("scaler", StandardScaler()))
     transformers: list[tuple[str, Any, Any]] = [
@@ -156,7 +174,7 @@ def clean_and_split(df: pd.DataFrame, config: CleanConfig, tracker: DataFlowTrac
             "categorical",
             Pipeline(
                 [
-                    ("imputer", SimpleImputer(strategy="most_frequent")),
+                    ("imputer", _categorical_imputer(config.categorical_imputation_strategy)),
                     ("onehot", _make_one_hot_encoder()),
                 ]
             ),
@@ -203,6 +221,8 @@ def clean_and_split(df: pd.DataFrame, config: CleanConfig, tracker: DataFlowTrac
             "step": "build_preprocessor",
             "numeric_features": numeric_features,
             "categorical_features": categorical_features,
+            "numeric_imputation_strategy": config.numeric_imputation_strategy,
+            "categorical_imputation_strategy": config.categorical_imputation_strategy,
             "standardize_numeric": config.standardize_numeric,
             "feature_engineering_operations": [operation.operation for operation in feature_operations],
         }
@@ -231,6 +251,8 @@ def clean_and_split(df: pd.DataFrame, config: CleanConfig, tracker: DataFlowTrac
             metadata={
                 "numeric_features": numeric_features,
                 "categorical_features": categorical_features,
+                "numeric_imputation_strategy": config.numeric_imputation_strategy,
+                "categorical_imputation_strategy": config.categorical_imputation_strategy,
                 "standardize_numeric": config.standardize_numeric,
                 "feature_engineering_operations": [operation.operation for operation in feature_operations],
             },
