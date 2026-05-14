@@ -32,6 +32,21 @@ def test_optional_ai_help_is_collapsed_by_default(monkeypatch, tmp_path) -> None
     assert not any(subheader.value == "2. Report engine" for subheader in app.subheader)
 
 
+def test_can_switch_ui_language_to_chinese(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("ML_PLATFORM_RUNS_DIR", str(tmp_path / "runs"))
+
+    app = AppTest.from_file("app.py")
+    app.run(timeout=120)
+
+    assert any(subheader.value == "Quick start" for subheader in app.subheader)
+
+    app.selectbox(key="ui_language").set_value("zh-CN")
+    app.run(timeout=120)
+
+    assert any(subheader.value == "快速开始" for subheader in app.subheader)
+    assert any(subheader.value == "1. 上传数据" for subheader in app.subheader)
+
+
 def test_workflow_waits_for_target_selection(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("ML_PLATFORM_RUNS_DIR", str(tmp_path / "runs"))
 
