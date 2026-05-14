@@ -45,9 +45,7 @@ def _train_with_flaml(
 ) -> TrainedModel:
     from flaml import AutoML
 
-    preprocessor = cleaned.preprocessor
-    X_train = preprocessor.fit_transform(cleaned.X_train)
-    feature_names = _preprocessor_feature_names(preprocessor)
+    preprocessor, X_train, X_test_probe, feature_names = _resolved_training_inputs(cleaned)
     if tracker is not None:
         tracker.snapshot_matrix(
             "train_matrix",
@@ -58,8 +56,6 @@ def _train_with_flaml(
             column_names=feature_names,
             metadata={"feature_count": len(feature_names) if feature_names is not None else X_train.shape[1]},
         )
-    X_test_probe = preprocessor.transform(cleaned.X_test.head(1))
-    if tracker is not None:
         tracker.snapshot_matrix(
             "test_matrix_probe",
             "Test matrix probe",
@@ -69,9 +65,6 @@ def _train_with_flaml(
             column_names=feature_names,
             metadata={"probe_rows": int(X_test_probe.shape[0])},
         )
-    if X_test_probe.shape[1] == 0:
-        raise ValueError("Preprocessor produced no features.")
-
     task = "classification" if cleaned.config.task_type == "classification" else "regression"
     flaml_metric, metric_note = _map_metric_preference(cleaned.config.task_type, metric_preference)
     automl = AutoML()
@@ -114,24 +107,22 @@ def _train_with_sklearn(
     else:
         estimator = RandomForestRegressor(n_estimators=200, random_state=cleaned.config.random_state, n_jobs=-1)
 
-    model = Pipeline([("preprocessor", cleaned.preprocessor), ("estimator", estimator)])
-    model.fit(cleaned.X_train, cleaned.y_train)
-    feature_names = _preprocessor_feature_names(model.named_steps["preprocessor"])
+    preprocessor, X_train, X_test_probe, feature_names = _resolved_training_inputs(cleaned)
+    estimator.fit(X_train, cleaned.y_train)
+    model = Pipeline([("preprocessor", preprocessor), ("estimator", estimator)])
     if tracker is not None:
         tracker.snapshot_matrix(
             "train_matrix",
             "Train matrix",
             "training",
-            rows=len(cleaned.X_train),
-            columns=len(feature_names) if feature_names is not None else len(cleaned.feature_columns),
+            matrix=X_train,
             partition="train",
             column_names=feature_names,
             metadata={
                 "feature_count": len(feature_names) if feature_names is not None else len(cleaned.feature_columns),
-                "materialized_after_fit": False,
+                "materialized_after_fit": cleaned.fitted_preprocessor is None,
             },
         )
-        X_test_probe = model.named_steps["preprocessor"].transform(cleaned.X_test.head(1))
         tracker.snapshot_matrix(
             "test_matrix_probe",
             "Test matrix probe",
@@ -190,6 +181,20 @@ def _preprocessor_feature_names(preprocessor: Any) -> list[str] | None:
         return [str(name) for name in preprocessor.get_feature_names_out()]
     except Exception:
         return None
+
+
+def _resolved_training_inputs(cleaned: CleanedData) -> tuple[Any, Any, Any, list[str] | None]:
+    if cleaned.fitted_preprocessor is not None and cleaned.X_train_prepared is not None and cleaned.X_test_prepared is not None:
+        probe = cleaned.X_test_prepared[:1]
+        return cleaned.fitted_preprocessor, cleaned.X_train_prepared, probe, cleaned.prepared_feature_names
+
+    preprocessor = cleaned.preprocessor
+    X_train = preprocessor.fit_transform(cleaned.X_train)
+    X_test_probe = preprocessor.transform(cleaned.X_test.head(1))
+    if X_test_probe.shape[1] == 0:
+        raise ValueError("Preprocessor produced no features.")
+    feature_names = _preprocessor_feature_names(preprocessor)
+    return preprocessor, X_train, X_test_probe, feature_names
 
 
 def _record_training_artifact(tracker: DataFlowTracker | None, trained: TrainedModel) -> None:

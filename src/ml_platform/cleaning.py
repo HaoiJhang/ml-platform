@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import pandas as pd
+from sklearn.base import clone
 from sklearn.compose import ColumnTransformer, make_column_selector
 from sklearn.impute import SimpleImputer
 from sklearn.model_selection import train_test_split
@@ -44,6 +45,10 @@ class CleanedData:
     categorical_features: list[str]
     cleaning_log: list[dict[str, Any]]
     config: CleanConfig
+    fitted_preprocessor: Any | None = None
+    X_train_prepared: Any | None = None
+    X_test_prepared: Any | None = None
+    prepared_feature_names: list[str] | None = None
 
 
 def _make_one_hot_encoder() -> OneHotEncoder:
@@ -65,6 +70,13 @@ def _categorical_imputer(strategy_name: str) -> SimpleImputer:
     if strategy_name == "constant_missing":
         return SimpleImputer(strategy="constant", fill_value="missing")
     return SimpleImputer(strategy=strategy_name)
+
+
+def _preprocessor_feature_names(preprocessor: Any) -> list[str] | None:
+    try:
+        return [str(name) for name in preprocessor.get_feature_names_out()]
+    except Exception:
+        return None
 
 
 def clean_and_split(df: pd.DataFrame, config: CleanConfig, tracker: DataFlowTracker | None = None) -> CleanedData:
@@ -269,4 +281,62 @@ def clean_and_split(df: pd.DataFrame, config: CleanConfig, tracker: DataFlowTrac
         categorical_features=categorical_features,
         cleaning_log=log,
         config=config,
+    )
+
+
+def prepare_for_training(cleaned: CleanedData, tracker: DataFlowTracker | None = None) -> CleanedData:
+    fitted_preprocessor = clone(cleaned.preprocessor)
+    X_train_prepared = fitted_preprocessor.fit_transform(cleaned.X_train)
+    X_test_prepared = fitted_preprocessor.transform(cleaned.X_test)
+    feature_names = _preprocessor_feature_names(fitted_preprocessor)
+    feature_count = len(feature_names) if feature_names is not None else X_train_prepared.shape[1]
+    if feature_count == 0:
+        raise ValueError("Preprocessor produced no features.")
+
+    preparation_log = list(cleaned.cleaning_log)
+    preparation_log.append(
+        {
+            "step": "prepare_training_data",
+            "prepared_feature_count": feature_count,
+            "numeric_imputation_strategy": cleaned.config.numeric_imputation_strategy,
+            "categorical_imputation_strategy": cleaned.config.categorical_imputation_strategy,
+            "standardize_numeric": cleaned.config.standardize_numeric,
+        }
+    )
+
+    if tracker is not None:
+        tracker.snapshot_matrix(
+            "prepared_train_matrix",
+            "Prepared train matrix",
+            "preparation",
+            matrix=X_train_prepared,
+            partition="train",
+            column_names=feature_names,
+            metadata={"feature_count": feature_count},
+        )
+        tracker.snapshot_matrix(
+            "prepared_test_matrix",
+            "Prepared test matrix",
+            "preparation",
+            matrix=X_test_prepared,
+            partition="test",
+            column_names=feature_names,
+            metadata={"feature_count": feature_count},
+        )
+
+    return CleanedData(
+        X_train=cleaned.X_train,
+        X_test=cleaned.X_test,
+        y_train=cleaned.y_train,
+        y_test=cleaned.y_test,
+        preprocessor=cleaned.preprocessor,
+        feature_columns=cleaned.feature_columns,
+        numeric_features=cleaned.numeric_features,
+        categorical_features=cleaned.categorical_features,
+        cleaning_log=preparation_log,
+        config=cleaned.config,
+        fitted_preprocessor=fitted_preprocessor,
+        X_train_prepared=X_train_prepared,
+        X_test_prepared=X_test_prepared,
+        prepared_feature_names=feature_names,
     )

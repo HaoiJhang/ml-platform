@@ -70,7 +70,8 @@ def test_workflow_waits_for_target_selection(monkeypatch, tmp_path) -> None:
     advanced_adjustments = next(expander for expander in app.expander if expander.label == "Advanced adjustments")
     assert advanced_settings.proto.expanded is False
     assert advanced_adjustments.proto.expanded is False
-    assert any(subheader.value == "4. Start training" for subheader in app.subheader)
+    assert any(subheader.value == "4. Prepare data" for subheader in app.subheader)
+    assert any(subheader.value == "5. Start training" for subheader in app.subheader)
 
 
 def test_data_flow_selection_does_not_drop_latest_results(monkeypatch, tmp_path) -> None:
@@ -88,18 +89,22 @@ def test_data_flow_selection_does_not_drop_latest_results(monkeypatch, tmp_path)
     app.text_input(key="time_budget_text").set_value("5")
     app.run(timeout=120)
 
+    prepare_data = next(button for button in app.button if button.label == "Prepare data")
+    prepare_data.click()
+    app.run(timeout=120)
+
     run_training = next(button for button in app.button if button.label == "Run training")
     run_training.click()
     app.run(timeout=120)
 
-    assert any(subheader.value == "5. Review results" for subheader in app.subheader)
+    assert any(subheader.value == "6. Review results" for subheader in app.subheader)
     assert any(metric.label == "Completed runs" for metric in app.metric)
 
     data_flow_select = next(selectbox for selectbox in app.selectbox if selectbox.label == "Inspect data flow step")
     data_flow_select.set_value(data_flow_select.options[1])
     app.run(timeout=120)
 
-    assert any(subheader.value == "5. Review results" for subheader in app.subheader)
+    assert any(subheader.value == "6. Review results" for subheader in app.subheader)
     selected_again = next(selectbox for selectbox in app.selectbox if selectbox.label == "Inspect data flow step")
     assert selected_again.value == selected_again.options[1]
 

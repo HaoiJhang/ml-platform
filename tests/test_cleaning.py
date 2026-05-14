@@ -1,7 +1,7 @@
 import pandas as pd
 
 from ml_platform.artifacts import artifact_to_dict
-from ml_platform.cleaning import CleanConfig, clean_and_split
+from ml_platform.cleaning import CleanConfig, clean_and_split, prepare_for_training
 from ml_platform.data_flow import DataFlowTracker
 
 
@@ -147,3 +147,26 @@ def test_cleaning_uses_user_selected_imputation_strategies() -> None:
         and step.get("standardize_numeric") is False
         for step in cleaned.cleaning_log
     )
+
+
+def test_prepare_for_training_materializes_preprocessed_matrices() -> None:
+    df = pd.DataFrame(
+        {
+            "target": [0, 1, 0, 1, 0, 1],
+            "amount": [10.0, None, 30.0, None, 50.0, 60.0],
+            "segment": ["a", None, "b", "b", None, "c"],
+        }
+    )
+
+    cleaned = clean_and_split(
+        df,
+        CleanConfig(target="target", task_type="classification", test_size=0.33, random_state=3),
+    )
+    prepared = prepare_for_training(cleaned)
+
+    assert prepared.fitted_preprocessor is not None
+    assert prepared.X_train_prepared is not None
+    assert prepared.X_test_prepared is not None
+    assert prepared.X_train_prepared.shape[0] == len(prepared.X_train)
+    assert prepared.X_test_prepared.shape[0] == len(prepared.X_test)
+    assert any(step.get("step") == "prepare_training_data" for step in prepared.cleaning_log)

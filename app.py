@@ -19,7 +19,7 @@ import streamlit as st
 
 from ml_platform.artifacts import artifact_to_dict
 from ml_platform.automl import train_model
-from ml_platform.cleaning import CleanConfig, clean_and_split
+from ml_platform.cleaning import CleanConfig, clean_and_split, prepare_for_training
 from ml_platform.config import Settings, load_settings
 from ml_platform.data_flow import DataFlowTracker
 from ml_platform.data_io import read_csv
@@ -1059,12 +1059,14 @@ def _initialize_experiment_state(dataset_signature: str, columns: list[str]) -> 
     st.session_state["_manual_cleaning_suggested_plan"] = None
     st.session_state["_manual_cleaning_plan"] = None
     st.session_state["_manual_cleaning_override_plan"] = None
+    st.session_state["_latest_prepared_signature"] = None
+    st.session_state["_latest_prepared_batches"] = []
     st.session_state["_latest_results_signature"] = None
     st.session_state["_latest_results"] = []
 
 
 def _render_run_outputs(results: list[dict[str, object]]) -> None:
-    st.subheader(_t("5. Review results"))
+    st.subheader(_t("6. Review results"))
     _section_caption(_t("Training has finished. Start with the short summary below, then open details or download files."))
     completed_targets = ", ".join(str(result["target"]) for result in results)
     _render_step_status(
@@ -1923,6 +1925,123 @@ def _render_integer_input(label: str, state_key: str, min_value: int | None = No
     return parsed_value
 
 
+def _prepare_target_batches(
+    *,
+    df: pd.DataFrame,
+    base_analysis_df: pd.DataFrame,
+    analysis_df: pd.DataFrame,
+    analysis_manual_cleaning_log: list[dict[str, object]],
+    analysis_manual_cleaning_impact: dict[str, object],
+    candidate_feature_columns: list[str],
+    excluded_columns: list[str],
+    target_columns: list[str],
+    task_types: dict[str, str],
+    priority_metrics: dict[str, str],
+    preflight_by_target: dict[str, object],
+    manual_cleaning_plan: Any,
+    test_size: float,
+    random_state: int,
+    high_missing_threshold: float,
+    numeric_imputation_strategy: str,
+    categorical_imputation_strategy: str,
+    standardize_numeric: bool,
+    feature_plan: Any,
+) -> list[dict[str, object]]:
+    if not candidate_feature_columns:
+        raise ValueError("No feature columns remain after excluding selected target and ignored columns.")
+
+    prepared_batches: list[dict[str, object]] = []
+    for target in target_columns:
+        task_type = task_types[target]
+        priority_metric = priority_metrics[target]
+        preflight_validation = preflight_by_target[target]
+        tracker = DataFlowTracker(target=target)
+        tracker.snapshot_dataframe(
+            "raw_dataset",
+            "Raw dataset",
+            "intake",
+            df,
+            preview=True,
+            metadata={"source_columns": list(df.columns)},
+        )
+        tracker.snapshot_dataframe(
+            "analysis_subset",
+            "Analysis subset",
+            "intake",
+            base_analysis_df,
+            metadata={"excluded_columns": excluded_columns},
+        )
+        if manual_cleaning_plan is not None and any(rule.enabled for rule in manual_cleaning_plan.rules) and manual_cleaning_plan.effect_stage == "pre_eda":
+            tracker.snapshot_dataframe(
+                "after_manual_cleaning_pre_eda",
+                "After manual cleaning (EDA + training)",
+                "intake",
+                analysis_df,
+                metadata=analysis_manual_cleaning_impact,
+            )
+
+        target_df = analysis_df[candidate_feature_columns + [target]].copy()
+        tracker.snapshot_dataframe(
+            "target_dataset",
+            "Target dataset",
+            "intake",
+            target_df,
+            preview=True,
+            metadata={"target": target, "feature_columns": candidate_feature_columns},
+        )
+        training_input_df = target_df
+        manual_cleaning_log = list(analysis_manual_cleaning_log)
+        manual_cleaning_impact = dict(analysis_manual_cleaning_impact)
+        if manual_cleaning_plan is not None and any(rule.enabled for rule in manual_cleaning_plan.rules) and manual_cleaning_plan.effect_stage == "pre_training":
+            target_manual_plan = validate_manual_cleaning_plan(
+                manual_cleaning_plan,
+                target_df,
+                target,
+                protected_columns=target_columns,
+            )
+            training_input_df, manual_cleaning_log, manual_cleaning_impact = apply_manual_cleaning_plan(
+                target_df,
+                target_manual_plan,
+                target,
+                protected_columns=target_columns,
+            )
+            tracker.snapshot_dataframe(
+                "after_manual_cleaning_pre_training",
+                "After manual cleaning (training only)",
+                "intake",
+                training_input_df,
+                metadata=manual_cleaning_impact,
+            )
+
+        config = CleanConfig(
+            target=target,
+            task_type=task_type,
+            test_size=float(test_size),
+            random_state=int(random_state),
+            high_missing_threshold=float(high_missing_threshold),
+            numeric_imputation_strategy=numeric_imputation_strategy,
+            categorical_imputation_strategy=categorical_imputation_strategy,
+            standardize_numeric=bool(standardize_numeric),
+            feature_engineering_operations=_feature_plan_operations(feature_plan) if feature_plan else None,
+        )
+        cleaned = clean_and_split(training_input_df, config, tracker=tracker)
+        if manual_cleaning_log:
+            cleaned.cleaning_log = manual_cleaning_log + cleaned.cleaning_log
+        prepared = prepare_for_training(cleaned, tracker=tracker)
+        prepared_batches.append(
+            {
+                "target": target,
+                "task_type": task_type,
+                "priority_metric": priority_metric,
+                "preflight_validation": preflight_validation,
+                "cleaned": prepared,
+                "target_eda_summary": generate_eda_summary(target_df, target=target),
+                "tracker": tracker,
+            }
+        )
+    return prepared_batches
+
+
 def main() -> None:
     _apply_design_system()
     _render_language_switcher()
@@ -2376,117 +2495,136 @@ def main() -> None:
         for warning in eda_summary["quality_warnings"]:
             st.warning(warning)
 
-    st.subheader(_t("4. Start training"))
-    _section_caption(_t("Launch the local baseline after you have reviewed the target, checks, and data summary."))
+    prepared_batches: list[dict[str, object]] = []
+    prepared_ready = st.session_state.get("_latest_prepared_signature") == current_experiment_signature
+    if prepared_ready:
+        prepared_batches = list(st.session_state.get("_latest_prepared_batches", []))
+
+    st.subheader("4. Prepare data")
+    _section_caption("Apply the selected cleaning and preprocessing methods first, then train models as a separate step.")
+    if failing_targets:
+        _render_step_status(
+            "Data preparation is blocked by validation issues.",
+            f"Resolve the flagged issues for: {', '.join(failing_targets)} before preparing data.",
+            level="warning",
+        )
+    elif prepared_ready:
+        _render_step_status(
+            "Data preparation is complete for the current setup.",
+            "Review the prepared train/test summary below, then continue to model training.",
+            level="success",
+        )
+    else:
+        _render_step_status(
+            "The preprocessing methods are configured but have not been applied yet.",
+            "Click Prepare data to split the dataset and materialize the train/test matrices before training.",
+            level="info",
+        )
+
+    prepare_cols = st.columns([0.8, 1.2])
+    with prepare_cols[0]:
+        prepare_clicked = st.button("Prepare data", type="primary", disabled=bool(failing_targets))
+    with prepare_cols[1]:
+        if prepared_ready:
+            st.caption(f"Prepared targets: {', '.join(str(batch['target']) for batch in prepared_batches)}")
+
+    if prepare_clicked:
+        try:
+            prepared_batches = _prepare_target_batches(
+                df=df,
+                base_analysis_df=base_analysis_df,
+                analysis_df=analysis_df,
+                analysis_manual_cleaning_log=analysis_manual_cleaning_log,
+                analysis_manual_cleaning_impact=analysis_manual_cleaning_impact,
+                candidate_feature_columns=candidate_feature_columns,
+                excluded_columns=excluded_columns,
+                target_columns=target_columns,
+                task_types=task_types,
+                priority_metrics=priority_metrics,
+                preflight_by_target=preflight_by_target,
+                manual_cleaning_plan=manual_cleaning_plan,
+                test_size=float(test_size),
+                random_state=int(random_state),
+                high_missing_threshold=float(high_missing_threshold),
+                numeric_imputation_strategy=numeric_imputation_strategy,
+                categorical_imputation_strategy=categorical_imputation_strategy,
+                standardize_numeric=bool(standardize_numeric),
+                feature_plan=feature_plan,
+            )
+        except ValueError as exc:
+            st.error(str(exc))
+            return
+
+        st.session_state["_latest_prepared_signature"] = current_experiment_signature
+        st.session_state["_latest_prepared_batches"] = list(prepared_batches)
+        prepared_ready = True
+        st.success(f"Data preparation completed: {', '.join(str(batch['target']) for batch in prepared_batches)}")
+
+    if prepared_ready and prepared_batches:
+        st.dataframe(
+            pd.DataFrame(
+                [
+                    {
+                        "target": str(batch["target"]),
+                        "task_type": str(batch["task_type"]),
+                        "train_rows": len(batch["cleaned"].X_train),
+                        "test_rows": len(batch["cleaned"].X_test),
+                        "prepared_features": len(batch["cleaned"].prepared_feature_names or []),
+                    }
+                    for batch in prepared_batches
+                ]
+            ),
+            hide_index=True,
+            use_container_width=True,
+        )
+
+    st.subheader("5. Start training")
+    _section_caption("Training now uses the prepared train/test data from the previous step instead of rerunning preprocessing inside the fit step.")
     if failing_targets:
         _render_step_status(
             _t("Training is blocked by validation issues."),
             _t("Resolve the flagged issues for: {failing_targets}.", failing_targets=", ".join(failing_targets)),
             level="warning",
         )
+    elif not prepared_ready:
+        _render_step_status(
+            "Training is waiting for data preparation.",
+            "Run Prepare data first so the missing-value handling and feature processing finish before model fitting.",
+            level="warning",
+        )
     else:
         _render_step_status(
             _t("The run is ready to start."),
-            _t("Click Run training to build the local baseline and unlock the results step."),
+            "Click Run training to fit models on the prepared data and unlock the results step.",
             level="success",
         )
     results: list[dict[str, object]] = []
     if st.session_state.get("_latest_results_signature") == current_experiment_signature:
         results = list(st.session_state.get("_latest_results", []))
 
-    if st.button(_t("Run training"), type="primary"):
+    if st.button(_t("Run training"), type="primary", disabled=bool(failing_targets) or not prepared_ready):
         results = []
-        with st.spinner(_t("Cleaning data and training model locally...")):
+        with st.spinner("Training models on the prepared data..."):
             if failing_targets:
                 logger.error("Blocking preflight issues targets=%s", failing_targets)
                 st.error(_t("Resolve blocking preflight issues before training: {failing_targets}", failing_targets=", ".join(failing_targets)))
                 return
 
-            feature_columns = candidate_feature_columns
-            if not feature_columns:
-                logger.error("No feature columns remain after exclusions")
-                st.error(_t("No feature columns remain after excluding selected target and ignored columns."))
+            if not prepared_batches:
+                logger.error("Training requested without prepared batches")
+                st.error("Prepare data before training.")
                 return
 
             logger.info("Starting training pipeline targets=%s task_types=%s", target_columns, task_types)
-            for target in target_columns:
-                logger.info("Training target=%s task_type=%s", target, task_types[target])
-                task_type = task_types[target]
-                priority_metric = priority_metrics[target]
-                preflight_validation = preflight_by_target[target]
-                tracker = DataFlowTracker(target=target)
-                tracker.snapshot_dataframe(
-                    "raw_dataset",
-                    "Raw dataset",
-                    "intake",
-                    df,
-                    preview=True,
-                    metadata={"source_columns": list(df.columns)},
-                )
-                tracker.snapshot_dataframe(
-                    "analysis_subset",
-                    "Analysis subset",
-                    "intake",
-                    base_analysis_df,
-                    metadata={"excluded_columns": excluded_columns},
-                )
-                if manual_cleaning_plan is not None and any(rule.enabled for rule in manual_cleaning_plan.rules) and manual_cleaning_plan.effect_stage == "pre_eda":
-                    tracker.snapshot_dataframe(
-                        "after_manual_cleaning_pre_eda",
-                        "After manual cleaning (EDA + training)",
-                        "intake",
-                        analysis_df,
-                        metadata=analysis_manual_cleaning_impact,
-                    )
-
-                target_df = analysis_df[feature_columns + [target]].copy()
-                tracker.snapshot_dataframe(
-                    "target_dataset",
-                    "Target dataset",
-                    "intake",
-                    target_df,
-                    preview=True,
-                    metadata={"target": target, "feature_columns": feature_columns},
-                )
-                training_input_df = target_df
-                manual_cleaning_log = list(analysis_manual_cleaning_log)
-                manual_cleaning_impact = dict(analysis_manual_cleaning_impact)
-                if manual_cleaning_plan is not None and any(rule.enabled for rule in manual_cleaning_plan.rules) and manual_cleaning_plan.effect_stage == "pre_training":
-                    target_manual_plan = validate_manual_cleaning_plan(
-                        manual_cleaning_plan,
-                        target_df,
-                        target,
-                        protected_columns=target_columns,
-                    )
-                    training_input_df, manual_cleaning_log, manual_cleaning_impact = apply_manual_cleaning_plan(
-                        target_df,
-                        target_manual_plan,
-                        target,
-                        protected_columns=target_columns,
-                    )
-                    tracker.snapshot_dataframe(
-                        "after_manual_cleaning_pre_training",
-                        "After manual cleaning (training only)",
-                        "intake",
-                        training_input_df,
-                        metadata=manual_cleaning_impact,
-                    )
-
-                target_eda_summary = generate_eda_summary(target_df, target=target)
-                config = CleanConfig(
-                    target=target,
-                    task_type=task_type,
-                    test_size=float(test_size),
-                    random_state=int(random_state),
-                    high_missing_threshold=float(high_missing_threshold),
-                    numeric_imputation_strategy=numeric_imputation_strategy,
-                    categorical_imputation_strategy=categorical_imputation_strategy,
-                    standardize_numeric=bool(standardize_numeric),
-                    feature_engineering_operations=_feature_plan_operations(feature_plan) if feature_plan else None,
-                )
-                cleaned = clean_and_split(training_input_df, config, tracker=tracker)
-                if manual_cleaning_log:
-                    cleaned.cleaning_log = manual_cleaning_log + cleaned.cleaning_log
+            for batch in prepared_batches:
+                target = str(batch["target"])
+                task_type = str(batch["task_type"])
+                priority_metric = str(batch["priority_metric"])
+                preflight_validation = batch["preflight_validation"]
+                tracker = batch["tracker"]
+                target_eda_summary = batch["target_eda_summary"]
+                cleaned = batch["cleaned"]
+                logger.info("Training target=%s task_type=%s", target, task_type)
                 trained = train_model(cleaned, time_budget=int(time_budget), metric_preference=priority_metric, tracker=tracker)
                 metrics, prediction_sample = evaluate_model(trained.model, cleaned, task_type=task_type, tracker=tracker)
                 tracker.snapshot_artifact(
@@ -2564,6 +2702,7 @@ def main() -> None:
                         "manual_cleaning_enabled": bool(manual_cleaning_plan and any(rule.enabled for rule in manual_cleaning_plan.rules)),
                         "manual_cleaning_effect_stage": manual_cleaning_plan.effect_stage if manual_cleaning_plan else None,
                         "dataset_fingerprint": current_dataset_fingerprint,
+                        "prepared_before_training": True,
                     }
                 )
                 storage.save_json(run, "plan.json", artifact_to_dict(plan_suggestion))
@@ -2591,6 +2730,7 @@ def main() -> None:
                         "manual_cleaning_applied_rules": 0
                         if not manual_cleaning_plan
                         else sum(1 for rule in manual_cleaning_plan.rules if rule.enabled),
+                        "prepared_before_training": True,
                     },
                 )
                 report_path = storage.save_text(run, "report.md", report)
