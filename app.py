@@ -19,7 +19,11 @@ import streamlit as st
 
 from ml_platform.artifacts import artifact_to_dict
 from ml_platform.automl import train_model
-from ml_platform.cleaning import clean_and_split, prepare_for_training, preprocessing_plan_to_clean_config
+from ml_platform.cleaning import (
+    clean_and_split,
+    prepare_for_training,
+    preprocessing_plan_to_clean_config,
+)
 from ml_platform.config import Settings, load_settings
 from ml_platform.data_flow import DataFlowTracker
 from ml_platform.data_io import read_csv
@@ -39,7 +43,12 @@ from ml_platform.manual_cleaning import (
 from ml_platform.planner import suggest_plan
 from ml_platform.storage import RunStorage
 from ml_platform.ui_i18n import translate_ui_text
-from ml_platform.validation import build_recommendations, resolve_priority_metric, validate_postrun, validate_preflight
+from ml_platform.validation import (
+    build_recommendations,
+    resolve_priority_metric,
+    validate_postrun,
+    validate_preflight,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -86,6 +95,8 @@ PREPROCESSING_STEP_IDS = {
     "numeric_scaling": "numeric_scaling",
     "feature_engineering": "feature_engineering",
 }
+
+
 def _ui_language() -> str:
     return str(st.session_state.get("ui_language", DEFAULT_UI_LANGUAGE))
 
@@ -186,8 +197,17 @@ def _preprocessing_step(
 
 def _default_preprocessing_plan() -> dict[str, Any]:
     steps = [
-        _preprocessing_step("column_selection", params={"excluded_columns": []}, summary="No excluded columns."),
-        _preprocessing_step("manual_cleaning", enabled=False, params={"plan": None}, summary="No manual cleaning rules applied."),
+        _preprocessing_step(
+            "column_selection",
+            params={"excluded_columns": []},
+            summary="No excluded columns.",
+        ),
+        _preprocessing_step(
+            "manual_cleaning",
+            enabled=False,
+            params={"plan": None},
+            summary="No manual cleaning rules applied.",
+        ),
         _preprocessing_step(
             "missing_value",
             params={
@@ -200,7 +220,7 @@ def _default_preprocessing_plan() -> dict[str, Any]:
         _preprocessing_step(
             "categorical_encoding",
             params={"strategy": "one_hot"},
-            summary="One-hot encoding will be used for categorical features.",
+            summary="Categorical encoding strategy: one_hot.",
         ),
         _preprocessing_step(
             "numeric_scaling",
@@ -210,7 +230,12 @@ def _default_preprocessing_plan() -> dict[str, Any]:
         _preprocessing_step(
             "feature_engineering",
             enabled=False,
-            params={"planner_name": "local_whitelist", "operations": [], "rejected_operations": [], "notes": []},
+            params={
+                "planner_name": "local_whitelist",
+                "operations": [],
+                "rejected_operations": [],
+                "notes": [],
+            },
             summary="Feature engineering is disabled.",
         ),
     ]
@@ -224,7 +249,9 @@ def _default_preprocessing_plan() -> dict[str, Any]:
 
 
 def _preprocessing_steps(plan_data: Any) -> list[dict[str, Any]]:
-    payload = artifact_to_dict(plan_data) if not isinstance(plan_data, dict) else plan_data
+    payload = (
+        artifact_to_dict(plan_data) if not isinstance(plan_data, dict) else plan_data
+    )
     return [step for step in payload.get("steps", []) if isinstance(step, dict)]
 
 
@@ -248,7 +275,9 @@ def _preprocessing_step_enabled(plan_data: Any, kind: str) -> bool:
     return bool(step and step.get("enabled", True))
 
 
-def _upsert_preprocessing_step(plan_data: dict[str, Any], step_data: dict[str, Any]) -> dict[str, Any]:
+def _upsert_preprocessing_step(
+    plan_data: dict[str, Any], step_data: dict[str, Any]
+) -> dict[str, Any]:
     updated = json.loads(json.dumps(plan_data, ensure_ascii=False))
     steps = [step for step in updated.get("steps", []) if isinstance(step, dict)]
     replaced = False
@@ -260,36 +289,55 @@ def _upsert_preprocessing_step(plan_data: dict[str, Any], step_data: dict[str, A
     if not replaced:
         steps.append(step_data)
     updated["steps"] = steps
-    updated["applied_step_ids"] = [str(step.get("id")) for step in steps if str(step.get("id", "")).strip()]
+    updated["applied_step_ids"] = [
+        str(step.get("id")) for step in steps if str(step.get("id", "")).strip()
+    ]
     return updated
 
 
 def _update_applied_preprocessing_step(step_data: dict[str, Any]) -> None:
-    applied_plan = st.session_state.get("_preprocessing_plan_applied") or _default_preprocessing_plan()
-    st.session_state["_preprocessing_plan_applied"] = _upsert_preprocessing_step(applied_plan, step_data)
+    applied_plan = (
+        st.session_state.get("_preprocessing_plan_applied")
+        or _default_preprocessing_plan()
+    )
+    st.session_state["_preprocessing_plan_applied"] = _upsert_preprocessing_step(
+        applied_plan, step_data
+    )
 
 
 def _preprocessing_plan_global_params(plan_data: Any) -> dict[str, Any]:
-    payload = artifact_to_dict(plan_data) if not isinstance(plan_data, dict) else plan_data
+    payload = (
+        artifact_to_dict(plan_data) if not isinstance(plan_data, dict) else plan_data
+    )
     params = payload.get("global_params", {})
     return dict(params) if isinstance(params, dict) else {}
 
 
-def _set_applied_preprocessing_global_params(*, test_size: float, random_state: int) -> None:
-    applied_plan = st.session_state.get("_preprocessing_plan_applied") or _default_preprocessing_plan()
+def _set_applied_preprocessing_global_params(
+    *, test_size: float, random_state: int
+) -> None:
+    applied_plan = (
+        st.session_state.get("_preprocessing_plan_applied")
+        or _default_preprocessing_plan()
+    )
     updated = json.loads(json.dumps(applied_plan, ensure_ascii=False))
-    updated["global_params"] = {"test_size": float(test_size), "random_state": int(random_state)}
+    updated["global_params"] = {
+        "test_size": float(test_size),
+        "random_state": int(random_state),
+    }
     st.session_state["_preprocessing_plan_applied"] = updated
 
 
 def _json_equal(left: Any, right: Any) -> bool:
-    return json.dumps(artifact_to_dict(left), sort_keys=True, ensure_ascii=True) == json.dumps(
-        artifact_to_dict(right), sort_keys=True, ensure_ascii=True
-    )
+    return json.dumps(
+        artifact_to_dict(left), sort_keys=True, ensure_ascii=True
+    ) == json.dumps(artifact_to_dict(right), sort_keys=True, ensure_ascii=True)
 
 
 def _load_hero_background() -> str:
-    hero_image_path = next((path for path in HERO_IMAGE_CANDIDATES if path.exists()), None)
+    hero_image_path = next(
+        (path for path in HERO_IMAGE_CANDIDATES if path.exists()), None
+    )
     if hero_image_path is None:
         return (
             "linear-gradient(100deg, rgba(40, 64, 88, 0.98) 0 38%, "
@@ -749,8 +797,7 @@ def _render_hero() -> None:
                 <span class="lab-pill">__PILL_4__</span>
             </div>
         </section>
-        """
-        .replace("__HERO_DESCRIPTION__", hero_description)
+        """.replace("__HERO_DESCRIPTION__", hero_description)
         .replace("__PILL_1__", hero_pills[0])
         .replace("__PILL_2__", hero_pills[1])
         .replace("__PILL_3__", hero_pills[2])
@@ -761,7 +808,11 @@ def _render_hero() -> None:
 
 def _render_help_center() -> None:
     st.subheader(_t("Quick start"))
-    _section_caption(_t("This page is organized as a guided first run. Advanced settings stay out of the way until you need them."))
+    _section_caption(
+        _t(
+            "This page is organized as a guided first run. Advanced settings stay out of the way until you need them."
+        )
+    )
     st.info(
         _t(
             "Upload a dataset, choose the column to predict, review the checks, then run training. Optional AI help and advanced adjustments can stay closed for a first pass."
@@ -773,8 +824,14 @@ def _section_caption(text: str) -> None:
     st.markdown(f'<p class="lab-caption">{text}</p>', unsafe_allow_html=True)
 
 
-def _render_step_status(current_action: str, next_action: str, level: str = "info") -> None:
-    message = _t("Now: {current_action} Next: {next_action}", current_action=_t(current_action), next_action=_t(next_action))
+def _render_step_status(
+    current_action: str, next_action: str, level: str = "info"
+) -> None:
+    message = _t(
+        "Now: {current_action} Next: {next_action}",
+        current_action=_t(current_action),
+        next_action=_t(next_action),
+    )
     if level == "success":
         st.success(message)
     elif level == "warning":
@@ -789,7 +846,11 @@ def _configure_llm_settings(settings: Settings) -> Settings:
     saved_api_key = saved_config.get("llm_api_key", "")
     saved_base_url = saved_config.get("llm_base_url", "")
     saved_model = saved_config.get("llm_model", "")
-    _section_caption(_t("Optional AI help: you can finish the full local training flow without any API key. Add one only if you want AI-generated suggestions and a more natural-language report."))
+    _section_caption(
+        _t(
+            "Optional AI help: you can finish the full local training flow without any API key. Add one only if you want AI-generated suggestions and a more natural-language report."
+        )
+    )
 
     api_key = saved_api_key
     base_url = saved_base_url or settings.llm_base_url or ""
@@ -797,9 +858,17 @@ def _configure_llm_settings(settings: Settings) -> Settings:
 
     with st.expander(_t("Optional AI help"), expanded=False):
         if allow_local_llm_config:
-            st.caption(_t("This environment can remember settings locally. Hosted deployments can also use `LLM_API_KEY` or Streamlit Secrets."))
+            st.caption(
+                _t(
+                    "This environment can remember settings locally. Hosted deployments can also use `LLM_API_KEY` or Streamlit Secrets."
+                )
+            )
         else:
-            st.caption(_t("Local persistence is disabled here, so enter a key per session or configure `LLM_API_KEY` / Streamlit Secrets."))
+            st.caption(
+                _t(
+                    "Local persistence is disabled here, so enter a key per session or configure `LLM_API_KEY` / Streamlit Secrets."
+                )
+            )
 
         config_cols = st.columns(3)
         with config_cols[0]:
@@ -818,10 +887,14 @@ def _configure_llm_settings(settings: Settings) -> Settings:
                 placeholder=_t("LLM default or compatible API URL"),
             )
         with config_cols[2]:
-            model = st.text_input(_t("Model"), value=saved_model or settings.llm_model, key="_llm_model")
+            model = st.text_input(
+                _t("Model"), value=saved_model or settings.llm_model, key="_llm_model"
+            )
 
         if allow_local_llm_config:
-            remember_config = st.checkbox(_t("Remember LLM settings on this device"), value=bool(saved_api_key))
+            remember_config = st.checkbox(
+                _t("Remember LLM settings on this device"), value=bool(saved_api_key)
+            )
             if remember_config and api_key:
                 _save_local_llm_config(
                     {
@@ -857,7 +930,9 @@ def _infer_task_type(df: pd.DataFrame, target: str) -> str:
     return "regression"
 
 
-def _target_task_types(df: pd.DataFrame, targets: list[str], task_type_choice: str) -> dict[str, str]:
+def _target_task_types(
+    df: pd.DataFrame, targets: list[str], task_type_choice: str
+) -> dict[str, str]:
     if task_type_choice in {"classification", "regression"}:
         return {target: task_type_choice for target in targets}
     return {target: _infer_task_type(df, target) for target in targets}
@@ -882,7 +957,9 @@ def _experiment_signature(
         "planner_brief": planner_brief.strip(),
         "preprocessing_plan": artifact_to_dict(preprocessing_plan),
     }
-    return hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=True).encode("utf-8")).hexdigest()
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True, ensure_ascii=True).encode("utf-8")
+    ).hexdigest()
 
 
 def _initialize_experiment_state(dataset_signature: str, columns: list[str]) -> None:
@@ -927,18 +1004,29 @@ def _initialize_experiment_state(dataset_signature: str, columns: list[str]) -> 
 
 def _render_run_outputs(results: list[dict[str, object]]) -> None:
     st.subheader(_t("6. Review results"))
-    _section_caption(_t("Training has finished. Start with the short summary below, then open details or download files."))
+    _section_caption(
+        _t(
+            "Training has finished. Start with the short summary below, then open details or download files."
+        )
+    )
     completed_targets = ", ".join(str(result["target"]) for result in results)
     _render_step_status(
-        _t("Training finished for: {completed_targets}.", completed_targets=completed_targets),
-        _t("Check the validation notes first, then download the report, model, or prediction sample you need."),
+        _t(
+            "Training finished for: {completed_targets}.",
+            completed_targets=completed_targets,
+        ),
+        _t(
+            "Check the validation notes first, then download the report, model, or prediction sample you need."
+        ),
         level="success",
     )
     summary_cols = st.columns(3)
     with summary_cols[0]:
         st.metric(_t("Completed runs"), len(results))
     with summary_cols[1]:
-        st.metric(_t("Targets trained"), len({str(result["target"]) for result in results}))
+        st.metric(
+            _t("Targets trained"), len({str(result["target"]) for result in results})
+        )
     with summary_cols[2]:
         st.metric(_t("Result files per run"), 3)
     summary_rows = [
@@ -991,9 +1079,13 @@ def _render_run_outputs(results: list[dict[str, object]]) -> None:
     st.write(_t("Detailed results"))
     for result in results:
         run = result["run"]
-        with st.expander(_t("{target} results", target=result["target"]), expanded=len(results) == 1):
+        with st.expander(
+            _t("{target} results", target=result["target"]), expanded=len(results) == 1
+        ):
             st.write(_t("Metrics"))
-            _render_metrics(result["metrics"], priority_metric=result["priority_metric"])
+            _render_metrics(
+                result["metrics"], priority_metric=result["priority_metric"]
+            )
             st.write(_t("Validation checks"))
             _render_validation_summary(
                 preflight=artifact_to_dict(result["preflight_validation"]),
@@ -1004,14 +1096,23 @@ def _render_run_outputs(results: list[dict[str, object]]) -> None:
             st.write(_t("Data flow"))
             _render_data_flow(result["data_flow"])
             st.write(_t("Feature importance"))
-            st.dataframe(pd.DataFrame(result["trained"].feature_importance), use_container_width=True)
+            st.dataframe(
+                pd.DataFrame(result["trained"].feature_importance),
+                use_container_width=True,
+            )
             st.write(_t("Analysis report"))
             st.markdown(result["report"])
             st.caption(_t("Artifacts saved to {path}", path=Path(run.path).resolve()))
 
 
-def _queue_plan_suggestion(plan_suggestion: dict[str, object], columns: list[str]) -> None:
-    suggested_targets = [column for column in plan_suggestion.get("suggested_targets", []) if column in columns]
+def _queue_plan_suggestion(
+    plan_suggestion: dict[str, object], columns: list[str]
+) -> None:
+    suggested_targets = [
+        column
+        for column in plan_suggestion.get("suggested_targets", [])
+        if column in columns
+    ]
     suggested_task_type = plan_suggestion.get("suggested_task_type")
     pending_targets = suggested_targets or st.session_state.get("target_columns", [])
     current_targets = set(pending_targets)
@@ -1034,7 +1135,9 @@ def _consume_pending_plan_suggestion(columns: list[str]) -> None:
     if not pending:
         return
 
-    pending_targets = [column for column in pending.get("target_columns", []) if column in columns]
+    pending_targets = [
+        column for column in pending.get("target_columns", []) if column in columns
+    ]
     if pending_targets:
         st.session_state["target_columns"] = pending_targets
 
@@ -1045,12 +1148,23 @@ def _consume_pending_plan_suggestion(columns: list[str]) -> None:
     excluded_columns = [
         column
         for column in pending.get("excluded_columns", [])
-        if column in columns and column not in set(st.session_state.get("target_columns", []))
+        if column in columns
+        and column not in set(st.session_state.get("target_columns", []))
     ]
     st.session_state["excluded_columns"] = excluded_columns
 
     metric = pending.get("priority_metric_choice")
-    if metric in {"auto", "accuracy", "f1_weighted", "precision_weighted", "recall_weighted", "roc_auc", "rmse", "mae", "r2"}:
+    if metric in {
+        "auto",
+        "accuracy",
+        "f1_weighted",
+        "precision_weighted",
+        "recall_weighted",
+        "roc_auc",
+        "rmse",
+        "mae",
+        "r2",
+    }:
         st.session_state["priority_metric_choice"] = metric
 
 
@@ -1080,29 +1194,53 @@ def _render_planner_suggestion(plan_data: dict[str, object]) -> None:
     with summary_cols[1]:
         st.metric(_t("Task type"), str(plan_data.get("suggested_task_type") or "auto"))
     with summary_cols[2]:
-        st.metric(_t("Priority metric"), str(plan_data.get("priority_metric") or "auto"))
+        st.metric(
+            _t("Priority metric"), str(plan_data.get("priority_metric") or "auto")
+        )
 
-    target_items = [str(item) for item in plan_data.get("suggested_targets", []) if str(item).strip()]
-    excluded_items = [str(item) for item in plan_data.get("suggested_excluded_columns", []) if str(item).strip()]
+    target_items = [
+        str(item)
+        for item in plan_data.get("suggested_targets", [])
+        if str(item).strip()
+    ]
+    excluded_items = [
+        str(item)
+        for item in plan_data.get("suggested_excluded_columns", [])
+        if str(item).strip()
+    ]
     detail_cols = st.columns(2)
     with detail_cols[0]:
         st.write(_t("Suggested targets"))
         if target_items:
-            st.dataframe(pd.DataFrame({_t("Target"): target_items}), hide_index=True, use_container_width=True)
+            st.dataframe(
+                pd.DataFrame({_t("Target"): target_items}),
+                hide_index=True,
+                use_container_width=True,
+            )
         else:
             st.caption(_t("No target suggestion."))
     with detail_cols[1]:
         st.write(_t("Suggested exclusions"))
         if excluded_items:
-            st.dataframe(pd.DataFrame({_t("Column"): excluded_items}), hide_index=True, use_container_width=True)
+            st.dataframe(
+                pd.DataFrame({_t("Column"): excluded_items}),
+                hide_index=True,
+                use_container_width=True,
+            )
         else:
             st.caption(_t("No excluded columns suggested."))
 
     notes_cols = st.columns(2)
     with notes_cols[0]:
-        _render_text_items("Notes", _normalize_item_list(plan_data.get("notes")), "No notes.")
+        _render_text_items(
+            "Notes", _normalize_item_list(plan_data.get("notes")), "No notes."
+        )
     with notes_cols[1]:
-        _render_text_items("Risk flags", _normalize_item_list(plan_data.get("risk_flags")), "No risk flags.")
+        _render_text_items(
+            "Risk flags",
+            _normalize_item_list(plan_data.get("risk_flags")),
+            "No risk flags.",
+        )
 
     with st.expander(_t("Raw planner JSON"), expanded=False):
         st.json(plan_data, expanded=True)
@@ -1147,7 +1285,9 @@ def _render_feature_engineering_plan(plan_data: dict[str, object]) -> None:
 
     summary_cols = st.columns(3)
     with summary_cols[0]:
-        st.metric(_t("Planner"), str(plan_data.get("planner_name") or "local_whitelist"))
+        st.metric(
+            _t("Planner"), str(plan_data.get("planner_name") or "local_whitelist")
+        )
     with summary_cols[1]:
         st.metric(_t("Accepted ops"), len(operations))
     with summary_cols[2]:
@@ -1161,8 +1301,12 @@ def _render_feature_engineering_plan(plan_data: dict[str, object]) -> None:
             rows.append(
                 {
                     _t("Operation"): operation.get("operation"),
-                    _t("Source"): operation.get("source_column") or ", ".join(operation.get("columns", [])),
-                    _t("Detail"): operation.get("operator") or ", ".join(operation.get("parts", [])) or operation.get("bins") or "",
+                    _t("Source"): operation.get("source_column")
+                    or ", ".join(operation.get("columns", [])),
+                    _t("Detail"): operation.get("operator")
+                    or ", ".join(operation.get("parts", []))
+                    or operation.get("bins")
+                    or "",
                     _t("Rationale"): operation.get("rationale", ""),
                 }
             )
@@ -1186,7 +1330,11 @@ def _feature_plan_operations(plan_data: Any) -> list[Any]:
 def _enabled_manual_rule_count(plan_data: Any) -> int:
     payload = artifact_to_dict(plan_data) if plan_data is not None else {}
     rules = payload.get("rules", []) if isinstance(payload, dict) else []
-    return sum(1 for rule in rules if isinstance(rule, dict) and bool(rule.get("enabled", True)))
+    return sum(
+        1
+        for rule in rules
+        if isinstance(rule, dict) and bool(rule.get("enabled", True))
+    )
 
 
 def _preprocessing_manual_plan(plan_data: Any) -> dict[str, Any] | None:
@@ -1220,28 +1368,56 @@ def _build_preprocessing_plan(
     high_missing_threshold: float,
     numeric_imputation_strategy: str,
     categorical_imputation_strategy: str,
+    categorical_encoding_strategy: str,
     standardize_numeric: bool,
     manual_cleaning_plan: Any,
     feature_plan: Any,
 ) -> dict[str, Any]:
-    visible_columns = [column for column in base_analysis_df.columns if column not in excluded_columns]
-    preview_df = base_analysis_df[visible_columns].copy() if visible_columns else base_analysis_df.iloc[:, :0].copy()
-    feature_columns = [column for column in preview_df.columns if column not in target_columns]
-    feature_df = preview_df[feature_columns].copy() if feature_columns else preview_df.iloc[:, :0].copy()
+    visible_columns = [
+        column for column in base_analysis_df.columns if column not in excluded_columns
+    ]
+    preview_df = (
+        base_analysis_df[visible_columns].copy()
+        if visible_columns
+        else base_analysis_df.iloc[:, :0].copy()
+    )
+    feature_columns = [
+        column for column in preview_df.columns if column not in target_columns
+    ]
+    feature_df = (
+        preview_df[feature_columns].copy()
+        if feature_columns
+        else preview_df.iloc[:, :0].copy()
+    )
     numeric_columns = feature_df.select_dtypes(include=["number"]).columns.tolist()
-    categorical_columns = [column for column in feature_df.columns if column not in numeric_columns]
+    categorical_columns = [
+        column for column in feature_df.columns if column not in numeric_columns
+    ]
     high_missing_columns = [
-        column for column in feature_columns if float(feature_df[column].isna().mean()) > float(high_missing_threshold)
+        column
+        for column in feature_columns
+        if float(feature_df[column].isna().mean()) > float(high_missing_threshold)
     ]
 
-    encoded_feature_estimate = 0
-    for column in categorical_columns:
-        encoded_feature_estimate += max(int(feature_df[column].dropna().nunique()), 1)
+    if categorical_encoding_strategy == "one_hot":
+        encoded_feature_estimate = 0
+        for column in categorical_columns:
+            encoded_feature_estimate += max(int(feature_df[column].dropna().nunique()), 1)
+    else:
+        encoded_feature_estimate = len(categorical_columns)
 
-    manual_plan_data = artifact_to_dict(manual_cleaning_plan) if manual_cleaning_plan is not None else None
+    manual_plan_data = (
+        artifact_to_dict(manual_cleaning_plan)
+        if manual_cleaning_plan is not None
+        else None
+    )
     manual_rule_count = _enabled_manual_rule_count(manual_plan_data)
-    feature_plan_data = artifact_to_dict(feature_plan) if feature_plan is not None else None
-    feature_operations = _feature_plan_operations(feature_plan_data) if feature_plan_data else []
+    feature_plan_data = (
+        artifact_to_dict(feature_plan) if feature_plan is not None else None
+    )
+    feature_operations = (
+        _feature_plan_operations(feature_plan_data) if feature_plan_data else []
+    )
 
     steps = [
         _preprocessing_step(
@@ -1274,11 +1450,14 @@ def _build_preprocessing_plan(
         _preprocessing_step(
             "categorical_encoding",
             params={
-                "strategy": "one_hot",
+                "strategy": categorical_encoding_strategy,
                 "categorical_feature_count": len(categorical_columns),
                 "estimated_encoded_features": encoded_feature_estimate,
             },
-            summary=f"One-hot encoding on {len(categorical_columns)} categorical columns.",
+            summary=(
+                f"Categorical encoding strategy: {categorical_encoding_strategy}. "
+                f"Categorical columns: {len(categorical_columns)}."
+            ),
         ),
         _preprocessing_step(
             "numeric_scaling",
@@ -1296,9 +1475,13 @@ def _build_preprocessing_plan(
             "feature_engineering",
             enabled=bool(feature_plan_data and feature_operations),
             params={
-                "planner_name": str((feature_plan_data or {}).get("planner_name") or "local_whitelist"),
+                "planner_name": str(
+                    (feature_plan_data or {}).get("planner_name") or "local_whitelist"
+                ),
                 "operations": feature_operations,
-                "rejected_operations": list((feature_plan_data or {}).get("rejected_operations", [])),
+                "rejected_operations": list(
+                    (feature_plan_data or {}).get("rejected_operations", [])
+                ),
                 "notes": list((feature_plan_data or {}).get("notes", [])),
             },
             summary=(
@@ -1310,22 +1493,60 @@ def _build_preprocessing_plan(
     ]
     return {
         "version": PREPROCESSING_PLAN_VERSION,
-        "global_params": {"test_size": float(test_size), "random_state": int(random_state)},
+        "global_params": {
+            "test_size": float(test_size),
+            "random_state": int(random_state),
+        },
         "steps": steps,
         "applied_step_ids": [str(step["id"]) for step in steps],
         "notes": [],
     }
 
 
-def _render_preprocessing_step_status(title: str, draft_step: dict[str, Any], applied_plan: Any) -> None:
-    applied_step = _preprocessing_step_payload(applied_plan, str(draft_step.get("kind")))
+def _render_preprocessing_step_status(
+    title: str, draft_step: dict[str, Any], applied_plan: Any
+) -> None:
+    applied_step = _preprocessing_step_payload(
+        applied_plan, str(draft_step.get("kind"))
+    )
     if applied_step is None:
-        _render_step_status(title, "This step has not been applied yet.", level="warning")
+        _render_step_status(
+            title, "This step has not been applied yet.", level="warning"
+        )
         return
     if _json_equal(applied_step, draft_step):
         _render_step_status(title, "Current settings are applied.", level="success")
         return
     _render_step_status(title, "Draft changes are not applied yet.", level="info")
+
+
+def _preprocessing_status_text(draft_plan: Any, applied_plan: Any) -> str:
+    if _json_equal(draft_plan, applied_plan):
+        return _t("Current settings are applied.")
+    return _t("Draft changes are not applied yet.")
+
+
+def _preprocessing_summary_text(
+    *,
+    test_size: float,
+    high_missing_threshold: float,
+    categorical_encoding_strategy: str,
+    standardize_numeric: bool,
+    manual_cleaning_enabled: bool,
+    feature_engineering_enabled: bool,
+    draft_plan: Any,
+    applied_plan: Any,
+) -> str:
+    parts = [
+        f"{_t('Test size')} {test_size:.2f}",
+        f"{_t('Drop feature when missing rate is above')} {high_missing_threshold:.2f}",
+        f"{_t('Categorical encoding strategy')} {_t(categorical_encoding_strategy)}",
+        f"{_t('Scaling enabled')} {_t('Yes') if standardize_numeric else _t('No')}",
+        f"{_t('Manual cleaning')} {_t('Yes') if manual_cleaning_enabled else _t('No')}",
+        f"{_t('Feature engineering')} {_t('Yes') if feature_engineering_enabled else _t('No')}",
+        _preprocessing_status_text(draft_plan, applied_plan),
+    ]
+    return " | ".join(parts)
 
 
 def _get_feature_engineering_plan(
@@ -1364,7 +1585,9 @@ def _clone_json_data(value: Any) -> Any:
     return json.loads(json.dumps(artifact_to_dict(value), ensure_ascii=False))
 
 
-def _new_manual_cleaning_rule(column: str = "", *, rule_type: str = "filter_row") -> dict[str, object]:
+def _new_manual_cleaning_rule(
+    column: str = "", *, rule_type: str = "filter_row"
+) -> dict[str, object]:
     return {
         "id": f"manual_rule_{os.urandom(4).hex()}",
         "enabled": True,
@@ -1455,7 +1678,9 @@ def _render_manual_cleaning_editor(
     *,
     available_columns: list[str],
 ) -> dict[str, object]:
-    current_rules = [item for item in draft_plan.get("rules", []) if isinstance(item, dict)]
+    current_rules = [
+        item for item in draft_plan.get("rules", []) if isinstance(item, dict)
+    ]
     effect_stage_value = str(draft_plan.get("effect_stage") or DEFAULT_EFFECT_STAGE)
     if effect_stage_value not in VALID_EFFECT_STAGES:
         effect_stage_value = DEFAULT_EFFECT_STAGE
@@ -1477,37 +1702,61 @@ def _render_manual_cleaning_editor(
         if rule_type_default not in VALID_RULE_TYPES:
             rule_type_default = "filter_row"
         column_default = str(rule.get("column") or "")
-        operator_default = str(rule.get("operator") or "equals") if rule_type_default == "filter_row" else ""
+        operator_default = (
+            str(rule.get("operator") or "equals")
+            if rule_type_default == "filter_row"
+            else ""
+        )
         if operator_default not in FILTER_OPERATORS:
             operator_default = "equals"
         value_default = _manual_cleaning_rule_value_text(rule.get("value"))
         rationale_default = str(rule.get("rationale") or "")
 
-        title = _t("Rule {index}: {column}", index=index, column=column_default or _t("Select column"))
+        title = _t(
+            "Rule {index}: {column}",
+            index=index,
+            column=column_default or _t("Select column"),
+        )
         with st.expander(title, expanded=len(current_rules) == 1):
             top_cols = st.columns([0.8, 1.0, 1.3, 0.9])
             with top_cols[0]:
-                enabled = st.checkbox(_t("Enabled"), value=enabled_default, key=f"manual_rule_enabled_{rule_id}")
+                enabled = st.checkbox(
+                    _t("Enabled"),
+                    value=enabled_default,
+                    key=f"manual_rule_enabled_{rule_id}",
+                )
             with top_cols[1]:
                 rule_type = st.selectbox(
                     _t("Rule type"),
                     ["drop_column", "filter_row"],
                     index=["drop_column", "filter_row"].index(rule_type_default),
                     key=f"manual_rule_type_{rule_id}",
-                    format_func=lambda value: _t("Drop column") if value == "drop_column" else _t("Filter rows"),
+                    format_func=lambda value: (
+                        _t("Drop column")
+                        if value == "drop_column"
+                        else _t("Filter rows")
+                    ),
                 )
             with top_cols[2]:
                 column_options = ["", *available_columns]
-                column_index = column_options.index(column_default) if column_default in column_options else 0
+                column_index = (
+                    column_options.index(column_default)
+                    if column_default in column_options
+                    else 0
+                )
                 column = st.selectbox(
                     _t("Column"),
                     column_options,
                     index=column_index,
                     key=f"manual_rule_column_{rule_id}",
-                    format_func=lambda value: _t("Select column") if value == "" else value,
+                    format_func=lambda value: (
+                        _t("Select column") if value == "" else value
+                    ),
                 )
             with top_cols[3]:
-                delete_clicked = st.button(_t("Delete rule"), key=f"manual_rule_delete_{rule_id}")
+                delete_clicked = st.button(
+                    _t("Delete rule"), key=f"manual_rule_delete_{rule_id}"
+                )
                 if delete_clicked:
                     delete_rule_id = rule_id
 
@@ -1541,16 +1790,36 @@ def _render_manual_cleaning_editor(
                     if operator in {"is_null", "not_null"}:
                         st.caption(_t("No value is needed for this operator."))
                     else:
-                        label = _t("Values (comma-separated)") if operator in {"in", "not_in"} else _t("Value")
-                        raw_value = st.text_input(label, value=value_default, key=f"manual_rule_value_{rule_id}")
+                        label = (
+                            _t("Values (comma-separated)")
+                            if operator in {"in", "not_in"}
+                            else _t("Value")
+                        )
+                        raw_value = st.text_input(
+                            label,
+                            value=value_default,
+                            key=f"manual_rule_value_{rule_id}",
+                        )
                         if operator in {"in", "not_in"}:
-                            parsed_value = [item.strip() for item in raw_value.split(",") if item.strip()]
+                            parsed_value = [
+                                item.strip()
+                                for item in raw_value.split(",")
+                                if item.strip()
+                            ]
                         else:
                             parsed_value = raw_value.strip() or None
             else:
-                st.caption(_t("This rule drops the selected column before downstream processing."))
+                st.caption(
+                    _t(
+                        "This rule drops the selected column before downstream processing."
+                    )
+                )
 
-            rationale = st.text_input(_t("Rationale"), value=rationale_default, key=f"manual_rule_rationale_{rule_id}")
+            rationale = st.text_input(
+                _t("Rationale"),
+                value=rationale_default,
+                key=f"manual_rule_rationale_{rule_id}",
+            )
             updated_rules.append(
                 {
                     "id": rule_id,
@@ -1564,7 +1833,9 @@ def _render_manual_cleaning_editor(
             )
 
     if delete_rule_id:
-        updated_rules = [rule for rule in updated_rules if str(rule.get("id")) != delete_rule_id]
+        updated_rules = [
+            rule for rule in updated_rules if str(rule.get("id")) != delete_rule_id
+        ]
 
     controls = st.columns(2)
     add_blank_rule = controls[0].button(_t("Add blank rule"))
@@ -1575,14 +1846,18 @@ def _render_manual_cleaning_editor(
         "user_brief": str(draft_plan.get("user_brief") or ""),
         "effect_stage": effect_stage,
         "rules": updated_rules,
-        "notes": list(draft_plan.get("notes", [])) if isinstance(draft_plan.get("notes"), list) else [],
+        "notes": list(draft_plan.get("notes", []))
+        if isinstance(draft_plan.get("notes"), list)
+        else [],
         "rejected_rules": [],
     }
     if add_blank_rule:
         updated_plan["rules"].append(_new_manual_cleaning_rule())
     if reset_draft:
         applied = st.session_state.get("_manual_cleaning_plan")
-        st.session_state["_manual_cleaning_override_plan"] = _clone_json_data(applied) if applied else None
+        st.session_state["_manual_cleaning_override_plan"] = (
+            _clone_json_data(applied) if applied else None
+        )
         st.rerun()
 
     st.session_state["_manual_cleaning_override_plan"] = updated_plan
@@ -1602,20 +1877,31 @@ def _render_target_profile(target_data: dict[str, object]) -> None:
 
     stats = target_data.get("stats", {})
     if isinstance(stats, dict) and stats:
-        stats_rows = [{_t("Stat"): key, _t("Value"): value} for key, value in stats.items()]
-        st.dataframe(pd.DataFrame(stats_rows), hide_index=True, use_container_width=True)
+        stats_rows = [
+            {_t("Stat"): key, _t("Value"): value} for key, value in stats.items()
+        ]
+        st.dataframe(
+            pd.DataFrame(stats_rows), hide_index=True, use_container_width=True
+        )
 
     top_values = target_data.get("top_values", {})
     if isinstance(top_values, dict) and top_values:
         st.write(_t("Top target values"))
         st.dataframe(
-            pd.DataFrame([{_t("Value"): key, _t("Count"): value} for key, value in top_values.items()]),
+            pd.DataFrame(
+                [
+                    {_t("Value"): key, _t("Count"): value}
+                    for key, value in top_values.items()
+                ]
+            ),
             hide_index=True,
             use_container_width=True,
         )
 
 
-def _flatten_target_relationships(relationships: dict[str, object]) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+def _flatten_target_relationships(
+    relationships: dict[str, object],
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     numeric_correlation_rows: list[dict[str, object]] = []
     numeric_group_rows: list[dict[str, object]] = []
     categorical_rows: list[dict[str, object]] = []
@@ -1626,7 +1912,10 @@ def _flatten_target_relationships(relationships: dict[str, object]) -> tuple[pd.
         feature = str(item.get("feature") or "")
         if "target_correlation" in item:
             numeric_correlation_rows.append(
-                {"feature": feature, "target_correlation": item.get("target_correlation")}
+                {
+                    "feature": feature,
+                    "target_correlation": item.get("target_correlation"),
+                }
             )
         by_target = item.get("by_target", {})
         if isinstance(by_target, dict):
@@ -1671,7 +1960,9 @@ def _flatten_target_relationships(relationships: dict[str, object]) -> tuple[pd.
 
 
 def _render_target_relationships(relationships: dict[str, object]) -> None:
-    numeric_correlations, numeric_groups, categorical_distribution = _flatten_target_relationships(relationships)
+    numeric_correlations, numeric_groups, categorical_distribution = (
+        _flatten_target_relationships(relationships)
+    )
 
     if not numeric_correlations.empty:
         st.write(_t("Numeric feature relationships"))
@@ -1683,13 +1974,21 @@ def _render_target_relationships(relationships: dict[str, object]) -> None:
 
     if not categorical_distribution.empty:
         st.write(_t("Categorical feature target distribution"))
-        st.dataframe(categorical_distribution, hide_index=True, use_container_width=True)
+        st.dataframe(
+            categorical_distribution, hide_index=True, use_container_width=True
+        )
 
-    if numeric_correlations.empty and numeric_groups.empty and categorical_distribution.empty:
+    if (
+        numeric_correlations.empty
+        and numeric_groups.empty
+        and categorical_distribution.empty
+    ):
         st.caption(_t("No target relationship summary available."))
 
 
-def _render_metrics(metrics: dict[str, object], priority_metric: str | None = None) -> None:
+def _render_metrics(
+    metrics: dict[str, object], priority_metric: str | None = None
+) -> None:
     test_rows: list[dict[str, object]] = []
     train_rows: list[dict[str, object]] = []
     for metric_name, value in metrics.items():
@@ -1707,19 +2006,26 @@ def _render_metrics(metrics: dict[str, object], priority_metric: str | None = No
         with priority_cols[0]:
             st.metric(_t("Priority metric"), priority_metric)
         with priority_cols[1]:
-            st.metric(_t("Priority value"), "-" if resolved_value is None else f"{float(resolved_value):.4f}")
+            st.metric(
+                _t("Priority value"),
+                "-" if resolved_value is None else f"{float(resolved_value):.4f}",
+            )
 
     metric_cols = st.columns(2)
     with metric_cols[0]:
         st.write(_t("Test metrics"))
         if test_rows:
-            st.dataframe(pd.DataFrame(test_rows), hide_index=True, use_container_width=True)
+            st.dataframe(
+                pd.DataFrame(test_rows), hide_index=True, use_container_width=True
+            )
         else:
             st.caption(_t("No test metrics."))
     with metric_cols[1]:
         st.write(_t("Train metrics"))
         if train_rows:
-            st.dataframe(pd.DataFrame(train_rows), hide_index=True, use_container_width=True)
+            st.dataframe(
+                pd.DataFrame(train_rows), hide_index=True, use_container_width=True
+            )
         else:
             st.caption(_t("No train metrics."))
 
@@ -1731,8 +2037,14 @@ def _preview_to_frame(preview: dict[str, object]) -> pd.DataFrame:
         return pd.DataFrame(columns=columns)
     frame = pd.DataFrame(rows)
     ordered_columns = [column for column in columns if column in frame.columns]
-    remaining_columns = [column for column in frame.columns if column not in ordered_columns]
-    return frame[ordered_columns + remaining_columns] if not frame.empty or ordered_columns else frame
+    remaining_columns = [
+        column for column in frame.columns if column not in ordered_columns
+    ]
+    return (
+        frame[ordered_columns + remaining_columns]
+        if not frame.empty or ordered_columns
+        else frame
+    )
 
 
 def _shape_label(snapshot: dict[str, object]) -> str:
@@ -1748,7 +2060,9 @@ def _shape_label(snapshot: dict[str, object]) -> str:
 
 
 def _render_data_flow(trace_data: dict[str, object]) -> None:
-    snapshots = [item for item in trace_data.get("snapshots", []) if isinstance(item, dict)]
+    snapshots = [
+        item for item in trace_data.get("snapshots", []) if isinstance(item, dict)
+    ]
     if not snapshots:
         st.caption(_t("No data flow trace available."))
         return
@@ -1759,13 +2073,26 @@ def _render_data_flow(trace_data: dict[str, object]) -> None:
         columns = st.columns(len(chunk))
         for index, snapshot in enumerate(chunk, start=start + 1):
             with columns[index - start - 1]:
-                st.caption(_t("{index}. {label}", index=index, label=snapshot.get("label") or snapshot.get("step")))
+                st.caption(
+                    _t(
+                        "{index}. {label}",
+                        index=index,
+                        label=snapshot.get("label") or snapshot.get("step"),
+                    )
+                )
                 st.metric(_t("Shape"), _shape_label(snapshot))
                 partition = str(snapshot.get("partition") or "full")
                 stage = str(snapshot.get("stage") or "-")
                 delta = snapshot.get("rows_delta")
                 delta_text = "-" if delta is None else f"{int(delta):+d}"
-                st.caption(_t("{stage} | {partition} | delta {delta_text}", stage=stage, partition=partition, delta_text=delta_text))
+                st.caption(
+                    _t(
+                        "{stage} | {partition} | delta {delta_text}",
+                        stage=stage,
+                        partition=partition,
+                        delta_text=delta_text,
+                    )
+                )
 
     summary_rows = []
     for index, snapshot in enumerate(snapshots, start=1):
@@ -1818,7 +2145,9 @@ def _render_data_flow(trace_data: dict[str, object]) -> None:
     with delta_cols[1]:
         st.metric(_t("Columns added"), len(selected_snapshot.get("columns_added", [])))
     with delta_cols[2]:
-        st.metric(_t("Columns removed"), len(selected_snapshot.get("columns_removed", [])))
+        st.metric(
+            _t("Columns removed"), len(selected_snapshot.get("columns_removed", []))
+        )
 
     metadata = selected_snapshot.get("metadata", {})
     if isinstance(metadata, dict) and metadata:
@@ -1827,10 +2156,18 @@ def _render_data_flow(trace_data: dict[str, object]) -> None:
 
     detail_cols = st.columns(2)
     with detail_cols[0]:
-        added = [str(item) for item in selected_snapshot.get("columns_added", []) if str(item).strip()]
+        added = [
+            str(item)
+            for item in selected_snapshot.get("columns_added", [])
+            if str(item).strip()
+        ]
         _render_text_items("Columns added", added, "No columns added.")
     with detail_cols[1]:
-        removed = [str(item) for item in selected_snapshot.get("columns_removed", []) if str(item).strip()]
+        removed = [
+            str(item)
+            for item in selected_snapshot.get("columns_removed", [])
+            if str(item).strip()
+        ]
         _render_text_items("Columns removed", removed, "No columns removed.")
 
     preview = selected_snapshot.get("preview")
@@ -1852,7 +2189,9 @@ def _render_validation_summary(
     with summary_cols[0]:
         st.metric(_t("Requested metric"), priority_metric)
     with summary_cols[1]:
-        st.metric(_t("Preflight"), _t("OK") if preflight.get("ok_to_run") else _t("Blocked"))
+        st.metric(
+            _t("Preflight"), _t("OK") if preflight.get("ok_to_run") else _t("Blocked")
+        )
     with summary_cols[2]:
         st.metric(_t("Postrun"), _t("OK") if postrun.get("ok") else _t("Check issues"))
     with summary_cols[3]:
@@ -1862,13 +2201,17 @@ def _render_validation_summary(
     with preflight_detail_cols[0]:
         st.metric(_t("Feature count"), int(preflight.get("feature_count") or 0))
     with preflight_detail_cols[1]:
-        st.metric(_t("Dropped target rows"), int(preflight.get("dropped_target_rows") or 0))
+        st.metric(
+            _t("Dropped target rows"), int(preflight.get("dropped_target_rows") or 0)
+        )
     with preflight_detail_cols[2]:
         st.metric(_t("Report mode"), str(postrun.get("report_mode") or "-"))
 
     generalization_gap = postrun.get("generalization_gap", {})
     if isinstance(generalization_gap, dict) and generalization_gap:
-        gap_rows = [{"metric": key, "value": value} for key, value in generalization_gap.items()]
+        gap_rows = [
+            {"metric": key, "value": value} for key, value in generalization_gap.items()
+        ]
         st.write(_t("Generalization gap"))
         st.dataframe(pd.DataFrame(gap_rows), hide_index=True, use_container_width=True)
 
@@ -1876,7 +2219,9 @@ def _render_validation_summary(
     if isinstance(class_balance, dict) and class_balance:
         st.write(_t("Class balance"))
         st.dataframe(
-            pd.DataFrame([{"class": key, "share": value} for key, value in class_balance.items()]),
+            pd.DataFrame(
+                [{"class": key, "share": value} for key, value in class_balance.items()]
+            ),
             hide_index=True,
             use_container_width=True,
         )
@@ -1885,9 +2230,17 @@ def _render_validation_summary(
     detected_leakage = preflight.get("detected_leakage_columns", [])
     detail_cols = st.columns(2)
     with detail_cols[0]:
-        _render_text_items("Recommended exclusions", list(recommended_exclusions), "No extra exclusions suggested.")
+        _render_text_items(
+            "Recommended exclusions",
+            list(recommended_exclusions),
+            "No extra exclusions suggested.",
+        )
     with detail_cols[1]:
-        _render_text_items("Potential leakage columns", list(detected_leakage), "No leakage columns detected.")
+        _render_text_items(
+            "Potential leakage columns",
+            list(detected_leakage),
+            "No leakage columns detected.",
+        )
 
     issue_cols = st.columns(2)
     with issue_cols[0]:
@@ -1899,9 +2252,17 @@ def _render_validation_summary(
 
     recommendation_cols = st.columns(2)
     with recommendation_cols[0]:
-        _render_text_items("Recommendation summary", list(recommendations.get("summary", [])), "No summary available.")
+        _render_text_items(
+            "Recommendation summary",
+            list(recommendations.get("summary", [])),
+            "No summary available.",
+        )
     with recommendation_cols[1]:
-        _render_text_items("Next steps", list(recommendations.get("next_steps", [])), "No next steps available.")
+        _render_text_items(
+            "Next steps",
+            list(recommendations.get("next_steps", [])),
+            "No next steps available.",
+        )
 
 
 def _render_issue_table(issues: list[dict[str, object]]) -> None:
@@ -1911,7 +2272,9 @@ def _render_issue_table(issues: list[dict[str, object]]) -> None:
     st.dataframe(pd.DataFrame(issues), use_container_width=True)
 
 
-def _render_integer_input(label: str, state_key: str, min_value: int | None = None) -> int:
+def _render_integer_input(
+    label: str, state_key: str, min_value: int | None = None
+) -> int:
     text_key = f"{state_key}_text"
     raw_value = st.text_input(label, key=text_key)
     current_value = int(st.session_state.get(state_key, 0))
@@ -1919,11 +2282,22 @@ def _render_integer_input(label: str, state_key: str, min_value: int | None = No
     try:
         parsed_value = int(candidate)
     except ValueError:
-        st.caption(_t("Enter a whole number. Using {current_value} until corrected.", current_value=current_value))
+        st.caption(
+            _t(
+                "Enter a whole number. Using {current_value} until corrected.",
+                current_value=current_value,
+            )
+        )
         return current_value
 
     if min_value is not None and parsed_value < min_value:
-        st.caption(_t("Enter a value greater than or equal to {min_value}. Using {current_value} until corrected.", min_value=min_value, current_value=current_value))
+        st.caption(
+            _t(
+                "Enter a value greater than or equal to {min_value}. Using {current_value} until corrected.",
+                min_value=min_value,
+                current_value=current_value,
+            )
+        )
         return current_value
 
     st.session_state[state_key] = parsed_value
@@ -1947,7 +2321,9 @@ def _prepare_target_batches(
     manual_cleaning_plan: Any,
 ) -> list[dict[str, object]]:
     if not candidate_feature_columns:
-        raise ValueError("No feature columns remain after excluding selected target and ignored columns.")
+        raise ValueError(
+            "No feature columns remain after excluding selected target and ignored columns."
+        )
 
     prepared_batches: list[dict[str, object]] = []
     for target in target_columns:
@@ -1970,7 +2346,11 @@ def _prepare_target_batches(
             base_analysis_df,
             metadata={"excluded_columns": excluded_columns},
         )
-        if manual_cleaning_plan is not None and any(rule.enabled for rule in manual_cleaning_plan.rules) and manual_cleaning_plan.effect_stage == "pre_eda":
+        if (
+            manual_cleaning_plan is not None
+            and any(rule.enabled for rule in manual_cleaning_plan.rules)
+            and manual_cleaning_plan.effect_stage == "pre_eda"
+        ):
             tracker.snapshot_dataframe(
                 "after_manual_cleaning_pre_eda",
                 "After manual cleaning (EDA + training)",
@@ -1991,18 +2371,24 @@ def _prepare_target_batches(
         training_input_df = target_df
         manual_cleaning_log = list(analysis_manual_cleaning_log)
         manual_cleaning_impact = dict(analysis_manual_cleaning_impact)
-        if manual_cleaning_plan is not None and any(rule.enabled for rule in manual_cleaning_plan.rules) and manual_cleaning_plan.effect_stage == "pre_training":
+        if (
+            manual_cleaning_plan is not None
+            and any(rule.enabled for rule in manual_cleaning_plan.rules)
+            and manual_cleaning_plan.effect_stage == "pre_training"
+        ):
             target_manual_plan = validate_manual_cleaning_plan(
                 manual_cleaning_plan,
                 target_df,
                 target,
                 protected_columns=target_columns,
             )
-            training_input_df, manual_cleaning_log, manual_cleaning_impact = apply_manual_cleaning_plan(
-                target_df,
-                target_manual_plan,
-                target,
-                protected_columns=target_columns,
+            training_input_df, manual_cleaning_log, manual_cleaning_impact = (
+                apply_manual_cleaning_plan(
+                    target_df,
+                    target_manual_plan,
+                    target,
+                    protected_columns=target_columns,
+                )
             )
             tracker.snapshot_dataframe(
                 "after_manual_cleaning_pre_training",
@@ -2041,6 +2427,43 @@ def _prepare_target_batches(
     return prepared_batches
 
 
+def _materialize_prepared_batches(
+    *,
+    current_experiment_signature: str,
+    df: pd.DataFrame,
+    base_analysis_df: pd.DataFrame,
+    analysis_df: pd.DataFrame,
+    analysis_manual_cleaning_log: list[dict[str, object]],
+    analysis_manual_cleaning_impact: dict[str, object],
+    candidate_feature_columns: list[str],
+    excluded_columns: list[str],
+    target_columns: list[str],
+    task_types: dict[str, str],
+    priority_metrics: dict[str, str],
+    preflight_by_target: dict[str, object],
+    preprocessing_plan: Any,
+    manual_cleaning_plan: Any,
+) -> list[dict[str, object]]:
+    prepared_batches = _prepare_target_batches(
+        df=df,
+        base_analysis_df=base_analysis_df,
+        analysis_df=analysis_df,
+        analysis_manual_cleaning_log=analysis_manual_cleaning_log,
+        analysis_manual_cleaning_impact=analysis_manual_cleaning_impact,
+        candidate_feature_columns=candidate_feature_columns,
+        excluded_columns=excluded_columns,
+        target_columns=target_columns,
+        task_types=task_types,
+        priority_metrics=priority_metrics,
+        preflight_by_target=preflight_by_target,
+        preprocessing_plan=preprocessing_plan,
+        manual_cleaning_plan=manual_cleaning_plan,
+    )
+    st.session_state["_latest_prepared_signature"] = current_experiment_signature
+    st.session_state["_latest_prepared_batches"] = list(prepared_batches)
+    return prepared_batches
+
+
 def main() -> None:
     _apply_design_system()
     _render_language_switcher()
@@ -2051,9 +2474,15 @@ def main() -> None:
 
     st.subheader(_t("1. Upload data"))
     with st.container(border=True):
-        _section_caption(_t("Start with one CSV file or a demo dataset. The app saves each run under the configured runs directory."))
+        _section_caption(
+            _t(
+                "Start with one CSV file or a demo dataset. The app saves each run under the configured runs directory."
+            )
+        )
 
-        demo_csvs = sorted(Path(p).name for p in PROJECT_ROOT.glob("data/*.csv") if p.is_file())
+        demo_csvs = sorted(
+            Path(p).name for p in PROJECT_ROOT.glob("data/*.csv") if p.is_file()
+        )
 
         upload_label = _t("Upload CSV")
         demo_label_to_name = {_t("Demo: {name}", name=name): name for name in demo_csvs}
@@ -2070,12 +2499,19 @@ def main() -> None:
             demo_path = PROJECT_ROOT / "data" / demo_name
             df = read_csv(demo_path)
             _render_step_status(
-                _t("Loaded demo dataset `{demo_name}` with {rows} rows and {columns} columns.", demo_name=demo_name, rows=len(df), columns=len(df.columns)),
+                _t(
+                    "Loaded demo dataset `{demo_name}` with {rows} rows and {columns} columns.",
+                    demo_name=demo_name,
+                    rows=len(df),
+                    columns=len(df.columns),
+                ),
                 _t("Choose the column you want to predict."),
                 level="success",
             )
         else:
-            uploaded_file = st.file_uploader(_t("Upload CSV"), type=["csv"], label_visibility="collapsed")
+            uploaded_file = st.file_uploader(
+                _t("Upload CSV"), type=["csv"], label_visibility="collapsed"
+            )
             if uploaded_file is None:
                 _render_step_status(
                     _t("No dataset has been loaded yet."),
@@ -2092,7 +2528,12 @@ def main() -> None:
                 return
             df = read_csv(uploaded_file)
             _render_step_status(
-                _t("Loaded `{file_name}` with {rows} rows and {columns} columns.", file_name=uploaded_file.name, rows=len(df), columns=len(df.columns)),
+                _t(
+                    "Loaded `{file_name}` with {rows} rows and {columns} columns.",
+                    file_name=uploaded_file.name,
+                    rows=len(df),
+                    columns=len(df.columns),
+                ),
                 _t("Choose the column you want to predict."),
                 level="success",
             )
@@ -2103,14 +2544,20 @@ def main() -> None:
 
     st.subheader(_t("2. Choose what to predict"))
     with st.container(border=True):
-        _section_caption(_t("Pick the column you want the app to predict. The app can infer the task type automatically."))
+        _section_caption(
+            _t(
+                "Pick the column you want the app to predict. The app can infer the task type automatically."
+            )
+        )
         setup_cols = st.columns([1.5, 1.0])
         with setup_cols[0]:
             target_columns = st.multiselect(
                 _t("Target variables"),
                 columns,
                 key="target_columns",
-                help=_t("Select one or more targets. Multi-target runs train one model per target."),
+                help=_t(
+                    "Select one or more targets. Multi-target runs train one model per target."
+                ),
             )
         with setup_cols[1]:
             task_type_labels = {
@@ -2118,8 +2565,12 @@ def main() -> None:
                 "classification": _t("classification"),
                 "regression": _t("regression"),
             }
-            current_task_type_choice = str(st.session_state.get("task_type_choice", "auto"))
-            st.session_state["_task_type_choice_label"] = task_type_labels.get(current_task_type_choice, task_type_labels["auto"])
+            current_task_type_choice = str(
+                st.session_state.get("task_type_choice", "auto")
+            )
+            st.session_state["_task_type_choice_label"] = task_type_labels.get(
+                current_task_type_choice, task_type_labels["auto"]
+            )
             task_type_label = st.radio(
                 _t("Task type"),
                 list(task_type_labels.values()),
@@ -2127,13 +2578,17 @@ def main() -> None:
                 key="_task_type_choice_label",
             )
             task_type_choice = next(
-                value for value, label in task_type_labels.items() if label == str(task_type_label)
+                value
+                for value, label in task_type_labels.items()
+                if label == str(task_type_label)
             )
             st.session_state["task_type_choice"] = task_type_choice
 
         if not target_columns:
             _render_step_status(
-                _t("Your dataset is ready, but no prediction target has been selected yet."),
+                _t(
+                    "Your dataset is ready, but no prediction target has been selected yet."
+                ),
                 _t("Select at least one target column to continue to the checks step."),
                 level="warning",
             )
@@ -2141,45 +2596,93 @@ def main() -> None:
 
         selected_targets = ", ".join(str(target) for target in target_columns)
         _render_step_status(
-            _t("Selected target columns: {selected_targets}.", selected_targets=selected_targets)
+            _t(
+                "Selected target columns: {selected_targets}.",
+                selected_targets=selected_targets,
+            )
             if len(target_columns) > 1
-            else _t("Selected target column: {selected_targets}.", selected_targets=selected_targets),
+            else _t(
+                "Selected target column: {selected_targets}.",
+                selected_targets=selected_targets,
+            ),
             _t("Review the data checks before starting training."),
             level="success",
         )
 
         exclude_options = [column for column in columns if column not in target_columns]
         with st.expander(_t("Advanced experiment settings"), expanded=False):
-            st.caption(_t("Most first runs can keep the defaults here. Open this only if you want more control."))
+            st.caption(
+                _t(
+                    "Most first runs can keep the defaults here. Open this only if you want more control."
+                )
+            )
             top_advanced_cols = st.columns(2)
             with top_advanced_cols[0]:
-                time_budget = _render_integer_input(_t("Training time budget seconds"), "time_budget", min_value=5)
+                time_budget = _render_integer_input(
+                    _t("Training time budget seconds"), "time_budget", min_value=5
+                )
             with top_advanced_cols[1]:
                 priority_metric_choice = st.selectbox(
                     _t("Priority metric"),
-                    ["auto", "accuracy", "f1_weighted", "precision_weighted", "recall_weighted", "roc_auc", "rmse", "mae", "r2"],
+                    [
+                        "auto",
+                        "accuracy",
+                        "f1_weighted",
+                        "precision_weighted",
+                        "recall_weighted",
+                        "roc_auc",
+                        "rmse",
+                        "mae",
+                        "r2",
+                    ],
                     key="priority_metric_choice",
-                    help=_t("This is the score the trainer treats as most important when choosing the best baseline."),
+                    help=_t(
+                        "This is the score the trainer treats as most important when choosing the best baseline."
+                    ),
                 )
 
-    applied_preprocessing_plan = st.session_state.get("_preprocessing_plan_applied") or _default_preprocessing_plan()
-    applied_global_params = _preprocessing_plan_global_params(applied_preprocessing_plan)
+    applied_preprocessing_plan = (
+        st.session_state.get("_preprocessing_plan_applied")
+        or _default_preprocessing_plan()
+    )
+    applied_global_params = _preprocessing_plan_global_params(
+        applied_preprocessing_plan
+    )
     applied_excluded_columns = [
         str(column)
-        for column in _preprocessing_step_params(applied_preprocessing_plan, "column_selection").get("excluded_columns", [])
+        for column in _preprocessing_step_params(
+            applied_preprocessing_plan, "column_selection"
+        ).get("excluded_columns", [])
         if str(column).strip()
     ]
-    if isinstance(applied_manual_cleaning_payload := _preprocessing_manual_plan(applied_preprocessing_plan), dict):
-        st.session_state["_manual_cleaning_plan"] = _clone_json_data(applied_manual_cleaning_payload)
-    applied_feature_plan_payload = _preprocessing_feature_plan(applied_preprocessing_plan)
+    if isinstance(
+        applied_manual_cleaning_payload := _preprocessing_manual_plan(
+            applied_preprocessing_plan
+        ),
+        dict,
+    ):
+        st.session_state["_manual_cleaning_plan"] = _clone_json_data(
+            applied_manual_cleaning_payload
+        )
+    applied_feature_plan_payload = _preprocessing_feature_plan(
+        applied_preprocessing_plan
+    )
     if isinstance(applied_feature_plan_payload, dict):
-        st.session_state["_feature_engineering_applied_plan"] = _clone_json_data(applied_feature_plan_payload)
-    analysis_columns = [column for column in columns if column not in applied_excluded_columns]
+        st.session_state["_feature_engineering_applied_plan"] = _clone_json_data(
+            applied_feature_plan_payload
+        )
+    analysis_columns = [
+        column for column in columns if column not in applied_excluded_columns
+    ]
     base_analysis_df = df[analysis_columns].copy()
 
     primary_target = target_columns[0]
-    if applied_manual_cleaning_payload is None and isinstance(st.session_state.get("_manual_cleaning_plan"), dict):
-        applied_manual_cleaning_payload = dict(st.session_state["_manual_cleaning_plan"])
+    if applied_manual_cleaning_payload is None and isinstance(
+        st.session_state.get("_manual_cleaning_plan"), dict
+    ):
+        applied_manual_cleaning_payload = dict(
+            st.session_state["_manual_cleaning_plan"]
+        )
     manual_cleaning_plan = None
     analysis_manual_cleaning_log: list[dict[str, object]] = []
     analysis_manual_cleaning_impact: dict[str, object] = {}
@@ -2191,379 +2694,748 @@ def main() -> None:
             primary_target,
             protected_columns=target_columns,
         )
-        if any(rule.enabled for rule in manual_cleaning_plan.rules) and manual_cleaning_plan.effect_stage == "pre_eda":
-            analysis_df, analysis_manual_cleaning_log, analysis_manual_cleaning_impact = apply_manual_cleaning_plan(
+        if (
+            any(rule.enabled for rule in manual_cleaning_plan.rules)
+            and manual_cleaning_plan.effect_stage == "pre_eda"
+        ):
+            (
+                analysis_df,
+                analysis_manual_cleaning_log,
+                analysis_manual_cleaning_impact,
+            ) = apply_manual_cleaning_plan(
                 base_analysis_df,
                 manual_cleaning_plan,
                 primary_target,
                 protected_columns=target_columns,
             )
 
-    candidate_feature_columns = [column for column in analysis_df.columns if column not in target_columns]
+    candidate_feature_columns = [
+        column for column in analysis_df.columns if column not in target_columns
+    ]
     task_types = _target_task_types(analysis_df, target_columns, task_type_choice)
     if len(target_columns) > 1:
-        st.caption(_t("Multi-target mode trains and stores one independent run per target. Other selected targets are excluded from each model's feature set."))
+        st.caption(
+            _t(
+                "Multi-target mode trains and stores one independent run per target. Other selected targets are excluded from each model's feature set."
+            )
+        )
 
     eda_summary = generate_eda_summary(analysis_df, target=primary_target)
-    st.subheader(_t("3. Configure preprocessing"))
-    _section_caption(_t("Configure each preprocessing step, review its preview, then apply it before preparing data."))
-    with st.container(border=True):
-        st.write(_t("Planning help"))
-        _section_caption(_t("This optional brief lets you describe your goal in plain language so the app can suggest a sensible first setup."))
-        planner_brief = st.text_area(
-            _t("Planning brief"),
-            key="planner_brief",
-            placeholder=_t("Example: predict churn, treat customer_id as reference only, and keep this as a quick first pass."),
-            help=_t("Optional natural-language brief used to suggest targets, task type, exclusions, and a priority metric."),
+    preprocessing_summary_test_size = float(
+        st.session_state.get("test_size", applied_global_params.get("test_size", 0.2))
+    )
+    preprocessing_summary_random_state = int(
+        st.session_state.get(
+            "random_state", applied_global_params.get("random_state", 42)
         )
-        plan_suggestion = _get_planner_suggestion(
-            df=analysis_df,
-            eda_summary=eda_summary,
-            settings=settings,
-            user_brief=planner_brief,
-            dataset_fingerprint=current_dataset_fingerprint,
-        )
-        plan_data = artifact_to_dict(plan_suggestion)
-        with st.expander(_t("Planner suggestion"), expanded=bool(planner_brief.strip())):
-            _render_planner_suggestion(plan_data)
-            if st.button(_t("Apply planner suggestions")):
-                _queue_plan_suggestion(plan_data, columns)
-                st.rerun()
-
-        draft_excluded_columns = st.multiselect(
-            _t("Exclude columns from EDA and training features"),
-            exclude_options,
-            key="excluded_columns",
-            help=_t("Excluded columns are removed before EDA and are not used as model features."),
-        )
-        draft_analysis_columns = [column for column in columns if column not in draft_excluded_columns]
-        draft_base_analysis_df = df[draft_analysis_columns].copy()
-
-    split_box = st.container(border=True)
-    with split_box:
-        st.write(_t("Split settings"))
-        split_cols = st.columns(3)
-        with split_cols[0]:
-            test_size = st.slider(_t("Test size"), min_value=0.1, max_value=0.5, step=0.05, key="test_size")
-        with split_cols[1]:
-            high_missing_threshold = st.slider(
-                _t("Drop feature when missing rate is above"),
-                min_value=0.5,
-                max_value=1.0,
-                step=0.05,
-                key="high_missing_threshold",
-            )
-        with split_cols[2]:
-            random_state = _render_integer_input(_t("Random state"), "random_state")
-        if float(applied_global_params.get("test_size", 0.2)) == float(test_size) and int(applied_global_params.get("random_state", 42)) == int(random_state):
-            _render_step_status("Split settings", "Current settings are applied.", level="success")
-        else:
-            _render_step_status("Split settings", "Draft changes are not applied yet.", level="info")
-        if st.button(_t("Apply split settings")):
-            _set_applied_preprocessing_global_params(test_size=float(test_size), random_state=int(random_state))
-            st.rerun()
-
-    with st.container(border=True):
-        st.write(_t("Step 3.1: Column selection and manual cleaning"))
-        draft_column_step = _preprocessing_step(
+    )
+    preprocessing_summary_high_missing_threshold = float(
+        st.session_state.get("high_missing_threshold", 0.9)
+    )
+    preprocessing_summary_numeric_imputation_strategy = str(
+        st.session_state.get("numeric_imputation_strategy", "median")
+    )
+    preprocessing_summary_categorical_imputation_strategy = str(
+        st.session_state.get("categorical_imputation_strategy", "most_frequent")
+    )
+    preprocessing_summary_categorical_encoding_strategy = str(
+        st.session_state.get("categorical_encoding_strategy", "one_hot")
+    )
+    preprocessing_summary_standardize_numeric = bool(
+        st.session_state.get("standardize_numeric", True)
+    )
+    preprocessing_summary_excluded_columns = [
+        column
+        for column in st.session_state.get("excluded_columns", [])
+        if column in columns and column not in target_columns
+    ]
+    preprocessing_summary_columns = [
+        column
+        for column in columns
+        if column not in preprocessing_summary_excluded_columns
+    ]
+    preprocessing_summary_base_df = df[preprocessing_summary_columns].copy()
+    preprocessing_summary_manual_plan = st.session_state.get("_manual_cleaning_plan")
+    preprocessing_summary_feature_plan = st.session_state.get(
+        "_feature_engineering_applied_plan"
+    )
+    preprocessing_summary_draft_plan = _build_preprocessing_plan(
+        base_analysis_df=preprocessing_summary_base_df,
+        target_columns=target_columns,
+        excluded_columns=[],
+        test_size=preprocessing_summary_test_size,
+        random_state=preprocessing_summary_random_state,
+        high_missing_threshold=preprocessing_summary_high_missing_threshold,
+        numeric_imputation_strategy=preprocessing_summary_numeric_imputation_strategy,
+        categorical_imputation_strategy=preprocessing_summary_categorical_imputation_strategy,
+        categorical_encoding_strategy=preprocessing_summary_categorical_encoding_strategy,
+        standardize_numeric=preprocessing_summary_standardize_numeric,
+        manual_cleaning_plan=preprocessing_summary_manual_plan,
+        feature_plan=preprocessing_summary_feature_plan,
+    )
+    preprocessing_summary_draft_plan = _upsert_preprocessing_step(
+        preprocessing_summary_draft_plan,
+        _preprocessing_step(
             "column_selection",
-            params={"excluded_columns": list(draft_excluded_columns)},
-            summary=f"Excluded columns: {len(draft_excluded_columns)}.",
+            params={"excluded_columns": list(preprocessing_summary_excluded_columns)},
+            summary=f"Excluded columns: {len(preprocessing_summary_excluded_columns)}.",
+        ),
+    )
+    preprocessing_summary = _preprocessing_summary_text(
+        test_size=preprocessing_summary_test_size,
+        high_missing_threshold=preprocessing_summary_high_missing_threshold,
+        categorical_encoding_strategy=preprocessing_summary_categorical_encoding_strategy,
+        standardize_numeric=preprocessing_summary_standardize_numeric,
+        manual_cleaning_enabled=_enabled_manual_rule_count(
+            preprocessing_summary_manual_plan
         )
-        _render_preprocessing_step_status("Column selection", draft_column_step, applied_preprocessing_plan)
-        column_cols = st.columns(3)
-        with column_cols[0]:
-            st.metric(_t("Excluded columns"), len(draft_excluded_columns))
-        with column_cols[1]:
-            st.metric(_t("Columns after exclusion"), len(draft_analysis_columns))
-        with column_cols[2]:
-            if st.button(_t("Apply column selection")):
-                _update_applied_preprocessing_step(draft_column_step)
-                st.rerun()
+        > 0,
+        feature_engineering_enabled=bool(
+            _feature_plan_operations(preprocessing_summary_feature_plan)
+        ),
+        draft_plan=preprocessing_summary_draft_plan,
+        applied_plan=applied_preprocessing_plan,
+    )
 
-        st.write(_t("Manual cleaning rules"))
-        _section_caption(_t("If you already know some rows or columns should be filtered out, draft the rules here before training."))
-        manual_cleaning_brief = st.text_area(
-            _t("Cleaning rules brief"),
-            key="manual_cleaning_brief",
-            placeholder=_t("Example: drop customer_id and keep rows where monthly_spend > 20 and churn equals 1."),
-            help=_t("Natural-language rules are converted into a structured draft. Nothing is applied until you confirm."),
-        )
-        manual_rule_controls = st.columns(3)
-        with manual_rule_controls[0]:
-            if st.button(_t("Generate cleaning rules")):
-                suggested_manual_plan = _get_manual_cleaning_plan(
-                    df=draft_base_analysis_df,
-                    target=primary_target,
-                    settings=settings,
-                    user_brief=manual_cleaning_brief,
-                )
-                st.session_state["_manual_cleaning_override_plan"] = _clone_json_data(suggested_manual_plan)
-                st.rerun()
-        with manual_rule_controls[1]:
-            if st.button(_t("Start with blank rule")):
-                st.session_state["_manual_cleaning_override_plan"] = _blank_manual_cleaning_plan(manual_cleaning_brief)
-                st.rerun()
-        with manual_rule_controls[2]:
-            if st.session_state.get("_manual_cleaning_plan") and st.button(_t("Clear applied manual rules")):
-                st.session_state["_manual_cleaning_plan"] = None
-                st.session_state["_manual_cleaning_override_plan"] = None
-                _update_applied_preprocessing_step(
-                    _preprocessing_step("manual_cleaning", enabled=False, params={"plan": None}, summary="No manual cleaning rules applied.")
-                )
-                st.rerun()
-
-        if st.session_state.get("_manual_cleaning_override_plan") is None and manual_cleaning_plan is not None:
-            st.session_state["_manual_cleaning_override_plan"] = _clone_json_data(manual_cleaning_plan)
-
-        validated_manual_preview = None
-        preview_plan_data = None
-        if isinstance(st.session_state.get("_manual_cleaning_override_plan"), dict):
-            draft_manual_plan = st.session_state["_manual_cleaning_override_plan"]
-            draft_manual_plan["user_brief"] = manual_cleaning_brief
-            edited_manual_plan = _render_manual_cleaning_editor(
-                draft_manual_plan,
-                available_columns=list(draft_base_analysis_df.columns),
-            )
-            validated_manual_preview = validate_manual_cleaning_plan(
-                edited_manual_plan,
-                draft_base_analysis_df,
-                primary_target,
-                protected_columns=target_columns,
-            )
-            preview_df, preview_log, preview_impact = apply_manual_cleaning_plan(
-                draft_base_analysis_df,
-                validated_manual_preview,
-                primary_target,
-                protected_columns=target_columns,
-            )
-            preview_plan_data = artifact_to_dict(validated_manual_preview)
-            draft_manual_step = _preprocessing_step(
-                "manual_cleaning",
-                enabled=_enabled_manual_rule_count(preview_plan_data) > 0,
-                params={"plan": preview_plan_data},
-                summary="No manual cleaning rules applied."
-                if _enabled_manual_rule_count(preview_plan_data) == 0
-                else f"Manual cleaning rules enabled: {_enabled_manual_rule_count(preview_plan_data)}.",
-            )
-            _render_preprocessing_step_status("Manual cleaning", draft_manual_step, applied_preprocessing_plan)
-
-            summary_cols = st.columns(5)
-            with summary_cols[0]:
-                st.metric(_t("Planner"), str(preview_plan_data.get("planner_name") or "manual"))
-            with summary_cols[1]:
-                st.metric(_t("Effect stage"), _manual_cleaning_effect_stage_label(validated_manual_preview.effect_stage))
-            with summary_cols[2]:
-                st.metric(_t("Accepted rules"), len(preview_plan_data.get("rules", [])))
-            with summary_cols[3]:
-                st.metric(_t("Rejected rules"), len(preview_plan_data.get("rejected_rules", [])))
-            with summary_cols[4]:
-                st.metric(_t("Rows removed"), int(preview_impact.get("rows_removed") or 0))
-
-            rule_rows = _manual_cleaning_rule_rows(preview_plan_data)
-            if rule_rows:
-                st.dataframe(pd.DataFrame(rule_rows), hide_index=True, use_container_width=True)
-            else:
-                st.caption(_t("No manual cleaning rules are in the current draft."))
-
-            impact_cols = st.columns(3)
-            with impact_cols[0]:
-                st.metric(_t("Columns removed"), len(preview_impact.get("columns_removed", [])))
-            with impact_cols[1]:
-                st.metric(_t("Rows after"), int(preview_impact.get("rows_after") or len(draft_base_analysis_df)))
-            with impact_cols[2]:
-                st.metric(_t("Columns after"), int(preview_impact.get("columns_after") or len(draft_base_analysis_df.columns)))
-
-            detail_cols = st.columns(2)
-            with detail_cols[0]:
-                _render_text_items("Notes", preview_plan_data.get("notes", []), "No notes.")
-            with detail_cols[1]:
-                _render_text_items("Rejected rules", preview_plan_data.get("rejected_rules", []), "No rejected rules.")
-
-            with st.expander(_t("Manual cleaning preview impact"), expanded=False):
-                st.json(preview_impact, expanded=True)
-                st.dataframe(preview_df.head(20), use_container_width=True)
-                if preview_log:
-                    st.write(_t("Planned cleaning log"))
-                    st.json(preview_log, expanded=True)
-
-            apply_cols = st.columns(2)
-            with apply_cols[0]:
-                if st.button(_t("Apply manual cleaning rules"), type="primary"):
-                    st.session_state["_manual_cleaning_plan"] = preview_plan_data
-                    st.session_state["_manual_cleaning_override_plan"] = _clone_json_data(preview_plan_data)
-                    _update_applied_preprocessing_step(draft_manual_step)
-                    st.rerun()
-            with apply_cols[1]:
-                if st.session_state.get("_manual_cleaning_plan"):
-                    st.caption(_t("Applied rules remain active until you clear them or apply a different draft."))
-        else:
-            st.caption(_t("Generate rules from a brief or start with a blank rule to configure manual cleaning."))
-
+    st.subheader(_t("3. Configure preprocessing"))
     with st.container(border=True):
-        st.write(_t("Step 3.2: Missing-value handling"))
-        numeric_imputation_strategy = st.selectbox(
-            _t("Numeric missing-value handling"),
-            ["median", "mean", "most_frequent", "constant_zero"],
-            key="numeric_imputation_strategy",
+        _section_caption(
+            _t(
+                "Default preprocessing is ready for a first pass. Expand this section only if you want to fine-tune data preparation."
+            )
         )
-        categorical_imputation_strategy = st.selectbox(
-            _t("Categorical missing-value handling"),
-            ["most_frequent", "constant_missing"],
-            key="categorical_imputation_strategy",
-        )
-        draft_missing_plan = _build_preprocessing_plan(
-            base_analysis_df=draft_base_analysis_df,
-            target_columns=target_columns,
-            excluded_columns=[],
-            test_size=float(test_size),
-            random_state=int(random_state),
-            high_missing_threshold=float(high_missing_threshold),
-            numeric_imputation_strategy=numeric_imputation_strategy,
-            categorical_imputation_strategy=categorical_imputation_strategy,
-            standardize_numeric=bool(st.session_state.get("standardize_numeric", True)),
-            manual_cleaning_plan=preview_plan_data if preview_plan_data is not None else st.session_state.get("_manual_cleaning_plan"),
-            feature_plan=st.session_state.get("_feature_engineering_applied_plan"),
-        )
-        draft_missing_step = _preprocessing_step_payload(draft_missing_plan, "missing_value") or _preprocessing_step("missing_value")
-        _render_preprocessing_step_status("Missing-value handling", draft_missing_step, applied_preprocessing_plan)
-        missing_params = draft_missing_step.get("params", {})
-        missing_cols = st.columns(3)
-        with missing_cols[0]:
-            st.metric(_t("Feature columns"), len([column for column in draft_base_analysis_df.columns if column not in target_columns]))
-        with missing_cols[1]:
-            st.metric(_t("High-missing columns"), len(missing_params.get("high_missing_columns", [])))
-        with missing_cols[2]:
-            if st.button(_t("Apply missing-value step")):
-                _update_applied_preprocessing_step(draft_missing_step)
-                st.rerun()
-        high_missing_preview = missing_params.get("high_missing_columns", [])
-        if high_missing_preview:
-            st.dataframe(pd.DataFrame({"column": list(high_missing_preview)}), hide_index=True, use_container_width=True)
-        else:
-            st.caption(_t("No feature columns will be auto-dropped by the current high-missing threshold."))
-
-    with st.container(border=True):
-        st.write(_t("Step 3.3: Categorical encoding"))
-        categorical_encoding_strategy = st.selectbox(
-            _t("Categorical encoding strategy"),
-            ["one_hot"],
-            key="categorical_encoding_strategy",
-        )
-        draft_encoding_plan = _build_preprocessing_plan(
-            base_analysis_df=draft_base_analysis_df,
-            target_columns=target_columns,
-            excluded_columns=[],
-            test_size=float(test_size),
-            random_state=int(random_state),
-            high_missing_threshold=float(high_missing_threshold),
-            numeric_imputation_strategy=numeric_imputation_strategy,
-            categorical_imputation_strategy=categorical_imputation_strategy,
-            standardize_numeric=bool(st.session_state.get("standardize_numeric", True)),
-            manual_cleaning_plan=preview_plan_data if preview_plan_data is not None else st.session_state.get("_manual_cleaning_plan"),
-            feature_plan=st.session_state.get("_feature_engineering_applied_plan"),
-        )
-        draft_encoding_step = _preprocessing_step_payload(draft_encoding_plan, "categorical_encoding") or _preprocessing_step("categorical_encoding")
-        draft_encoding_step["params"]["strategy"] = categorical_encoding_strategy
-        draft_encoding_step["summary"] = f"One-hot encoding on {draft_encoding_step['params'].get('categorical_feature_count', 0)} categorical columns."
-        _render_preprocessing_step_status("Categorical encoding", draft_encoding_step, applied_preprocessing_plan)
-        encoding_cols = st.columns(3)
-        with encoding_cols[0]:
-            st.metric(_t("Strategy"), categorical_encoding_strategy)
-        with encoding_cols[1]:
-            st.metric(_t("Categorical columns"), int(draft_encoding_step["params"].get("categorical_feature_count", 0)))
-        with encoding_cols[2]:
-            st.metric(_t("Estimated encoded features"), int(draft_encoding_step["params"].get("estimated_encoded_features", 0)))
-        if st.button(_t("Apply categorical encoding")):
-            _update_applied_preprocessing_step(draft_encoding_step)
-            st.rerun()
-
-    with st.container(border=True):
-        st.write(_t("Step 3.4: Numeric scaling"))
-        standardize_numeric = st.checkbox(
-            _t("Standardize numeric features"),
-            key="standardize_numeric",
-            help=_t("Apply scaling after numeric imputation."),
-        )
-        draft_scaling_plan = _build_preprocessing_plan(
-            base_analysis_df=draft_base_analysis_df,
-            target_columns=target_columns,
-            excluded_columns=[],
-            test_size=float(test_size),
-            random_state=int(random_state),
-            high_missing_threshold=float(high_missing_threshold),
-            numeric_imputation_strategy=numeric_imputation_strategy,
-            categorical_imputation_strategy=categorical_imputation_strategy,
-            standardize_numeric=bool(standardize_numeric),
-            manual_cleaning_plan=preview_plan_data if preview_plan_data is not None else st.session_state.get("_manual_cleaning_plan"),
-            feature_plan=st.session_state.get("_feature_engineering_applied_plan"),
-        )
-        draft_scaling_step = _preprocessing_step_payload(draft_scaling_plan, "numeric_scaling") or _preprocessing_step("numeric_scaling")
-        _render_preprocessing_step_status("Numeric scaling", draft_scaling_step, applied_preprocessing_plan)
-        scaling_cols = st.columns(3)
-        with scaling_cols[0]:
-            st.metric(_t("Scaling enabled"), _t("Yes") if standardize_numeric else _t("No"))
-        with scaling_cols[1]:
-            st.metric(_t("Numeric columns"), len(draft_scaling_step.get("params", {}).get("numeric_features", [])))
-        with scaling_cols[2]:
-            if st.button(_t("Apply numeric scaling")):
-                _update_applied_preprocessing_step(draft_scaling_step)
-                st.rerun()
-
-    feature_plan = _preprocessing_feature_plan(applied_preprocessing_plan)
-    with st.container(border=True):
-        st.write(_t("Step 3.5: Feature engineering"))
-        apply_feature_engineering = st.checkbox(
-            _t("Apply local whitelist feature engineering"),
-            key="apply_feature_engineering",
-            help=_t("LLM can propose a structured plan, but only local whitelisted transformations are executed inside the training pipeline."),
-        )
-        draft_feature_plan = None
-        if apply_feature_engineering:
-            feature_plan_override = st.session_state.get("_feature_engineering_override_plan")
-            if isinstance(feature_plan_override, dict) and feature_plan_override.get("operations"):
-                draft_feature_plan = feature_plan_override
-            else:
-                feature_source_columns = [column for column in draft_base_analysis_df.columns if column not in target_columns]
-                feature_plan_df = draft_base_analysis_df[feature_source_columns + [primary_target]].copy()
-                draft_feature_plan = artifact_to_dict(
-                    _get_feature_engineering_plan(
-                        df=feature_plan_df,
-                        target=primary_target,
-                        settings=settings,
-                        user_brief=planner_brief,
+        st.caption(preprocessing_summary)
+        with st.expander(_t("Open preprocessing details"), expanded=False):
+            with st.container(border=True):
+                st.write(_t("Planning help"))
+                _section_caption(
+                    _t(
+                        "This optional brief lets you describe your goal in plain language so the app can suggest a sensible first setup."
                     )
                 )
-        draft_feature_step = _preprocessing_step(
-            "feature_engineering",
-            enabled=bool(draft_feature_plan and _feature_plan_operations(draft_feature_plan)),
-            params={
-                "planner_name": str((draft_feature_plan or {}).get("planner_name") or "local_whitelist"),
-                "operations": _feature_plan_operations(draft_feature_plan) if draft_feature_plan else [],
-                "rejected_operations": list((draft_feature_plan or {}).get("rejected_operations", [])),
-                "notes": list((draft_feature_plan or {}).get("notes", [])),
-            },
-            summary=(
-                "Feature engineering is disabled."
-                if not draft_feature_plan or not _feature_plan_operations(draft_feature_plan)
-                else f"Feature engineering operations: {len(_feature_plan_operations(draft_feature_plan))}."
-            ),
-        )
-        _render_preprocessing_step_status("Feature engineering", draft_feature_step, applied_preprocessing_plan)
-        if draft_feature_plan:
-            with st.expander(_t("Feature engineering plan"), expanded=True):
-                _render_feature_engineering_plan(draft_feature_plan)
-        else:
-            st.caption(_t("Feature engineering is currently disabled."))
-        feature_cols = st.columns(2)
-        with feature_cols[0]:
-            if st.button(_t("Apply feature engineering step")):
-                st.session_state["_feature_engineering_applied_plan"] = draft_feature_plan
-                _update_applied_preprocessing_step(draft_feature_step)
-                st.rerun()
-        with feature_cols[1]:
-            if feature_plan:
-                st.caption(_t("Applied feature engineering remains active until you apply a different draft."))
+                planner_brief = st.text_area(
+                    _t("Planning brief"),
+                    key="planner_brief",
+                    placeholder=_t(
+                        "Example: predict churn, treat customer_id as reference only, and keep this as a quick first pass."
+                    ),
+                    help=_t(
+                        "Optional natural-language brief used to suggest targets, task type, exclusions, and a priority metric."
+                    ),
+                )
+                plan_suggestion = _get_planner_suggestion(
+                    df=analysis_df,
+                    eda_summary=eda_summary,
+                    settings=settings,
+                    user_brief=planner_brief,
+                    dataset_fingerprint=current_dataset_fingerprint,
+                )
+                plan_data = artifact_to_dict(plan_suggestion)
+                with st.expander(
+                    _t("Planner suggestion"), expanded=bool(planner_brief.strip())
+                ):
+                    _render_planner_suggestion(plan_data)
+                    if st.button(_t("Apply planner suggestions")):
+                        _queue_plan_suggestion(plan_data, columns)
+                        st.rerun()
+
+                draft_excluded_columns = st.multiselect(
+                    _t("Exclude columns from EDA and training features"),
+                    exclude_options,
+                    key="excluded_columns",
+                    help=_t(
+                        "Excluded columns are removed before EDA and are not used as model features."
+                    ),
+                )
+                draft_analysis_columns = [
+                    column for column in columns if column not in draft_excluded_columns
+                ]
+                draft_base_analysis_df = df[draft_analysis_columns].copy()
+
+            split_box = st.container(border=True)
+            with split_box:
+                st.write(_t("Split settings"))
+                split_cols = st.columns(3)
+                with split_cols[0]:
+                    test_size = st.slider(
+                        _t("Test size"),
+                        min_value=0.1,
+                        max_value=0.5,
+                        step=0.01,
+                        format="%.2f",
+                        key="test_size",
+                    )
+                with split_cols[1]:
+                    high_missing_threshold = st.slider(
+                        _t("Drop feature when missing rate is above"),
+                        min_value=0.5,
+                        max_value=1.0,
+                        step=0.01,
+                        format="%.2f",
+                        key="high_missing_threshold",
+                    )
+                with split_cols[2]:
+                    random_state = _render_integer_input(
+                        _t("Random state"), "random_state"
+                    )
+                if float(applied_global_params.get("test_size", 0.2)) == float(
+                    test_size
+                ) and int(
+                    applied_global_params.get("random_state", 42)
+                ) == int(random_state):
+                    _render_step_status(
+                        "Split settings",
+                        "Current settings are applied.",
+                        level="success",
+                    )
+                else:
+                    _render_step_status(
+                        "Split settings",
+                        "Draft changes are not applied yet.",
+                        level="info",
+                    )
+                if st.button(_t("Apply split settings")):
+                    _set_applied_preprocessing_global_params(
+                        test_size=float(test_size), random_state=int(random_state)
+                    )
+                    st.rerun()
+
+            with st.container(border=True):
+                st.write(_t("Step 3.1: Column selection and manual cleaning"))
+                draft_column_step = _preprocessing_step(
+                    "column_selection",
+                    params={"excluded_columns": list(draft_excluded_columns)},
+                    summary=f"Excluded columns: {len(draft_excluded_columns)}.",
+                )
+                _render_preprocessing_step_status(
+                    "Column selection", draft_column_step, applied_preprocessing_plan
+                )
+                column_cols = st.columns(3)
+                with column_cols[0]:
+                    st.metric(_t("Excluded columns"), len(draft_excluded_columns))
+                with column_cols[1]:
+                    st.metric(_t("Columns after exclusion"), len(draft_analysis_columns))
+                with column_cols[2]:
+                    if st.button(_t("Apply column selection")):
+                        _update_applied_preprocessing_step(draft_column_step)
+                        st.rerun()
+
+                st.write(_t("Manual cleaning rules"))
+                _section_caption(
+                    _t(
+                        "If you already know some rows or columns should be filtered out, draft the rules here before training."
+                    )
+                )
+                manual_cleaning_brief = st.text_area(
+                    _t("Cleaning rules brief"),
+                    key="manual_cleaning_brief",
+                    placeholder=_t(
+                        "Example: drop customer_id and keep rows where monthly_spend > 20 and churn equals 1."
+                    ),
+                    help=_t(
+                        "Natural-language rules are converted into a structured draft. Nothing is applied until you confirm."
+                    ),
+                )
+                manual_rule_controls = st.columns(3)
+                with manual_rule_controls[0]:
+                    if st.button(_t("Generate cleaning rules")):
+                        suggested_manual_plan = _get_manual_cleaning_plan(
+                            df=draft_base_analysis_df,
+                            target=primary_target,
+                            settings=settings,
+                            user_brief=manual_cleaning_brief,
+                        )
+                        st.session_state["_manual_cleaning_override_plan"] = (
+                            _clone_json_data(suggested_manual_plan)
+                        )
+                        st.rerun()
+                with manual_rule_controls[1]:
+                    if st.button(_t("Start with blank rule")):
+                        st.session_state["_manual_cleaning_override_plan"] = (
+                            _blank_manual_cleaning_plan(manual_cleaning_brief)
+                        )
+                        st.rerun()
+                with manual_rule_controls[2]:
+                    if st.session_state.get("_manual_cleaning_plan") and st.button(
+                        _t("Clear applied manual rules")
+                    ):
+                        st.session_state["_manual_cleaning_plan"] = None
+                        st.session_state["_manual_cleaning_override_plan"] = None
+                        _update_applied_preprocessing_step(
+                            _preprocessing_step(
+                                "manual_cleaning",
+                                enabled=False,
+                                params={"plan": None},
+                                summary="No manual cleaning rules applied.",
+                            )
+                        )
+                        st.rerun()
+
+                if (
+                    st.session_state.get("_manual_cleaning_override_plan") is None
+                    and manual_cleaning_plan is not None
+                ):
+                    st.session_state["_manual_cleaning_override_plan"] = (
+                        _clone_json_data(manual_cleaning_plan)
+                    )
+
+                validated_manual_preview = None
+                preview_plan_data = None
+                if isinstance(st.session_state.get("_manual_cleaning_override_plan"), dict):
+                    draft_manual_plan = st.session_state["_manual_cleaning_override_plan"]
+                    draft_manual_plan["user_brief"] = manual_cleaning_brief
+                    edited_manual_plan = _render_manual_cleaning_editor(
+                        draft_manual_plan,
+                        available_columns=list(draft_base_analysis_df.columns),
+                    )
+                    validated_manual_preview = validate_manual_cleaning_plan(
+                        edited_manual_plan,
+                        draft_base_analysis_df,
+                        primary_target,
+                        protected_columns=target_columns,
+                    )
+                    preview_df, preview_log, preview_impact = apply_manual_cleaning_plan(
+                        draft_base_analysis_df,
+                        validated_manual_preview,
+                        primary_target,
+                        protected_columns=target_columns,
+                    )
+                    preview_plan_data = artifact_to_dict(validated_manual_preview)
+                    draft_manual_step = _preprocessing_step(
+                        "manual_cleaning",
+                        enabled=_enabled_manual_rule_count(preview_plan_data) > 0,
+                        params={"plan": preview_plan_data},
+                        summary="No manual cleaning rules applied."
+                        if _enabled_manual_rule_count(preview_plan_data) == 0
+                        else f"Manual cleaning rules enabled: {_enabled_manual_rule_count(preview_plan_data)}.",
+                    )
+                    _render_preprocessing_step_status(
+                        "Manual cleaning",
+                        draft_manual_step,
+                        applied_preprocessing_plan,
+                    )
+
+                    summary_cols = st.columns(5)
+                    with summary_cols[0]:
+                        st.metric(
+                            _t("Planner"),
+                            str(preview_plan_data.get("planner_name") or "manual"),
+                        )
+                    with summary_cols[1]:
+                        st.metric(
+                            _t("Effect stage"),
+                            _manual_cleaning_effect_stage_label(
+                                validated_manual_preview.effect_stage
+                            ),
+                        )
+                    with summary_cols[2]:
+                        st.metric(
+                            _t("Accepted rules"),
+                            len(preview_plan_data.get("rules", [])),
+                        )
+                    with summary_cols[3]:
+                        st.metric(
+                            _t("Rejected rules"),
+                            len(preview_plan_data.get("rejected_rules", [])),
+                        )
+                    with summary_cols[4]:
+                        st.metric(
+                            _t("Rows removed"),
+                            int(preview_impact.get("rows_removed") or 0),
+                        )
+
+                    rule_rows = _manual_cleaning_rule_rows(preview_plan_data)
+                    if rule_rows:
+                        st.dataframe(
+                            pd.DataFrame(rule_rows),
+                            hide_index=True,
+                            use_container_width=True,
+                        )
+                    else:
+                        st.caption(
+                            _t("No manual cleaning rules are in the current draft.")
+                        )
+
+                    impact_cols = st.columns(3)
+                    with impact_cols[0]:
+                        st.metric(
+                            _t("Columns removed"),
+                            len(preview_impact.get("columns_removed", [])),
+                        )
+                    with impact_cols[1]:
+                        st.metric(
+                            _t("Rows after"),
+                            int(
+                                preview_impact.get("rows_after")
+                                or len(draft_base_analysis_df)
+                            ),
+                        )
+                    with impact_cols[2]:
+                        st.metric(
+                            _t("Columns after"),
+                            int(
+                                preview_impact.get("columns_after")
+                                or len(draft_base_analysis_df.columns)
+                            ),
+                        )
+
+                    detail_cols = st.columns(2)
+                    with detail_cols[0]:
+                        _render_text_items(
+                            "Notes", preview_plan_data.get("notes", []), "No notes."
+                        )
+                    with detail_cols[1]:
+                        _render_text_items(
+                            "Rejected rules",
+                            preview_plan_data.get("rejected_rules", []),
+                            "No rejected rules.",
+                        )
+
+                    with st.expander(
+                        _t("Manual cleaning preview impact"), expanded=False
+                    ):
+                        st.json(preview_impact, expanded=True)
+                        st.dataframe(
+                            preview_df.head(20), use_container_width=True
+                        )
+                        if preview_log:
+                            st.write(_t("Planned cleaning log"))
+                            st.json(preview_log, expanded=True)
+
+                    apply_cols = st.columns(2)
+                    with apply_cols[0]:
+                        if st.button(
+                            _t("Apply manual cleaning rules"), type="primary"
+                        ):
+                            st.session_state["_manual_cleaning_plan"] = (
+                                preview_plan_data
+                            )
+                            st.session_state["_manual_cleaning_override_plan"] = (
+                                _clone_json_data(preview_plan_data)
+                            )
+                            _update_applied_preprocessing_step(draft_manual_step)
+                            st.rerun()
+                    with apply_cols[1]:
+                        if st.session_state.get("_manual_cleaning_plan"):
+                            st.caption(
+                                _t(
+                                    "Applied rules remain active until you clear them or apply a different draft."
+                                )
+                            )
+                else:
+                    st.caption(
+                        _t(
+                            "Generate rules from a brief or start with a blank rule to configure manual cleaning."
+                        )
+                    )
+
+            with st.container(border=True):
+                st.write(_t("Step 3.2: Missing-value handling"))
+                numeric_imputation_strategy = st.selectbox(
+                    _t("Numeric missing-value handling"),
+                    ["median", "mean", "most_frequent", "constant_zero"],
+                    key="numeric_imputation_strategy",
+                )
+                categorical_imputation_strategy = st.selectbox(
+                    _t("Categorical missing-value handling"),
+                    ["most_frequent", "constant_missing"],
+                    key="categorical_imputation_strategy",
+                )
+                draft_missing_plan = _build_preprocessing_plan(
+                    base_analysis_df=draft_base_analysis_df,
+                    target_columns=target_columns,
+                    excluded_columns=[],
+                    test_size=float(test_size),
+                    random_state=int(random_state),
+                    high_missing_threshold=float(high_missing_threshold),
+                    numeric_imputation_strategy=numeric_imputation_strategy,
+                    categorical_imputation_strategy=categorical_imputation_strategy,
+                    categorical_encoding_strategy=str(
+                        st.session_state.get("categorical_encoding_strategy", "one_hot")
+                    ),
+                    standardize_numeric=bool(
+                        st.session_state.get("standardize_numeric", True)
+                    ),
+                    manual_cleaning_plan=preview_plan_data
+                    if preview_plan_data is not None
+                    else st.session_state.get("_manual_cleaning_plan"),
+                    feature_plan=st.session_state.get(
+                        "_feature_engineering_applied_plan"
+                    ),
+                )
+                draft_missing_step = _preprocessing_step_payload(
+                    draft_missing_plan, "missing_value"
+                ) or _preprocessing_step("missing_value")
+                _render_preprocessing_step_status(
+                    "Missing-value handling",
+                    draft_missing_step,
+                    applied_preprocessing_plan,
+                )
+                missing_params = draft_missing_step.get("params", {})
+                missing_cols = st.columns(3)
+                with missing_cols[0]:
+                    st.metric(
+                        _t("Feature columns"),
+                        len(
+                            [
+                                column
+                                for column in draft_base_analysis_df.columns
+                                if column not in target_columns
+                            ]
+                        ),
+                    )
+                with missing_cols[1]:
+                    st.metric(
+                        _t("High-missing columns"),
+                        len(missing_params.get("high_missing_columns", [])),
+                    )
+                with missing_cols[2]:
+                    if st.button(_t("Apply missing-value step")):
+                        _update_applied_preprocessing_step(draft_missing_step)
+                        st.rerun()
+                high_missing_preview = missing_params.get("high_missing_columns", [])
+                if high_missing_preview:
+                    st.dataframe(
+                        pd.DataFrame({"column": list(high_missing_preview)}),
+                        hide_index=True,
+                        use_container_width=True,
+                    )
+                else:
+                    st.caption(
+                        _t(
+                            "No feature columns will be auto-dropped by the current high-missing threshold."
+                        )
+                    )
+
+            with st.container(border=True):
+                st.write(_t("Step 3.3: Categorical encoding"))
+                categorical_encoding_labels = {
+                    "one_hot": _t("one_hot"),
+                    "ordinal": _t("ordinal"),
+                    "frequency": _t("frequency"),
+                }
+                current_categorical_encoding_strategy = str(
+                    st.session_state.get("categorical_encoding_strategy", "one_hot")
+                )
+                st.session_state["_categorical_encoding_strategy_label"] = (
+                    categorical_encoding_labels.get(
+                        current_categorical_encoding_strategy,
+                        categorical_encoding_labels["one_hot"],
+                    )
+                )
+                categorical_encoding_label = st.selectbox(
+                    _t("Categorical encoding strategy"),
+                    list(categorical_encoding_labels.values()),
+                    key="_categorical_encoding_strategy_label",
+                )
+                categorical_encoding_strategy = next(
+                    value
+                    for value, label in categorical_encoding_labels.items()
+                    if label == str(categorical_encoding_label)
+                )
+                st.session_state["categorical_encoding_strategy"] = (
+                    categorical_encoding_strategy
+                )
+                draft_encoding_plan = _build_preprocessing_plan(
+                    base_analysis_df=draft_base_analysis_df,
+                    target_columns=target_columns,
+                    excluded_columns=[],
+                    test_size=float(test_size),
+                    random_state=int(random_state),
+                    high_missing_threshold=float(high_missing_threshold),
+                    numeric_imputation_strategy=numeric_imputation_strategy,
+                    categorical_imputation_strategy=categorical_imputation_strategy,
+                    categorical_encoding_strategy=categorical_encoding_strategy,
+                    standardize_numeric=bool(
+                        st.session_state.get("standardize_numeric", True)
+                    ),
+                    manual_cleaning_plan=preview_plan_data
+                    if preview_plan_data is not None
+                    else st.session_state.get("_manual_cleaning_plan"),
+                    feature_plan=st.session_state.get(
+                        "_feature_engineering_applied_plan"
+                    ),
+                )
+                draft_encoding_step = _preprocessing_step_payload(
+                    draft_encoding_plan, "categorical_encoding"
+                ) or _preprocessing_step("categorical_encoding")
+                draft_encoding_step["params"]["strategy"] = (
+                    categorical_encoding_strategy
+                )
+                draft_encoding_step["summary"] = (
+                    f"Categorical encoding strategy: {categorical_encoding_strategy}. "
+                    f"Categorical columns: {draft_encoding_step['params'].get('categorical_feature_count', 0)}."
+                )
+                _render_preprocessing_step_status(
+                    "Categorical encoding",
+                    draft_encoding_step,
+                    applied_preprocessing_plan,
+                )
+                encoding_cols = st.columns(3)
+                with encoding_cols[0]:
+                    st.metric(_t("Strategy"), _t(categorical_encoding_strategy))
+                with encoding_cols[1]:
+                    st.metric(
+                        _t("Categorical columns"),
+                        int(
+                            draft_encoding_step["params"].get(
+                                "categorical_feature_count", 0
+                            )
+                        ),
+                    )
+                with encoding_cols[2]:
+                    st.metric(
+                        _t("Estimated encoded features"),
+                        int(
+                            draft_encoding_step["params"].get(
+                                "estimated_encoded_features", 0
+                            )
+                        ),
+                    )
+                if st.button(_t("Apply categorical encoding")):
+                    _update_applied_preprocessing_step(draft_encoding_step)
+                    st.rerun()
+
+            with st.container(border=True):
+                st.write(_t("Step 3.4: Numeric scaling"))
+                standardize_numeric = st.checkbox(
+                    _t("Standardize numeric features"),
+                    key="standardize_numeric",
+                    help=_t("Apply scaling after numeric imputation."),
+                )
+                draft_scaling_plan = _build_preprocessing_plan(
+                    base_analysis_df=draft_base_analysis_df,
+                    target_columns=target_columns,
+                    excluded_columns=[],
+                    test_size=float(test_size),
+                    random_state=int(random_state),
+                    high_missing_threshold=float(high_missing_threshold),
+                    numeric_imputation_strategy=numeric_imputation_strategy,
+                    categorical_imputation_strategy=categorical_imputation_strategy,
+                    categorical_encoding_strategy=categorical_encoding_strategy,
+                    standardize_numeric=bool(standardize_numeric),
+                    manual_cleaning_plan=preview_plan_data
+                    if preview_plan_data is not None
+                    else st.session_state.get("_manual_cleaning_plan"),
+                    feature_plan=st.session_state.get(
+                        "_feature_engineering_applied_plan"
+                    ),
+                )
+                draft_scaling_step = _preprocessing_step_payload(
+                    draft_scaling_plan, "numeric_scaling"
+                ) or _preprocessing_step("numeric_scaling")
+                _render_preprocessing_step_status(
+                    "Numeric scaling",
+                    draft_scaling_step,
+                    applied_preprocessing_plan,
+                )
+                scaling_cols = st.columns(3)
+                with scaling_cols[0]:
+                    st.metric(
+                        _t("Scaling enabled"),
+                        _t("Yes") if standardize_numeric else _t("No"),
+                    )
+                with scaling_cols[1]:
+                    st.metric(
+                        _t("Numeric columns"),
+                        len(
+                            draft_scaling_step.get("params", {}).get(
+                                "numeric_features", []
+                            )
+                        ),
+                    )
+                with scaling_cols[2]:
+                    if st.button(_t("Apply numeric scaling")):
+                        _update_applied_preprocessing_step(draft_scaling_step)
+                        st.rerun()
+
+            feature_plan = _preprocessing_feature_plan(applied_preprocessing_plan)
+            with st.container(border=True):
+                st.write(_t("Step 3.5: Feature engineering"))
+                apply_feature_engineering = st.checkbox(
+                    _t("Apply local whitelist feature engineering"),
+                    key="apply_feature_engineering",
+                    help=_t(
+                        "LLM can propose a structured plan, but only local whitelisted transformations are executed inside the training pipeline."
+                    ),
+                )
+                draft_feature_plan = None
+                if apply_feature_engineering:
+                    feature_plan_override = st.session_state.get(
+                        "_feature_engineering_override_plan"
+                    )
+                    if isinstance(feature_plan_override, dict) and feature_plan_override.get(
+                        "operations"
+                    ):
+                        draft_feature_plan = feature_plan_override
+                    else:
+                        feature_source_columns = [
+                            column
+                            for column in draft_base_analysis_df.columns
+                            if column not in target_columns
+                        ]
+                        feature_plan_df = draft_base_analysis_df[
+                            feature_source_columns + [primary_target]
+                        ].copy()
+                        draft_feature_plan = artifact_to_dict(
+                            _get_feature_engineering_plan(
+                                df=feature_plan_df,
+                                target=primary_target,
+                                settings=settings,
+                                user_brief=planner_brief,
+                            )
+                        )
+                draft_feature_step = _preprocessing_step(
+                    "feature_engineering",
+                    enabled=bool(
+                        draft_feature_plan
+                        and _feature_plan_operations(draft_feature_plan)
+                    ),
+                    params={
+                        "planner_name": str(
+                            (draft_feature_plan or {}).get("planner_name")
+                            or "local_whitelist"
+                        ),
+                        "operations": _feature_plan_operations(draft_feature_plan)
+                        if draft_feature_plan
+                        else [],
+                        "rejected_operations": list(
+                            (draft_feature_plan or {}).get("rejected_operations", [])
+                        ),
+                        "notes": list((draft_feature_plan or {}).get("notes", [])),
+                    },
+                    summary=(
+                        "Feature engineering is disabled."
+                        if not draft_feature_plan
+                        or not _feature_plan_operations(draft_feature_plan)
+                        else f"Feature engineering operations: {len(_feature_plan_operations(draft_feature_plan))}."
+                    ),
+                )
+                _render_preprocessing_step_status(
+                    "Feature engineering",
+                    draft_feature_step,
+                    applied_preprocessing_plan,
+                )
+                if draft_feature_plan:
+                    with st.expander(_t("Feature engineering plan"), expanded=True):
+                        _render_feature_engineering_plan(draft_feature_plan)
+                else:
+                    st.caption(_t("Feature engineering is currently disabled."))
+                feature_cols = st.columns(2)
+                with feature_cols[0]:
+                    if st.button(_t("Apply feature engineering step")):
+                        st.session_state["_feature_engineering_applied_plan"] = (
+                            draft_feature_plan
+                        )
+                        _update_applied_preprocessing_step(draft_feature_step)
+                        st.rerun()
+                with feature_cols[1]:
+                    if feature_plan:
+                        st.caption(
+                            _t(
+                                "Applied feature engineering remains active until you apply a different draft."
+                            )
+                        )
 
     draft_preprocessing_plan = _build_preprocessing_plan(
         base_analysis_df=draft_base_analysis_df,
@@ -2574,14 +3446,24 @@ def main() -> None:
         high_missing_threshold=float(high_missing_threshold),
         numeric_imputation_strategy=numeric_imputation_strategy,
         categorical_imputation_strategy=categorical_imputation_strategy,
+        categorical_encoding_strategy=categorical_encoding_strategy,
         standardize_numeric=bool(standardize_numeric),
-        manual_cleaning_plan=preview_plan_data if preview_plan_data is not None else st.session_state.get("_manual_cleaning_plan"),
+        manual_cleaning_plan=preview_plan_data
+        if preview_plan_data is not None
+        else st.session_state.get("_manual_cleaning_plan"),
         feature_plan=draft_feature_plan,
     )
-    draft_preprocessing_plan = _upsert_preprocessing_step(draft_preprocessing_plan, draft_column_step)
-    draft_preprocessing_plan = _upsert_preprocessing_step(draft_preprocessing_plan, draft_encoding_step)
+    draft_preprocessing_plan = _upsert_preprocessing_step(
+        draft_preprocessing_plan, draft_column_step
+    )
+    draft_preprocessing_plan = _upsert_preprocessing_step(
+        draft_preprocessing_plan, draft_encoding_step
+    )
     st.session_state["_preprocessing_plan_draft"] = draft_preprocessing_plan
-    applied_preprocessing_plan = st.session_state.get("_preprocessing_plan_applied") or applied_preprocessing_plan
+    applied_preprocessing_plan = (
+        st.session_state.get("_preprocessing_plan_applied")
+        or applied_preprocessing_plan
+    )
     feature_plan = _preprocessing_feature_plan(applied_preprocessing_plan)
 
     current_experiment_signature = _experiment_signature(
@@ -2593,16 +3475,31 @@ def main() -> None:
         planner_brief=planner_brief,
         preprocessing_plan=applied_preprocessing_plan,
     )
-    applied_missing_params = _preprocessing_step_params(applied_preprocessing_plan, "missing_value")
+    applied_missing_params = _preprocessing_step_params(
+        applied_preprocessing_plan, "missing_value"
+    )
 
     priority_metrics = {
-        target: resolve_priority_metric(_target_task_types(analysis_df, [target], task_type_choice)[target], priority_metric_choice)
+        target: resolve_priority_metric(
+            _target_task_types(analysis_df, [target], task_type_choice)[target],
+            priority_metric_choice,
+        )
         for target in target_columns
     }
     preflight_by_target: dict[str, object] = {}
     for target in target_columns:
-        preflight_input = analysis_df[[column for column in analysis_df.columns if column not in target_columns or column == target]].copy()
-        if manual_cleaning_plan is not None and any(rule.enabled for rule in manual_cleaning_plan.rules) and manual_cleaning_plan.effect_stage == "pre_training":
+        preflight_input = analysis_df[
+            [
+                column
+                for column in analysis_df.columns
+                if column not in target_columns or column == target
+            ]
+        ].copy()
+        if (
+            manual_cleaning_plan is not None
+            and any(rule.enabled for rule in manual_cleaning_plan.rules)
+            and manual_cleaning_plan.effect_stage == "pre_training"
+        ):
             preflight_input, _, _ = apply_manual_cleaning_plan(
                 preflight_input,
                 manual_cleaning_plan,
@@ -2615,13 +3512,22 @@ def main() -> None:
             task_type=task_types[target],
             excluded_columns=[],
             priority_metric=priority_metric_choice,
-            high_missing_threshold=float(applied_missing_params.get("high_missing_threshold", 0.9)),
+            high_missing_threshold=float(
+                applied_missing_params.get("high_missing_threshold", 0.9)
+            ),
         )
-    failing_targets = [target for target, validation in preflight_by_target.items() if not validation.ok_to_run]
+    failing_targets = [
+        target
+        for target, validation in preflight_by_target.items()
+        if not validation.ok_to_run
+    ]
     if failing_targets:
         _render_step_status(
             _t("The app found blocking issues in the current setup."),
-            _t("Fix the checks for: {failing_targets} before starting training.", failing_targets=", ".join(failing_targets)),
+            _t(
+                "Fix the checks for: {failing_targets} before starting training.",
+                failing_targets=", ".join(failing_targets),
+            ),
             level="warning",
         )
     else:
@@ -2632,24 +3538,47 @@ def main() -> None:
         )
     with st.container(border=True):
         st.write(_t("Preflight validation"))
-        _section_caption(_t("This check looks for blocking issues before training, such as missing target values or no usable feature columns."))
+        _section_caption(
+            _t(
+                "This check looks for blocking issues before training, such as missing target values or no usable feature columns."
+            )
+        )
         with st.expander(_t("Preflight validation"), expanded=True):
             for target in target_columns:
                 validation = artifact_to_dict(preflight_by_target[target])
                 st.write(f"{target} ({_t(task_types[target])})")
-                st.caption(_t("Resolved priority metric: {priority_metric}", priority_metric=priority_metrics[target]))
+                st.caption(
+                    _t(
+                        "Resolved priority metric: {priority_metric}",
+                        priority_metric=priority_metrics[target],
+                    )
+                )
                 _render_issue_table(validation.get("issues", []))
 
     with st.container(border=True):
         st.write(_t("Data preview"))
-        _section_caption(_t("First 50 rows are shown for a quick sanity check before training."))
-        if manual_cleaning_plan is not None and any(rule.enabled for rule in manual_cleaning_plan.rules) and manual_cleaning_plan.effect_stage == "pre_training":
-            st.info(_t("Manual cleaning rules are set to apply only before training. The data preview and EDA below still show the pre-cleaning analysis subset."))
+        _section_caption(
+            _t("First 50 rows are shown for a quick sanity check before training.")
+        )
+        if (
+            manual_cleaning_plan is not None
+            and any(rule.enabled for rule in manual_cleaning_plan.rules)
+            and manual_cleaning_plan.effect_stage == "pre_training"
+        ):
+            st.info(
+                _t(
+                    "Manual cleaning rules are set to apply only before training. The data preview and EDA below still show the pre-cleaning analysis subset."
+                )
+            )
         st.dataframe(analysis_df.head(50), use_container_width=True)
 
     with st.container(border=True):
         st.write(_t("EDA summary"))
-        _section_caption(_t("EDA means a quick health check for the dataset: shape, duplicates, missing values, correlations, and target behavior."))
+        _section_caption(
+            _t(
+                "EDA means a quick health check for the dataset: shape, duplicates, missing values, correlations, and target behavior."
+            )
+        )
         metric_cols = st.columns(4)
         with metric_cols[0]:
             st.metric(_t("Rows"), eda_summary["shape"]["rows"])
@@ -2658,31 +3587,51 @@ def main() -> None:
         with metric_cols[2]:
             st.metric(_t("Duplicate rows"), eda_summary["duplicate_rows"])
         with metric_cols[3]:
-            st.metric(_t("Rows with missing"), eda_summary["missingness"]["rows_with_any_missing"])
+            st.metric(
+                _t("Rows with missing"),
+                eda_summary["missingness"]["rows_with_any_missing"],
+            )
 
         st.write(_t("Column profile"))
         st.dataframe(pd.DataFrame(eda_summary["columns"]).T, use_container_width=True)
 
         if primary_target in analysis_df.columns and eda_summary.get("target"):
-            label = _t("Primary target profile") if len(target_columns) > 1 else _t("Target profile")
+            label = (
+                _t("Primary target profile")
+                if len(target_columns) > 1
+                else _t("Target profile")
+            )
             st.write(label)
             _render_target_profile(eda_summary["target"])
         if len(target_columns) > 1:
             st.write(_t("Target task types"))
             st.dataframe(
                 pd.DataFrame(
-                    [{_t("Target"): target, _t("Task type"): _t(task_type)} for target, task_type in task_types.items()]
+                    [
+                        {_t("Target"): target, _t("Task type"): _t(task_type)}
+                        for target, task_type in task_types.items()
+                    ]
                 ),
                 use_container_width=True,
             )
 
-        eda_tabs = st.tabs([_t("Missingness"), _t("Correlations"), _t("Target relationships"), _t("Quality warnings")])
+        eda_tabs = st.tabs(
+            [
+                _t("Missingness"),
+                _t("Correlations"),
+                _t("Target relationships"),
+                _t("Quality warnings"),
+            ]
+        )
         with eda_tabs[0]:
             top_missing = eda_summary["missingness"]["top_missing_columns"]
             if top_missing:
                 st.dataframe(
                     pd.DataFrame(
-                        [{_t("Column"): column, _t("Missing rate"): rate} for column, rate in top_missing.items()]
+                        [
+                            {_t("Column"): column, _t("Missing rate"): rate}
+                            for column, rate in top_missing.items()
+                        ]
                     ),
                     use_container_width=True,
                 )
@@ -2706,13 +3655,20 @@ def main() -> None:
                 st.warning(warning)
 
     prepared_batches: list[dict[str, object]] = []
-    prepared_ready = st.session_state.get("_latest_prepared_signature") == current_experiment_signature
+    prepared_ready = (
+        st.session_state.get("_latest_prepared_signature")
+        == current_experiment_signature
+    )
     if prepared_ready:
         prepared_batches = list(st.session_state.get("_latest_prepared_batches", []))
 
     st.subheader(_t("4. Prepare data"))
     with st.container(border=True):
-        _section_caption(_t("Apply the selected cleaning and preprocessing methods first, then train models as a separate step."))
+        _section_caption(
+            _t(
+                "Apply the selected cleaning and preprocessing methods first, then train models as a separate step."
+            )
+        )
         if failing_targets:
             _render_step_status(
                 "Data preparation is blocked by validation issues.",
@@ -2727,25 +3683,30 @@ def main() -> None:
             )
         else:
             _render_step_status(
-                "The preprocessing methods are configured but have not been applied yet.",
-                "Click Prepare data to split the dataset and materialize the train/test matrices before training.",
+                "Prepared data is not cached yet.",
+                "Prepare data to preview the train/test batches, or start training directly and let the app prepare them automatically.",
                 level="info",
             )
 
         prepare_cols = st.columns([0.8, 1.2])
         with prepare_cols[0]:
-            prepare_clicked = st.button(_t("Prepare data"), type="primary", disabled=bool(failing_targets))
+            prepare_clicked = st.button(
+                _t("Prepare data"), type="primary", disabled=bool(failing_targets)
+            )
         with prepare_cols[1]:
             if prepared_ready:
                 st.caption(
                     _t(
                         "Prepared targets: {prepared_targets}",
-                        prepared_targets=", ".join(str(batch["target"]) for batch in prepared_batches),
+                        prepared_targets=", ".join(
+                            str(batch["target"]) for batch in prepared_batches
+                        ),
                     )
                 )
         if prepare_clicked:
             try:
-                prepared_batches = _prepare_target_batches(
+                prepared_batches = _materialize_prepared_batches(
+                    current_experiment_signature=current_experiment_signature,
                     df=df,
                     base_analysis_df=base_analysis_df,
                     analysis_df=analysis_df,
@@ -2764,13 +3725,13 @@ def main() -> None:
                 st.error(str(exc))
                 return
 
-            st.session_state["_latest_prepared_signature"] = current_experiment_signature
-            st.session_state["_latest_prepared_batches"] = list(prepared_batches)
             prepared_ready = True
             st.success(
                 _t(
                     "Data preparation completed: {prepared_targets}",
-                    prepared_targets=", ".join(str(batch["target"]) for batch in prepared_batches),
+                    prepared_targets=", ".join(
+                        str(batch["target"]) for batch in prepared_batches
+                    ),
                 )
             )
 
@@ -2783,7 +3744,9 @@ def main() -> None:
                             _t("prepared task type"): str(batch["task_type"]),
                             _t("prepared train rows"): len(batch["cleaned"].X_train),
                             _t("prepared test rows"): len(batch["cleaned"].X_test),
-                            _t("prepared features"): len(batch["cleaned"].prepared_feature_names or []),
+                            _t("prepared features"): len(
+                                batch["cleaned"].prepared_feature_names or []
+                            ),
                         }
                         for batch in prepared_batches
                     ]
@@ -2794,22 +3757,32 @@ def main() -> None:
 
     st.subheader(_t("5. Start training"))
     results: list[dict[str, object]] = []
-    if st.session_state.get("_latest_results_signature") == current_experiment_signature:
+    if (
+        st.session_state.get("_latest_results_signature")
+        == current_experiment_signature
+    ):
         results = list(st.session_state.get("_latest_results", []))
 
     with st.container(border=True):
-        _section_caption(_t("Training now uses the prepared train/test data from the previous step instead of rerunning preprocessing inside the fit step."))
+        _section_caption(
+            _t(
+                "Training now uses the prepared train/test data from the previous step instead of rerunning preprocessing inside the fit step."
+            )
+        )
         if failing_targets:
             _render_step_status(
                 _t("Training is blocked by validation issues."),
-                _t("Resolve the flagged issues for: {failing_targets}.", failing_targets=", ".join(failing_targets)),
+                _t(
+                    "Resolve the flagged issues for: {failing_targets}.",
+                    failing_targets=", ".join(failing_targets),
+                ),
                 level="warning",
             )
         elif not prepared_ready:
             _render_step_status(
                 "Training is waiting for data preparation.",
-                "Run Prepare data first so the missing-value handling and feature processing finish before model fitting.",
-                level="warning",
+                "Run training will prepare data automatically with the applied preprocessing settings if needed.",
+                level="info",
             )
         else:
             _render_step_status(
@@ -2817,21 +3790,72 @@ def main() -> None:
                 "Click Run training to fit models on the prepared data and unlock the results step.",
                 level="success",
             )
+        st.caption(
+            _t(
+                "Run training will prepare data automatically with the applied preprocessing settings if needed."
+            )
+        )
 
-        if st.button(_t("Run training"), type="primary", disabled=bool(failing_targets) or not prepared_ready):
+        if st.button(
+            _t("Run training"),
+            type="primary",
+            disabled=bool(failing_targets),
+        ):
             results = []
-            with st.spinner(_t("Training models on the prepared data...")):
+            spinner_text = (
+                _t("Training models on the prepared data...")
+                if prepared_ready
+                else _t(
+                    "Preparing data and training models with the applied preprocessing settings..."
+                )
+            )
+            with st.spinner(spinner_text):
                 if failing_targets:
-                    logger.error("Blocking preflight issues targets=%s", failing_targets)
-                    st.error(_t("Resolve blocking preflight issues before training: {failing_targets}", failing_targets=", ".join(failing_targets)))
+                    logger.error(
+                        "Blocking preflight issues targets=%s", failing_targets
+                    )
+                    st.error(
+                        _t(
+                            "Resolve blocking preflight issues before training: {failing_targets}",
+                            failing_targets=", ".join(failing_targets),
+                        )
+                    )
                     return
+
+                if not prepared_ready:
+                    try:
+                        prepared_batches = _materialize_prepared_batches(
+                            current_experiment_signature=current_experiment_signature,
+                            df=df,
+                            base_analysis_df=base_analysis_df,
+                            analysis_df=analysis_df,
+                            analysis_manual_cleaning_log=analysis_manual_cleaning_log,
+                            analysis_manual_cleaning_impact=analysis_manual_cleaning_impact,
+                            candidate_feature_columns=candidate_feature_columns,
+                            excluded_columns=applied_excluded_columns,
+                            target_columns=target_columns,
+                            task_types=task_types,
+                            priority_metrics=priority_metrics,
+                            preflight_by_target=preflight_by_target,
+                            preprocessing_plan=applied_preprocessing_plan,
+                            manual_cleaning_plan=manual_cleaning_plan,
+                        )
+                    except ValueError as exc:
+                        logger.error("Automatic data preparation failed: %s", exc)
+                        st.error(str(exc))
+                        return
+                    prepared_ready = True
 
                 if not prepared_batches:
                     logger.error("Training requested without prepared batches")
                     st.error(_t("Prepare data before training."))
                     return
 
-                logger.info("Starting training pipeline targets=%s task_types=%s", target_columns, task_types)
+                logger.info(
+                    "Starting training pipeline targets=%s task_types=%s",
+                    target_columns,
+                    task_types,
+                )
                 for batch in prepared_batches:
                     target = str(batch["target"])
                     task_type = str(batch["task_type"])
@@ -2841,15 +3865,27 @@ def main() -> None:
                     target_eda_summary = batch["target_eda_summary"]
                     cleaned = batch["cleaned"]
                     logger.info("Training target=%s task_type=%s", target, task_type)
-                    trained = train_model(cleaned, time_budget=int(time_budget), metric_preference=priority_metric, tracker=tracker)
-                    metrics, prediction_sample = evaluate_model(trained.model, cleaned, task_type=task_type, tracker=tracker)
+                    trained = train_model(
+                        cleaned,
+                        time_budget=int(time_budget),
+                        metric_preference=priority_metric,
+                        tracker=tracker,
+                    )
+                    metrics, prediction_sample = evaluate_model(
+                        trained.model, cleaned, task_type=task_type, tracker=tracker
+                    )
                     tracker.snapshot_artifact(
                         "metrics_summary",
                         "Metrics summary",
                         "evaluation",
-                        metadata={"metrics": metrics, "priority_metric": priority_metric},
+                        metadata={
+                            "metrics": metrics,
+                            "priority_metric": priority_metric,
+                        },
                     )
-                    planned_report_mode = "llm" if settings.llm_enabled else "rule_based"
+                    planned_report_mode = (
+                        "llm" if settings.llm_enabled else "rule_based"
+                    )
                     postrun_validation = validate_postrun(
                         metrics=metrics,
                         prediction_sample=prediction_sample,
@@ -2860,7 +3896,9 @@ def main() -> None:
                         feature_importance=trained.feature_importance,
                         report_mode=planned_report_mode,
                     )
-                    recommendations = build_recommendations(preflight_validation, postrun_validation)
+                    recommendations = build_recommendations(
+                        preflight_validation, postrun_validation
+                    )
 
                     report, report_mode = generate_report_result(
                         eda_summary=target_eda_summary,
@@ -2883,7 +3921,9 @@ def main() -> None:
                         feature_importance=trained.feature_importance,
                         report_mode=report_mode,
                     )
-                    recommendations = build_recommendations(preflight_validation, postrun_validation)
+                    recommendations = build_recommendations(
+                        preflight_validation, postrun_validation
+                    )
                     if report_mode != planned_report_mode:
                         report, report_mode = generate_report_result(
                             eda_summary=target_eda_summary,
@@ -2910,33 +3950,68 @@ def main() -> None:
                             "numeric_imputation_strategy": cleaned.config.numeric_imputation_strategy,
                             "categorical_imputation_strategy": cleaned.config.categorical_imputation_strategy,
                             "categorical_encoding_strategy": cleaned.config.categorical_encoding_strategy,
-                            "standardize_numeric": bool(cleaned.config.standardize_numeric),
+                            "standardize_numeric": bool(
+                                cleaned.config.standardize_numeric
+                            ),
                             "time_budget": time_budget,
                             "priority_metric": priority_metric,
                             "trainer": trained.trainer_name,
                             "planner_name": plan_suggestion.planner_name,
                             "feature_engineering_enabled": bool(feature_plan),
-                            "manual_cleaning_enabled": bool(manual_cleaning_plan and any(rule.enabled for rule in manual_cleaning_plan.rules)),
-                            "manual_cleaning_effect_stage": manual_cleaning_plan.effect_stage if manual_cleaning_plan else None,
+                            "manual_cleaning_enabled": bool(
+                                manual_cleaning_plan
+                                and any(
+                                    rule.enabled for rule in manual_cleaning_plan.rules
+                                )
+                            ),
+                            "manual_cleaning_effect_stage": manual_cleaning_plan.effect_stage
+                            if manual_cleaning_plan
+                            else None,
                             "dataset_fingerprint": current_dataset_fingerprint,
                             "prepared_before_training": True,
                         }
                     )
-                    storage.save_json(run, "plan.json", artifact_to_dict(plan_suggestion))
-                    storage.save_json(run, "preprocessing_plan.json", artifact_to_dict(applied_preprocessing_plan))
+                    storage.save_json(
+                        run, "plan.json", artifact_to_dict(plan_suggestion)
+                    )
+                    storage.save_json(
+                        run,
+                        "preprocessing_plan.json",
+                        artifact_to_dict(applied_preprocessing_plan),
+                    )
                     if feature_plan:
-                        storage.save_json(run, "feature_engineering_plan.json", artifact_to_dict(feature_plan))
+                        storage.save_json(
+                            run,
+                            "feature_engineering_plan.json",
+                            artifact_to_dict(feature_plan),
+                        )
                     if manual_cleaning_plan:
-                        storage.save_json(run, "manual_cleaning_plan.json", artifact_to_dict(manual_cleaning_plan))
+                        storage.save_json(
+                            run,
+                            "manual_cleaning_plan.json",
+                            artifact_to_dict(manual_cleaning_plan),
+                        )
                     storage.save_json(run, "eda_summary.json", target_eda_summary)
                     storage.save_json(run, "cleaning_log.json", cleaned.cleaning_log)
                     storage.save_json(run, "metrics.json", metrics)
                     data_flow_payload = artifact_to_dict(tracker.to_trace())
                     storage.save_json(run, "data_flow.json", data_flow_payload)
-                    storage.save_json(run, "feature_importance.json", trained.feature_importance)
-                    storage.save_json(run, "validation_pre.json", artifact_to_dict(preflight_validation))
-                    storage.save_json(run, "validation_post.json", artifact_to_dict(postrun_validation))
-                    storage.save_json(run, "recommendations.json", artifact_to_dict(recommendations))
+                    storage.save_json(
+                        run, "feature_importance.json", trained.feature_importance
+                    )
+                    storage.save_json(
+                        run,
+                        "validation_pre.json",
+                        artifact_to_dict(preflight_validation),
+                    )
+                    storage.save_json(
+                        run,
+                        "validation_post.json",
+                        artifact_to_dict(postrun_validation),
+                    )
+                    storage.save_json(
+                        run, "recommendations.json", artifact_to_dict(recommendations)
+                    )
                     storage.save_json(
                         run,
                         "training_summary.json",
@@ -2944,10 +4019,14 @@ def main() -> None:
                             "trainer_name": trained.trainer_name,
                             "optimization_metric_used": trained.optimization_metric_used,
                             "training_notes": trained.training_notes or [],
-                            "manual_cleaning_effect_stage": manual_cleaning_plan.effect_stage if manual_cleaning_plan else None,
+                            "manual_cleaning_effect_stage": manual_cleaning_plan.effect_stage
+                            if manual_cleaning_plan
+                            else None,
                             "manual_cleaning_applied_rules": 0
                             if not manual_cleaning_plan
-                            else sum(1 for rule in manual_cleaning_plan.rules if rule.enabled),
+                            else sum(
+                                1 for rule in manual_cleaning_plan.rules if rule.enabled
+                            ),
                             "prepared_before_training": True,
                         },
                     )
@@ -2978,7 +4057,9 @@ def main() -> None:
             st.session_state["_latest_results"] = list(results)
             completed_ids = ", ".join(str(result["run"].run_id) for result in results)
             logger.info("Training pipeline complete run_ids=%s", completed_ids)
-            st.success(_t("Run completed: {completed_ids}", completed_ids=completed_ids))
+            st.success(
+                _t("Run completed: {completed_ids}", completed_ids=completed_ids)
+            )
 
     if results:
         _render_run_outputs(results)

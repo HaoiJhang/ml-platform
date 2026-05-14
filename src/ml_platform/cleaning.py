@@ -5,19 +5,21 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
+import numpy as np
 import pandas as pd
-from sklearn.base import clone
+from sklearn.base import BaseEstimator, TransformerMixin, clone
 from sklearn.compose import ColumnTransformer, make_column_selector
 from sklearn.impute import SimpleImputer
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.preprocessing import OneHotEncoder, OrdinalEncoder, StandardScaler
 
 from ml_platform.artifacts import FeatureEngineeringOperation, PreprocessingPlan, artifact_to_dict
 from ml_platform.data_flow import DataFlowTracker
 from ml_platform.feature_engineering import FeatureEngineeringTransformer
 
 logger = logging.getLogger(__name__)
+MISSING_TOKEN = "__missing__"
 
 
 @dataclass(frozen=True)
@@ -61,6 +63,39 @@ def _make_one_hot_encoder() -> OneHotEncoder:
     return OneHotEncoder(**kwargs)
 
 
+def _make_ordinal_encoder() -> OrdinalEncoder:
+    kwargs: dict[str, Any] = {"handle_unknown": "use_encoded_value", "unknown_value": -1}
+    if "encoded_missing_value" in inspect.signature(OrdinalEncoder).parameters:
+        kwargs["encoded_missing_value"] = -1
+    return OrdinalEncoder(**kwargs)
+
+
+class FrequencyEncoder(BaseEstimator, TransformerMixin):
+    def fit(self, X: Any, y: Any = None) -> "FrequencyEncoder":
+        frame = pd.DataFrame(X)
+        self.frequency_maps_: list[dict[str, float]] = []
+        for column in frame.columns:
+            values = _string_values(frame[column])
+            self.frequency_maps_.append(values.value_counts(normalize=True, dropna=False).to_dict())
+        return self
+
+    def transform(self, X: Any) -> np.ndarray:
+        frame = pd.DataFrame(X)
+        encoded_columns: list[np.ndarray] = []
+        for index, column in enumerate(frame.columns):
+            values = _string_values(frame[column])
+            mapping = self.frequency_maps_[index] if index < len(self.frequency_maps_) else {}
+            encoded_columns.append(values.map(mapping).fillna(0.0).astype(float).to_numpy())
+        if not encoded_columns:
+            return np.empty((len(frame), 0), dtype=float)
+        return np.column_stack(encoded_columns)
+
+    def get_feature_names_out(self, input_features: Any = None) -> np.ndarray:
+        if input_features is None:
+            return np.asarray([], dtype=object)
+        return np.asarray([str(feature) for feature in input_features], dtype=object)
+
+
 def _numeric_imputer(strategy_name: str) -> SimpleImputer:
     if strategy_name == "constant_zero":
         return SimpleImputer(strategy="constant", fill_value=0.0)
@@ -71,6 +106,16 @@ def _categorical_imputer(strategy_name: str) -> SimpleImputer:
     if strategy_name == "constant_missing":
         return SimpleImputer(strategy="constant", fill_value="missing")
     return SimpleImputer(strategy=strategy_name)
+
+
+def _categorical_encoder(strategy_name: str) -> Any:
+    if strategy_name == "one_hot":
+        return _make_one_hot_encoder()
+    if strategy_name == "ordinal":
+        return _make_ordinal_encoder()
+    if strategy_name == "frequency":
+        return FrequencyEncoder()
+    raise ValueError("Unsupported categorical_encoding_strategy.")
 
 
 def _preprocessor_feature_names(preprocessor: Any) -> list[str] | None:
@@ -162,7 +207,7 @@ def clean_and_split(df: pd.DataFrame, config: CleanConfig, tracker: DataFlowTrac
         raise ValueError("Unsupported numeric_imputation_strategy.")
     if config.categorical_imputation_strategy not in {"most_frequent", "constant_missing"}:
         raise ValueError("Unsupported categorical_imputation_strategy.")
-    if config.categorical_encoding_strategy not in {"one_hot"}:
+    if config.categorical_encoding_strategy not in {"one_hot", "ordinal", "frequency"}:
         raise ValueError("Unsupported categorical_encoding_strategy.")
 
     logger.info("Cleaning dataset rows=%d columns=%d target=%s task_type=%s", len(df), len(df.columns), config.target, config.task_type)
@@ -263,7 +308,7 @@ def clean_and_split(df: pd.DataFrame, config: CleanConfig, tracker: DataFlowTrac
             Pipeline(
                 [
                     ("imputer", _categorical_imputer(config.categorical_imputation_strategy)),
-                    ("onehot", _make_one_hot_encoder()),
+                    ("encoder", _categorical_encoder(config.categorical_encoding_strategy)),
                 ]
             ),
             make_column_selector(dtype_exclude="number"),
@@ -419,3 +464,7 @@ def prepare_for_training(cleaned: CleanedData, tracker: DataFlowTracker | None =
         X_test_prepared=X_test_prepared,
         prepared_feature_names=feature_names,
     )
+
+
+def _string_values(series: pd.Series) -> pd.Series:
+    return series.astype("string").fillna(MISSING_TOKEN).astype(str)

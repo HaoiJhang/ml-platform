@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import sys
 
@@ -9,6 +10,12 @@ if str(PROJECT_ROOT) not in sys.path:
 
 import app as app_module
 from streamlit.testing.v1 import AppTest
+
+
+def _latest_run_config(runs_dir: Path) -> dict[str, object]:
+    run_dirs = [path for path in runs_dir.iterdir() if path.is_dir()]
+    latest_run = max(run_dirs, key=lambda path: path.name)
+    return json.loads((latest_run / "config.json").read_text(encoding="utf-8"))
 
 
 def test_local_llm_config_enabled_by_default(monkeypatch) -> None:
@@ -47,6 +54,41 @@ def test_can_switch_ui_language_to_chinese(monkeypatch, tmp_path) -> None:
     assert any(subheader.value == "1. 上传数据" for subheader in app.subheader)
 
 
+def test_categorical_encoding_strategy_offers_three_options(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("ML_PLATFORM_RUNS_DIR", str(tmp_path / "runs"))
+
+    app = AppTest.from_file("app.py")
+    app.run(timeout=120)
+
+    app.radio[0].set_value("Demo: demo_customer_churn.csv")
+    app.run(timeout=120)
+
+    app.multiselect(key="target_columns").set_value(["churn"])
+    app.run(timeout=120)
+
+    categorical_encoding = app.selectbox(key="_categorical_encoding_strategy_label")
+    assert categorical_encoding.options == ["one_hot", "ordinal", "frequency"]
+
+
+def test_preprocessing_section_is_collapsed_by_default(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("ML_PLATFORM_RUNS_DIR", str(tmp_path / "runs"))
+
+    app = AppTest.from_file("app.py")
+    app.run(timeout=120)
+
+    app.radio[0].set_value("Demo: demo_customer_churn.csv")
+    app.run(timeout=120)
+
+    app.multiselect(key="target_columns").set_value(["churn"])
+    app.run(timeout=120)
+
+    preprocessing_expander = next(
+        expander for expander in app.expander if expander.label == "Open preprocessing details"
+    )
+    assert preprocessing_expander.proto.expanded is False
+    assert any("Categorical encoding strategy" in caption.value for caption in app.caption)
+
+
 def test_chinese_ui_covers_preprocessing_and_results_labels(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("ML_PLATFORM_RUNS_DIR", str(tmp_path / "runs"))
 
@@ -62,15 +104,15 @@ def test_chinese_ui_covers_preprocessing_and_results_labels(monkeypatch, tmp_pat
     app.multiselect(key="target_columns").set_value(["churn"])
     app.run(timeout=120)
 
+    app.text_input(key="time_budget_text").set_value("5")
+    app.run(timeout=120)
+
     assert any(subheader.value == "3. 配置数据预处理" for subheader in app.subheader)
     assert any(subheader.value == "4. 准备数据" for subheader in app.subheader)
     assert any(subheader.value == "5. 开始训练" for subheader in app.subheader)
     assert any(button.label == "准备数据" for button in app.button)
     assert any(button.label == "开始训练" for button in app.button)
-
-    prepare_data = next(button for button in app.button if button.label == "准备数据")
-    prepare_data.click()
-    app.run(timeout=120)
+    assert any("类别编码策略" in caption.value for caption in app.caption)
 
     run_training = next(button for button in app.button if button.label == "开始训练")
     run_training.click()
@@ -105,6 +147,8 @@ def test_workflow_waits_for_target_selection(monkeypatch, tmp_path) -> None:
     assert any(subheader.value == "3. Configure preprocessing" for subheader in app.subheader)
     assert any(subheader.value == "4. Prepare data" for subheader in app.subheader)
     assert any(subheader.value == "5. Start training" for subheader in app.subheader)
+    run_training = next(button for button in app.button if button.label == "Run training")
+    assert run_training.disabled is False
 
 
 def test_data_flow_selection_does_not_drop_latest_results(monkeypatch, tmp_path) -> None:
@@ -120,10 +164,6 @@ def test_data_flow_selection_does_not_drop_latest_results(monkeypatch, tmp_path)
     app.run(timeout=120)
 
     app.text_input(key="time_budget_text").set_value("5")
-    app.run(timeout=120)
-
-    prepare_data = next(button for button in app.button if button.label == "Prepare data")
-    prepare_data.click()
     app.run(timeout=120)
 
     run_training = next(button for button in app.button if button.label == "Run training")
@@ -187,6 +227,9 @@ def test_applied_preprocessing_step_invalidates_prepared_data(monkeypatch, tmp_p
     app.multiselect(key="target_columns").set_value(["churn"])
     app.run(timeout=120)
 
+    app.text_input(key="time_budget_text").set_value("5")
+    app.run(timeout=120)
+
     prepare_data = next(button for button in app.button if button.label == "Prepare data")
     prepare_data.click()
     app.run(timeout=120)
@@ -204,4 +247,35 @@ def test_applied_preprocessing_step_invalidates_prepared_data(monkeypatch, tmp_p
     app.run(timeout=120)
 
     run_training = next(button for button in app.button if button.label == "Run training")
-    assert run_training.disabled is True
+    assert run_training.disabled is False
+    run_training.click()
+    app.run(timeout=120)
+
+    run_config = _latest_run_config(tmp_path / "runs")
+    assert run_config["numeric_imputation_strategy"] == "mean"
+
+
+def test_run_training_uses_applied_preprocessing_not_unapplied_draft(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("ML_PLATFORM_RUNS_DIR", str(tmp_path / "runs"))
+
+    app = AppTest.from_file("app.py")
+    app.run(timeout=120)
+
+    app.radio[0].set_value("Demo: demo_customer_churn.csv")
+    app.run(timeout=120)
+
+    app.multiselect(key="target_columns").set_value(["churn"])
+    app.run(timeout=120)
+
+    app.selectbox(key="numeric_imputation_strategy").set_value("mean")
+    app.run(timeout=120)
+
+    app.text_input(key="time_budget_text").set_value("5")
+    app.run(timeout=120)
+
+    run_training = next(button for button in app.button if button.label == "Run training")
+    run_training.click()
+    app.run(timeout=120)
+
+    run_config = _latest_run_config(tmp_path / "runs")
+    assert run_config["numeric_imputation_strategy"] == "median"

@@ -54,6 +54,60 @@ def test_cleaning_handles_all_categorical_features() -> None:
     assert cleaned.categorical_features == ["plan", "region"]
 
 
+def test_cleaning_supports_ordinal_categorical_encoding() -> None:
+    df = pd.DataFrame(
+        {
+            "target": [0, 1, 0, 1, 0, 1],
+            "segment": ["a", "b", "a", "c", "b", "c"],
+            "region": ["east", "west", "east", "north", "west", "north"],
+        }
+    )
+
+    cleaned = clean_and_split(
+        df,
+        CleanConfig(
+            target="target",
+            task_type="classification",
+            test_size=0.33,
+            random_state=3,
+            categorical_encoding_strategy="ordinal",
+        ),
+    )
+    prepared = prepare_for_training(cleaned)
+
+    assert prepared.X_train_prepared is not None
+    assert prepared.X_train_prepared.shape[0] == len(prepared.X_train)
+    assert prepared.X_train_prepared.shape[1] == len(prepared.categorical_features)
+    assert prepared.prepared_feature_names == ["segment", "region"]
+
+
+def test_cleaning_supports_frequency_categorical_encoding() -> None:
+    df = pd.DataFrame(
+        {
+            "target": [0, 1, 0, 1, 0, 1],
+            "segment": ["a", "b", "a", "c", "b", "c"],
+            "region": ["east", "west", "east", "north", "west", "north"],
+        }
+    )
+
+    cleaned = clean_and_split(
+        df,
+        CleanConfig(
+            target="target",
+            task_type="classification",
+            test_size=0.33,
+            random_state=3,
+            categorical_encoding_strategy="frequency",
+        ),
+    )
+    prepared = prepare_for_training(cleaned)
+
+    assert prepared.X_train_prepared is not None
+    assert prepared.X_train_prepared.shape[0] == len(prepared.X_train)
+    assert prepared.X_train_prepared.shape[1] == len(prepared.categorical_features)
+    assert prepared.prepared_feature_names == ["segment", "region"]
+
+
 def test_cleaning_handles_all_numeric_features() -> None:
     df = pd.DataFrame(
         {
@@ -232,3 +286,24 @@ def test_preprocessing_plan_maps_to_clean_config() -> None:
     assert config.standardize_numeric is False
     assert config.feature_engineering_operations is not None
     assert config.feature_engineering_operations[0].operation == "frequency_encoding"
+
+
+def test_preprocessing_plan_preserves_selected_categorical_encoding_strategy() -> None:
+    plan = PreprocessingPlan(
+        applied_step_ids=["categorical_encoding"],
+        steps=[
+            PreprocessingStep(
+                id="categorical_encoding",
+                kind="categorical_encoding",
+                params={"strategy": "frequency"},
+            ),
+        ],
+    )
+
+    config = preprocessing_plan_to_clean_config(
+        plan,
+        target="target",
+        task_type="classification",
+    )
+
+    assert config.categorical_encoding_strategy == "frequency"
