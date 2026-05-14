@@ -1657,7 +1657,7 @@ def main() -> None:
 
     st.subheader("2. Choose what to predict")
     _section_caption("Pick the column you want the app to predict. The app can infer the task type automatically.")
-    setup_cols = st.columns([1.2, 0.85, 1.15])
+    setup_cols = st.columns([1.5, 1.0])
     with setup_cols[0]:
         target_columns = st.multiselect(
             "Target variables",
@@ -1672,8 +1672,6 @@ def main() -> None:
             horizontal=True,
             key="task_type_choice",
         )
-    with setup_cols[2]:
-        time_budget = _render_integer_input("Training time budget seconds", "time_budget", min_value=5)
 
     if not target_columns:
         _render_step_status(
@@ -1691,12 +1689,38 @@ def main() -> None:
     )
 
     exclude_options = [column for column in columns if column not in target_columns]
-    excluded_columns = st.multiselect(
-        "Exclude columns from EDA and training features",
-        exclude_options,
-        key="excluded_columns",
-        help="Excluded columns are removed before EDA and are not used as model features.",
-    )
+    with st.expander("Advanced experiment settings", expanded=False):
+        st.caption("Most first runs can keep the defaults here. Open this only if you want more control.")
+        excluded_columns = st.multiselect(
+            "Exclude columns from EDA and training features",
+            exclude_options,
+            key="excluded_columns",
+            help="Excluded columns are removed before EDA and are not used as model features.",
+        )
+        top_advanced_cols = st.columns(2)
+        with top_advanced_cols[0]:
+            time_budget = _render_integer_input("Training time budget seconds", "time_budget", min_value=5)
+        with top_advanced_cols[1]:
+            priority_metric_choice = st.selectbox(
+                "Priority metric",
+                ["auto", "accuracy", "f1_weighted", "precision_weighted", "recall_weighted", "roc_auc", "rmse", "mae", "r2"],
+                key="priority_metric_choice",
+            )
+
+        config_cols = st.columns(3)
+        with config_cols[0]:
+            test_size = st.slider("Test size", min_value=0.1, max_value=0.5, step=0.05, key="test_size")
+        with config_cols[1]:
+            high_missing_threshold = st.slider(
+                "Drop feature when missing rate is above",
+                min_value=0.5,
+                max_value=1.0,
+                step=0.05,
+                key="high_missing_threshold",
+            )
+        with config_cols[2]:
+            random_state = _render_integer_input("Random state", "random_state")
+
     analysis_columns = [column for column in columns if column not in excluded_columns]
     base_analysis_df = df[analysis_columns].copy()
     primary_target = target_columns[0]
@@ -1728,26 +1752,6 @@ def main() -> None:
             "Other selected targets are excluded from each model's feature set."
         )
 
-    config_cols = st.columns(4)
-    with config_cols[0]:
-        test_size = st.slider("Test size", min_value=0.1, max_value=0.5, step=0.05, key="test_size")
-    with config_cols[1]:
-        high_missing_threshold = st.slider(
-            "Drop feature when missing rate is above",
-            min_value=0.5,
-            max_value=1.0,
-            step=0.05,
-            key="high_missing_threshold",
-        )
-    with config_cols[2]:
-        random_state = _render_integer_input("Random state", "random_state")
-    with config_cols[3]:
-        priority_metric_choice = st.selectbox(
-            "Priority metric",
-            ["auto", "accuracy", "f1_weighted", "precision_weighted", "recall_weighted", "roc_auc", "rmse", "mae", "r2"],
-            key="priority_metric_choice",
-        )
-
     eda_summary = generate_eda_summary(analysis_df, target=primary_target)
     st.subheader("3. Check data before training")
     _section_caption("Use the brief, validation checks, and data summary to catch issues before you spend time training.")
@@ -1772,129 +1776,134 @@ def main() -> None:
             _queue_plan_suggestion(plan_data, columns)
             st.rerun()
 
-    st.write("Manual cleaning rules")
-    _section_caption("If you already know some rows or columns should be filtered out, draft the rules here before training.")
-    manual_cleaning_brief = st.text_area(
-        "Cleaning rules brief",
-        key="manual_cleaning_brief",
-        placeholder="Example: drop customer_id and keep rows where monthly_spend > 20 and churn equals 1.",
-        help="Natural-language rules are converted into a structured draft. Nothing is applied until you confirm.",
-    )
-    manual_rule_controls = st.columns(3)
-    with manual_rule_controls[0]:
-        if st.button("Generate cleaning rules"):
-            suggested_manual_plan = _get_manual_cleaning_plan(
-                df=base_analysis_df,
-                target=primary_target,
-                settings=settings,
-                user_brief=manual_cleaning_brief,
-            )
-            st.session_state["_manual_cleaning_override_plan"] = _clone_json_data(suggested_manual_plan)
-            st.rerun()
-    with manual_rule_controls[1]:
-        if st.button("Start with blank rule"):
-            st.session_state["_manual_cleaning_override_plan"] = _blank_manual_cleaning_plan(manual_cleaning_brief)
-            st.rerun()
-    with manual_rule_controls[2]:
-        if st.session_state.get("_manual_cleaning_plan") and st.button("Clear applied manual rules"):
-            st.session_state["_manual_cleaning_plan"] = None
-            st.session_state["_manual_cleaning_override_plan"] = None
-            st.rerun()
-
-    if st.session_state.get("_manual_cleaning_override_plan") is None and manual_cleaning_plan is not None:
-        st.session_state["_manual_cleaning_override_plan"] = _clone_json_data(manual_cleaning_plan)
-
-    draft_manual_plan = st.session_state.get("_manual_cleaning_override_plan")
-    if isinstance(draft_manual_plan, dict):
-        draft_manual_plan["user_brief"] = manual_cleaning_brief
-        edited_manual_plan = _render_manual_cleaning_editor(
-            draft_manual_plan,
-            available_columns=list(base_analysis_df.columns),
-        )
-        validated_manual_preview = validate_manual_cleaning_plan(
-            edited_manual_plan,
-            base_analysis_df,
-            primary_target,
-            protected_columns=target_columns,
-        )
-        preview_df, preview_log, preview_impact = apply_manual_cleaning_plan(
-            base_analysis_df,
-            validated_manual_preview,
-            primary_target,
-            protected_columns=target_columns,
-        )
-        preview_plan_data = artifact_to_dict(validated_manual_preview)
-        summary_cols = st.columns(5)
-        with summary_cols[0]:
-            st.metric("Planner", str(preview_plan_data.get("planner_name") or "manual"))
-        with summary_cols[1]:
-            st.metric("Effect stage", _manual_cleaning_effect_stage_label(validated_manual_preview.effect_stage))
-        with summary_cols[2]:
-            st.metric("Accepted rules", len(preview_plan_data.get("rules", [])))
-        with summary_cols[3]:
-            st.metric("Rejected rules", len(preview_plan_data.get("rejected_rules", [])))
-        with summary_cols[4]:
-            st.metric("Rows removed", int(preview_impact.get("rows_removed") or 0))
-
-        rule_rows = _manual_cleaning_rule_rows(preview_plan_data)
-        if rule_rows:
-            st.dataframe(pd.DataFrame(rule_rows), hide_index=True, use_container_width=True)
-        else:
-            st.caption("No manual cleaning rules are in the current draft.")
-
-        impact_cols = st.columns(3)
-        with impact_cols[0]:
-            st.metric("Columns removed", len(preview_impact.get("columns_removed", [])))
-        with impact_cols[1]:
-            st.metric("Rows after", int(preview_impact.get("rows_after") or len(base_analysis_df)))
-        with impact_cols[2]:
-            st.metric("Columns after", int(preview_impact.get("columns_after") or len(base_analysis_df.columns)))
-
-        detail_cols = st.columns(2)
-        with detail_cols[0]:
-            _render_text_items("Notes", preview_plan_data.get("notes", []), "No notes.")
-        with detail_cols[1]:
-            _render_text_items("Rejected rules", preview_plan_data.get("rejected_rules", []), "No rejected rules.")
-
-        with st.expander("Manual cleaning preview impact", expanded=False):
-            st.json(preview_impact, expanded=True)
-            st.dataframe(preview_df.head(20), use_container_width=True)
-            if preview_log:
-                st.write("Planned cleaning log")
-                st.json(preview_log, expanded=True)
-
-        apply_cols = st.columns(2)
-        with apply_cols[0]:
-            if st.button("Apply manual cleaning rules", type="primary"):
-                st.session_state["_manual_cleaning_plan"] = preview_plan_data
-                st.session_state["_manual_cleaning_override_plan"] = _clone_json_data(preview_plan_data)
-                st.rerun()
-        with apply_cols[1]:
-            if st.session_state.get("_manual_cleaning_plan"):
-                st.caption("Applied rules remain active until you clear them or apply a different draft.")
-    else:
-        st.caption("Generate rules from a brief or start with a blank rule to configure manual cleaning.")
-
-    apply_feature_engineering = st.checkbox(
-        "Apply local whitelist feature engineering",
-        key="apply_feature_engineering",
-        help="LLM can propose a structured plan, but only local whitelisted transformations are executed inside the training pipeline.",
-    )
     feature_plan = None
-    if apply_feature_engineering:
-        feature_plan_override = st.session_state.get("_feature_engineering_override_plan")
-        if isinstance(feature_plan_override, dict) and feature_plan_override.get("feature_engineering_operations"):
-            feature_plan = feature_plan_override
-        else:
-            feature_plan_df = analysis_df[candidate_feature_columns + [primary_target]].copy()
-            feature_plan = _get_feature_engineering_plan(
-                df=feature_plan_df,
-                target=primary_target,
-                settings=settings,
-                user_brief=planner_brief,
+    with st.expander("Advanced adjustments", expanded=False):
+        st.caption(
+            "Most first runs can skip this section. Open it only if you want to clean rows or columns manually, "
+            "or add extra local feature transformations."
+        )
+        st.write("Manual cleaning rules")
+        _section_caption("If you already know some rows or columns should be filtered out, draft the rules here before training.")
+        manual_cleaning_brief = st.text_area(
+            "Cleaning rules brief",
+            key="manual_cleaning_brief",
+            placeholder="Example: drop customer_id and keep rows where monthly_spend > 20 and churn equals 1.",
+            help="Natural-language rules are converted into a structured draft. Nothing is applied until you confirm.",
+        )
+        manual_rule_controls = st.columns(3)
+        with manual_rule_controls[0]:
+            if st.button("Generate cleaning rules"):
+                suggested_manual_plan = _get_manual_cleaning_plan(
+                    df=base_analysis_df,
+                    target=primary_target,
+                    settings=settings,
+                    user_brief=manual_cleaning_brief,
+                )
+                st.session_state["_manual_cleaning_override_plan"] = _clone_json_data(suggested_manual_plan)
+                st.rerun()
+        with manual_rule_controls[1]:
+            if st.button("Start with blank rule"):
+                st.session_state["_manual_cleaning_override_plan"] = _blank_manual_cleaning_plan(manual_cleaning_brief)
+                st.rerun()
+        with manual_rule_controls[2]:
+            if st.session_state.get("_manual_cleaning_plan") and st.button("Clear applied manual rules"):
+                st.session_state["_manual_cleaning_plan"] = None
+                st.session_state["_manual_cleaning_override_plan"] = None
+                st.rerun()
+
+        if st.session_state.get("_manual_cleaning_override_plan") is None and manual_cleaning_plan is not None:
+            st.session_state["_manual_cleaning_override_plan"] = _clone_json_data(manual_cleaning_plan)
+
+        draft_manual_plan = st.session_state.get("_manual_cleaning_override_plan")
+        if isinstance(draft_manual_plan, dict):
+            draft_manual_plan["user_brief"] = manual_cleaning_brief
+            edited_manual_plan = _render_manual_cleaning_editor(
+                draft_manual_plan,
+                available_columns=list(base_analysis_df.columns),
             )
-        with st.expander("Feature engineering plan", expanded=True):
-            _render_feature_engineering_plan(artifact_to_dict(feature_plan))
+            validated_manual_preview = validate_manual_cleaning_plan(
+                edited_manual_plan,
+                base_analysis_df,
+                primary_target,
+                protected_columns=target_columns,
+            )
+            preview_df, preview_log, preview_impact = apply_manual_cleaning_plan(
+                base_analysis_df,
+                validated_manual_preview,
+                primary_target,
+                protected_columns=target_columns,
+            )
+            preview_plan_data = artifact_to_dict(validated_manual_preview)
+            summary_cols = st.columns(5)
+            with summary_cols[0]:
+                st.metric("Planner", str(preview_plan_data.get("planner_name") or "manual"))
+            with summary_cols[1]:
+                st.metric("Effect stage", _manual_cleaning_effect_stage_label(validated_manual_preview.effect_stage))
+            with summary_cols[2]:
+                st.metric("Accepted rules", len(preview_plan_data.get("rules", [])))
+            with summary_cols[3]:
+                st.metric("Rejected rules", len(preview_plan_data.get("rejected_rules", [])))
+            with summary_cols[4]:
+                st.metric("Rows removed", int(preview_impact.get("rows_removed") or 0))
+
+            rule_rows = _manual_cleaning_rule_rows(preview_plan_data)
+            if rule_rows:
+                st.dataframe(pd.DataFrame(rule_rows), hide_index=True, use_container_width=True)
+            else:
+                st.caption("No manual cleaning rules are in the current draft.")
+
+            impact_cols = st.columns(3)
+            with impact_cols[0]:
+                st.metric("Columns removed", len(preview_impact.get("columns_removed", [])))
+            with impact_cols[1]:
+                st.metric("Rows after", int(preview_impact.get("rows_after") or len(base_analysis_df)))
+            with impact_cols[2]:
+                st.metric("Columns after", int(preview_impact.get("columns_after") or len(base_analysis_df.columns)))
+
+            detail_cols = st.columns(2)
+            with detail_cols[0]:
+                _render_text_items("Notes", preview_plan_data.get("notes", []), "No notes.")
+            with detail_cols[1]:
+                _render_text_items("Rejected rules", preview_plan_data.get("rejected_rules", []), "No rejected rules.")
+
+            with st.expander("Manual cleaning preview impact", expanded=False):
+                st.json(preview_impact, expanded=True)
+                st.dataframe(preview_df.head(20), use_container_width=True)
+                if preview_log:
+                    st.write("Planned cleaning log")
+                    st.json(preview_log, expanded=True)
+
+            apply_cols = st.columns(2)
+            with apply_cols[0]:
+                if st.button("Apply manual cleaning rules", type="primary"):
+                    st.session_state["_manual_cleaning_plan"] = preview_plan_data
+                    st.session_state["_manual_cleaning_override_plan"] = _clone_json_data(preview_plan_data)
+                    st.rerun()
+            with apply_cols[1]:
+                if st.session_state.get("_manual_cleaning_plan"):
+                    st.caption("Applied rules remain active until you clear them or apply a different draft.")
+        else:
+            st.caption("Generate rules from a brief or start with a blank rule to configure manual cleaning.")
+
+        apply_feature_engineering = st.checkbox(
+            "Apply local whitelist feature engineering",
+            key="apply_feature_engineering",
+            help="LLM can propose a structured plan, but only local whitelisted transformations are executed inside the training pipeline.",
+        )
+        if apply_feature_engineering:
+            feature_plan_override = st.session_state.get("_feature_engineering_override_plan")
+            if isinstance(feature_plan_override, dict) and feature_plan_override.get("feature_engineering_operations"):
+                feature_plan = feature_plan_override
+            else:
+                feature_plan_df = analysis_df[candidate_feature_columns + [primary_target]].copy()
+                feature_plan = _get_feature_engineering_plan(
+                    df=feature_plan_df,
+                    target=primary_target,
+                    settings=settings,
+                    user_brief=planner_brief,
+                )
+            with st.expander("Feature engineering plan", expanded=True):
+                _render_feature_engineering_plan(artifact_to_dict(feature_plan))
 
     current_experiment_signature = _experiment_signature(
         dataset_fingerprint=current_dataset_fingerprint,

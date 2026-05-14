@@ -48,6 +48,15 @@ def test_workflow_waits_for_target_selection(monkeypatch, tmp_path) -> None:
     assert any("no prediction target has been selected yet" in alert.value.lower() for alert in app.warning)
     assert not any(button.label == "Run training" for button in app.button)
 
+    app.multiselect(key="target_columns").set_value(["churn"])
+    app.run(timeout=120)
+
+    advanced_settings = next(expander for expander in app.expander if expander.label == "Advanced experiment settings")
+    advanced_adjustments = next(expander for expander in app.expander if expander.label == "Advanced adjustments")
+    assert advanced_settings.proto.expanded is False
+    assert advanced_adjustments.proto.expanded is False
+    assert any(subheader.value == "4. Start training" for subheader in app.subheader)
+
 
 def test_data_flow_selection_does_not_drop_latest_results(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("ML_PLATFORM_RUNS_DIR", str(tmp_path / "runs"))
