@@ -21,6 +21,17 @@ def test_local_llm_config_can_be_explicitly_disabled(monkeypatch) -> None:
     assert app_module._local_llm_config_enabled() is False
 
 
+def test_optional_ai_help_is_collapsed_by_default(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("ML_PLATFORM_RUNS_DIR", str(tmp_path / "runs"))
+
+    app = AppTest.from_file("app.py")
+    app.run(timeout=120)
+
+    ai_help = next(expander for expander in app.expander if expander.label == "Optional AI help")
+    assert ai_help.proto.expanded is False
+    assert not any(subheader.value == "2. Report engine" for subheader in app.subheader)
+
+
 def test_data_flow_selection_does_not_drop_latest_results(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("ML_PLATFORM_RUNS_DIR", str(tmp_path / "runs"))
 

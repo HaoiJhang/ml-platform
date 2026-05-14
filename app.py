@@ -596,11 +596,11 @@ def _render_hero() -> None:
 
 def _render_help_center() -> None:
     st.subheader("1. Help center")
-    _section_caption("Read the quick-start guidance in the app before configuring and running a local experiment.")
+    _section_caption("Start with the dataset. AI settings are optional and only help with suggestions and report wording.")
 
     quick_start = """
-1. In `Report engine`, optionally fill in `API key`, `Base URL`, and `Model`. If you want the page to remember them, enable `Remember LLM settings on this device`.
-2. In `Dataset intake`, upload a CSV or choose a demo dataset. Then select one or more target columns in `Experiment setup`.
+1. In `Dataset intake`, upload a CSV or choose a demo dataset. Then select one or more target columns in `Experiment setup`.
+2. If you want AI-generated suggestions or a more natural-language report, open `Optional AI help` and fill in `API key`, `Base URL`, and `Model`.
 3. Use `Planning brief` to describe the baseline you want. Review `Planner suggestion`, `Preflight validation`, and `EDA summary` before running.
 4. Click `Run training`. After the run finishes, inspect `Run results` and download the model, report, and predictions from `Artifacts`.
 """
@@ -617,54 +617,63 @@ def _configure_llm_settings(settings: Settings) -> Settings:
     saved_api_key = saved_config.get("llm_api_key", "")
     saved_base_url = saved_config.get("llm_base_url", "")
     saved_model = saved_config.get("llm_model", "")
+    _section_caption(
+        "Optional AI help: you can finish the full local training flow without any API key. "
+        "Add one only if you want AI-generated suggestions and a more natural-language report."
+    )
 
-    st.subheader("2. Report engine")
-    if allow_local_llm_config:
-        _section_caption(
-            "Optional LLM configuration for plan and report generation. "
-            "This environment can remember settings locally, and hosted deployments can also use LLM_API_KEY or Streamlit Secrets."
-        )
-    else:
-        _section_caption(
-            "Optional LLM configuration for plan and report generation. "
-            "Local persistence is disabled here, so enter a key per session or configure LLM_API_KEY / Streamlit Secrets."
-        )
-    config_cols = st.columns(3)
-    with config_cols[0]:
-        api_key = st.text_input(
-            "API key",
-            value=saved_api_key,
-            key="_llm_api_key",
-            type="password",
-            placeholder="Uses LLM_API_KEY if empty",
-        )
-    with config_cols[1]:
-        base_url = st.text_input(
-            "Base URL",
-            value=saved_base_url or settings.llm_base_url or "",
-            key="_llm_base_url",
-            placeholder="LLM default or compatible API URL",
-        )
-    with config_cols[2]:
-        model = st.text_input("Model", value=saved_model or settings.llm_model, key="_llm_model")
+    api_key = saved_api_key
+    base_url = saved_base_url or settings.llm_base_url or ""
+    model = saved_model or settings.llm_model
 
-    if allow_local_llm_config:
-        remember_config = st.checkbox("Remember LLM settings on this device", value=bool(saved_api_key))
-        if remember_config and api_key:
-            _save_local_llm_config(
-                {
-                    "llm_api_key": api_key,
-                    "llm_base_url": base_url,
-                    "llm_model": model,
-                }
+    with st.expander("Optional AI help", expanded=False):
+        if allow_local_llm_config:
+            st.caption(
+                "This environment can remember settings locally. Hosted deployments can also use "
+                "`LLM_API_KEY` or Streamlit Secrets."
             )
-        elif not remember_config and saved_config:
-            _delete_local_llm_config()
-            saved_config = {}
+        else:
+            st.caption(
+                "Local persistence is disabled here, so enter a key per session or configure "
+                "`LLM_API_KEY` / Streamlit Secrets."
+            )
 
-        if saved_config and st.button("Forget saved LLM settings"):
-            _delete_local_llm_config()
-            st.rerun()
+        config_cols = st.columns(3)
+        with config_cols[0]:
+            api_key = st.text_input(
+                "API key",
+                value=saved_api_key,
+                key="_llm_api_key",
+                type="password",
+                placeholder="Uses LLM_API_KEY if empty",
+            )
+        with config_cols[1]:
+            base_url = st.text_input(
+                "Base URL",
+                value=saved_base_url or settings.llm_base_url or "",
+                key="_llm_base_url",
+                placeholder="LLM default or compatible API URL",
+            )
+        with config_cols[2]:
+            model = st.text_input("Model", value=saved_model or settings.llm_model, key="_llm_model")
+
+        if allow_local_llm_config:
+            remember_config = st.checkbox("Remember LLM settings on this device", value=bool(saved_api_key))
+            if remember_config and api_key:
+                _save_local_llm_config(
+                    {
+                        "llm_api_key": api_key,
+                        "llm_base_url": base_url,
+                        "llm_model": model,
+                    }
+                )
+            elif not remember_config and saved_config:
+                _delete_local_llm_config()
+                saved_config = {}
+
+            if saved_config and st.button("Forget saved LLM settings"):
+                _delete_local_llm_config()
+                st.rerun()
 
     return Settings(
         runs_dir=settings.runs_dir,
