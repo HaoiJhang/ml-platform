@@ -32,6 +32,23 @@ def test_optional_ai_help_is_collapsed_by_default(monkeypatch, tmp_path) -> None
     assert not any(subheader.value == "2. Report engine" for subheader in app.subheader)
 
 
+def test_workflow_waits_for_target_selection(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("ML_PLATFORM_RUNS_DIR", str(tmp_path / "runs"))
+
+    app = AppTest.from_file("app.py")
+    app.run(timeout=120)
+
+    assert any(subheader.value == "1. Upload data" for subheader in app.subheader)
+    assert not any(subheader.value == "2. Choose what to predict" for subheader in app.subheader)
+
+    app.radio[0].set_value("Demo: demo_customer_churn.csv")
+    app.run(timeout=120)
+
+    assert any(subheader.value == "2. Choose what to predict" for subheader in app.subheader)
+    assert any("no prediction target has been selected yet" in alert.value.lower() for alert in app.warning)
+    assert not any(button.label == "Run training" for button in app.button)
+
+
 def test_data_flow_selection_does_not_drop_latest_results(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("ML_PLATFORM_RUNS_DIR", str(tmp_path / "runs"))
 
@@ -41,6 +58,9 @@ def test_data_flow_selection_does_not_drop_latest_results(monkeypatch, tmp_path)
     app.radio[0].set_value("Demo: demo_customer_churn.csv")
     app.run(timeout=120)
 
+    app.multiselect(key="target_columns").set_value(["churn"])
+    app.run(timeout=120)
+
     app.text_input(key="time_budget_text").set_value("5")
     app.run(timeout=120)
 
@@ -48,13 +68,13 @@ def test_data_flow_selection_does_not_drop_latest_results(monkeypatch, tmp_path)
     run_training.click()
     app.run(timeout=120)
 
-    assert any(subheader.value == "11. Run results" for subheader in app.subheader)
+    assert any(subheader.value == "5. Review results" for subheader in app.subheader)
 
     data_flow_select = next(selectbox for selectbox in app.selectbox if selectbox.label == "Inspect data flow step")
     data_flow_select.set_value(data_flow_select.options[1])
     app.run(timeout=120)
 
-    assert any(subheader.value == "11. Run results" for subheader in app.subheader)
+    assert any(subheader.value == "5. Review results" for subheader in app.subheader)
     selected_again = next(selectbox for selectbox in app.selectbox if selectbox.label == "Inspect data flow step")
     assert selected_again.value == selected_again.options[1]
 
@@ -66,6 +86,9 @@ def test_manual_cleaning_rules_only_change_eda_after_apply(monkeypatch, tmp_path
     app.run(timeout=120)
 
     app.radio[0].set_value("Demo: demo_customer_churn.csv")
+    app.run(timeout=120)
+
+    app.multiselect(key="target_columns").set_value(["churn"])
     app.run(timeout=120)
 
     def rows_metric_value() -> str:

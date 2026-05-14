@@ -611,6 +611,16 @@ def _section_caption(text: str) -> None:
     st.markdown(f'<p class="lab-caption">{text}</p>', unsafe_allow_html=True)
 
 
+def _render_step_status(current_action: str, next_action: str, level: str = "info") -> None:
+    message = f"Now: {current_action} Next: {next_action}"
+    if level == "success":
+        st.success(message)
+    elif level == "warning":
+        st.warning(message)
+    else:
+        st.info(message)
+
+
 def _configure_llm_settings(settings: Settings) -> Settings:
     allow_local_llm_config = _local_llm_config_enabled()
     saved_config = _load_local_llm_config()
@@ -738,7 +748,7 @@ def _initialize_experiment_state(dataset_signature: str, columns: list[str]) -> 
         return
     st.session_state["_dataset_signature"] = signature
     st.session_state["planner_brief"] = ""
-    st.session_state["target_columns"] = [columns[-1]]
+    st.session_state["target_columns"] = []
     st.session_state["task_type_choice"] = "auto"
     st.session_state["time_budget"] = 30
     st.session_state["time_budget_text"] = "30"
@@ -764,8 +774,9 @@ def _initialize_experiment_state(dataset_signature: str, columns: list[str]) -> 
 
 
 def _render_run_outputs(results: list[dict[str, object]]) -> None:
-    st.subheader("10. Artifacts")
-    _section_caption("Export the model, generated analysis report, and prediction sample for downstream review.")
+    st.subheader("5. Review results")
+    _section_caption("Review the run details first, then download any files you want to share or inspect later.")
+    st.write("Download files")
     for result in results:
         run = result["run"]
         label = f"{result['target']} ({result['task_type']})"
@@ -793,25 +804,24 @@ def _render_run_outputs(results: list[dict[str, object]]) -> None:
                     mime="text/csv",
                 )
 
-    st.subheader("11. Run results")
-    _section_caption("Metrics, feature importance, and the generated report are shown below for immediate review.")
+    st.write("Detailed results")
     for result in results:
         run = result["run"]
         with st.expander(f"{result['target']} results", expanded=len(results) == 1):
-            st.write("11.1 Metrics")
+            st.write("Metrics")
             _render_metrics(result["metrics"], priority_metric=result["priority_metric"])
-            st.write("11.2 Validation")
+            st.write("Validation checks")
             _render_validation_summary(
                 preflight=artifact_to_dict(result["preflight_validation"]),
                 postrun=artifact_to_dict(result["postrun_validation"]),
                 recommendations=artifact_to_dict(result["recommendations"]),
                 priority_metric=result["priority_metric"],
             )
-            st.write("11.3 Data flow")
+            st.write("Data flow")
             _render_data_flow(result["data_flow"])
-            st.write("11.4 Feature importance")
+            st.write("Feature importance")
             st.dataframe(pd.DataFrame(result["trained"].feature_importance), use_container_width=True)
-            st.write("11.5 Analysis report")
+            st.write("Analysis report")
             st.markdown(result["report"])
             st.caption(f"Artifacts saved to {Path(run.path).resolve()}")
 
@@ -1595,8 +1605,8 @@ def main() -> None:
     settings = _configure_llm_settings(load_settings())
     storage = RunStorage(settings.runs_dir)
 
-    st.subheader("3. Dataset intake")
-    _section_caption("Start with one local CSV. The app keeps the experiment artifacts under the configured runs directory.")
+    st.subheader("1. Upload data")
+    _section_caption("Start with one CSV file or a demo dataset. The app saves each run under the configured runs directory.")
 
     demo_csvs = sorted(Path(p).name for p in PROJECT_ROOT.glob("data/*.csv") if p.is_file())
 
@@ -1612,10 +1622,18 @@ def main() -> None:
         demo_name = data_source.removeprefix("Demo: ")
         demo_path = PROJECT_ROOT / "data" / demo_name
         df = read_csv(demo_path)
-        st.info(f"Loaded demo dataset `{demo_name}` ({len(df)} rows, {len(df.columns)} columns).")
+        _render_step_status(
+            f"Loaded demo dataset `{demo_name}` with {len(df)} rows and {len(df.columns)} columns.",
+            "Choose the column you want to predict.",
+            level="success",
+        )
     else:
         uploaded_file = st.file_uploader("Upload CSV", type=["csv"], label_visibility="collapsed")
         if uploaded_file is None:
+            _render_step_status(
+                "No dataset has been loaded yet.",
+                "Upload a CSV or pick a demo dataset to unlock the next step.",
+            )
             st.markdown(
                 """
                 <div class="lab-empty">
@@ -1627,13 +1645,18 @@ def main() -> None:
             )
             return
         df = read_csv(uploaded_file)
+        _render_step_status(
+            f"Loaded `{uploaded_file.name}` with {len(df)} rows and {len(df.columns)} columns.",
+            "Choose the column you want to predict.",
+            level="success",
+        )
     current_dataset_fingerprint = _dataset_fingerprint(df)
     columns = list(df.columns)
     _initialize_experiment_state(current_dataset_fingerprint, columns)
     _consume_pending_plan_suggestion(columns)
 
-    st.subheader("4. Experiment setup")
-    _section_caption("Choose the prediction target and tune the small number of parameters that affect the local run.")
+    st.subheader("2. Choose what to predict")
+    _section_caption("Pick the column you want the app to predict. The app can infer the task type automatically.")
     setup_cols = st.columns([1.2, 0.85, 1.15])
     with setup_cols[0]:
         target_columns = st.multiselect(
@@ -1653,8 +1676,19 @@ def main() -> None:
         time_budget = _render_integer_input("Training time budget seconds", "time_budget", min_value=5)
 
     if not target_columns:
-        st.warning("Select at least one target variable to continue.")
+        _render_step_status(
+            "Your dataset is ready, but no prediction target has been selected yet.",
+            "Select at least one target column to continue to the checks step.",
+            level="warning",
+        )
         return
+
+    selected_targets = ", ".join(str(target) for target in target_columns)
+    _render_step_status(
+        f"Selected target column{'s' if len(target_columns) > 1 else ''}: {selected_targets}.",
+        "Review the data checks before starting training.",
+        level="success",
+    )
 
     exclude_options = [column for column in columns if column not in target_columns]
     excluded_columns = st.multiselect(
@@ -1715,6 +1749,9 @@ def main() -> None:
         )
 
     eda_summary = generate_eda_summary(analysis_df, target=primary_target)
+    st.subheader("3. Check data before training")
+    _section_caption("Use the brief, validation checks, and data summary to catch issues before you spend time training.")
+    st.write("Planning help")
     planner_brief = st.text_area(
         "Planning brief",
         key="planner_brief",
@@ -1729,18 +1766,14 @@ def main() -> None:
         dataset_fingerprint=current_dataset_fingerprint,
     )
     plan_data = artifact_to_dict(plan_suggestion)
-    st.subheader("5. Execution plan")
-    _section_caption("Use the brief-driven suggestion as a starting point, then confirm the explicit controls before running.")
     with st.expander("Planner suggestion", expanded=bool(planner_brief.strip())):
         _render_planner_suggestion(plan_data)
         if st.button("Apply planner suggestions"):
             _queue_plan_suggestion(plan_data, columns)
             st.rerun()
 
-    st.subheader("6. Manual cleaning rules")
-    _section_caption(
-        "Draft local whitelist cleaning rules from a brief, edit them row by row, then apply them before EDA or only before training."
-    )
+    st.write("Manual cleaning rules")
+    _section_caption("If you already know some rows or columns should be filtered out, draft the rules here before training.")
     manual_cleaning_brief = st.text_area(
         "Cleaning rules brief",
         key="manual_cleaning_brief",
@@ -1900,6 +1933,19 @@ def main() -> None:
             priority_metric=priority_metric_choice,
             high_missing_threshold=float(high_missing_threshold),
         )
+    failing_targets = [target for target, validation in preflight_by_target.items() if not validation.ok_to_run]
+    if failing_targets:
+        _render_step_status(
+            "The app found blocking issues in the current setup.",
+            f"Fix the checks for: {', '.join(failing_targets)} before starting training.",
+            level="warning",
+        )
+    else:
+        _render_step_status(
+            "The dataset and target selection passed the current checks.",
+            "You can start training after this review, or adjust the setup first.",
+            level="success",
+        )
     with st.expander("Preflight validation", expanded=True):
         for target in target_columns:
             validation = artifact_to_dict(preflight_by_target[target])
@@ -1907,14 +1953,14 @@ def main() -> None:
             st.caption(f"Resolved priority metric: {priority_metrics[target]}")
             _render_issue_table(validation.get("issues", []))
 
-    st.subheader("7. Data preview")
-    _section_caption("First 50 rows are shown for quick sanity checks before training.")
+    st.write("Data preview")
+    _section_caption("First 50 rows are shown for a quick sanity check before training.")
     if manual_cleaning_plan is not None and any(rule.enabled for rule in manual_cleaning_plan.rules) and manual_cleaning_plan.effect_stage == "pre_training":
         st.info("Manual cleaning rules are set to apply only before training. The data preview and EDA below still show the pre-cleaning analysis subset.")
     st.dataframe(analysis_df.head(50), use_container_width=True)
 
-    st.subheader("8. EDA summary")
-    _section_caption("A compact quality audit for shape, duplicates, missingness, correlations, and target behavior.")
+    st.write("EDA summary")
+    _section_caption("This quick audit summarizes shape, duplicates, missing values, correlations, and target behavior.")
     metric_cols = st.columns(4)
     with metric_cols[0]:
         st.metric("Rows", eda_summary["shape"]["rows"])
@@ -1970,8 +2016,20 @@ def main() -> None:
         for warning in eda_summary["quality_warnings"]:
             st.warning(warning)
 
-    st.subheader("9. Training run")
-    _section_caption("Launch the local pipeline after reviewing the setup and data audit.")
+    st.subheader("4. Start training")
+    _section_caption("Launch the local baseline after you have reviewed the target, checks, and data summary.")
+    if failing_targets:
+        _render_step_status(
+            "Training is blocked by validation issues.",
+            f"Resolve the flagged issues for: {', '.join(failing_targets)}.",
+            level="warning",
+        )
+    else:
+        _render_step_status(
+            "The run is ready to start.",
+            "Click Run training to build the local baseline and unlock the results step.",
+            level="success",
+        )
     results: list[dict[str, object]] = []
     if st.session_state.get("_latest_results_signature") == current_experiment_signature:
         results = list(st.session_state.get("_latest_results", []))
@@ -1979,7 +2037,6 @@ def main() -> None:
     if st.button("Run training", type="primary"):
         results = []
         with st.spinner("Cleaning data and training model locally..."):
-            failing_targets = [target for target, validation in preflight_by_target.items() if not validation.ok_to_run]
             if failing_targets:
                 logger.error("Blocking preflight issues targets=%s", failing_targets)
                 st.error(f"Resolve blocking preflight issues before training: {', '.join(failing_targets)}")
