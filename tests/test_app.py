@@ -67,9 +67,8 @@ def test_workflow_waits_for_target_selection(monkeypatch, tmp_path) -> None:
     app.run(timeout=120)
 
     advanced_settings = next(expander for expander in app.expander if expander.label == "Advanced experiment settings")
-    advanced_adjustments = next(expander for expander in app.expander if expander.label == "Advanced adjustments")
     assert advanced_settings.proto.expanded is False
-    assert advanced_adjustments.proto.expanded is False
+    assert any(subheader.value == "3. Configure preprocessing" for subheader in app.subheader)
     assert any(subheader.value == "4. Prepare data" for subheader in app.subheader)
     assert any(subheader.value == "5. Start training" for subheader in app.subheader)
 
@@ -140,3 +139,35 @@ def test_manual_cleaning_rules_only_change_eda_after_apply(monkeypatch, tmp_path
     app.run(timeout=120)
 
     assert rows_metric_value() == "10"
+
+
+def test_applied_preprocessing_step_invalidates_prepared_data(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("ML_PLATFORM_RUNS_DIR", str(tmp_path / "runs"))
+
+    app = AppTest.from_file("app.py")
+    app.run(timeout=120)
+
+    app.radio[0].set_value("Demo: demo_customer_churn.csv")
+    app.run(timeout=120)
+
+    app.multiselect(key="target_columns").set_value(["churn"])
+    app.run(timeout=120)
+
+    prepare_data = next(button for button in app.button if button.label == "Prepare data")
+    prepare_data.click()
+    app.run(timeout=120)
+
+    run_training = next(button for button in app.button if button.label == "Run training")
+    assert run_training.disabled is False
+
+    app.selectbox(key="numeric_imputation_strategy").set_value("mean")
+    app.run(timeout=120)
+    run_training = next(button for button in app.button if button.label == "Run training")
+    assert run_training.disabled is False
+
+    apply_missing_step = next(button for button in app.button if button.label == "Apply missing-value step")
+    apply_missing_step.click()
+    app.run(timeout=120)
+
+    run_training = next(button for button in app.button if button.label == "Run training")
+    assert run_training.disabled is True

@@ -13,7 +13,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
-from ml_platform.artifacts import FeatureEngineeringOperation
+from ml_platform.artifacts import FeatureEngineeringOperation, PreprocessingPlan, artifact_to_dict
 from ml_platform.data_flow import DataFlowTracker
 from ml_platform.feature_engineering import FeatureEngineeringTransformer
 
@@ -29,6 +29,7 @@ class CleanConfig:
     high_missing_threshold: float = 0.9
     numeric_imputation_strategy: str = "median"
     categorical_imputation_strategy: str = "most_frequent"
+    categorical_encoding_strategy: str = "one_hot"
     standardize_numeric: bool = True
     feature_engineering_operations: list[FeatureEngineeringOperation] | None = None
 
@@ -79,6 +80,79 @@ def _preprocessor_feature_names(preprocessor: Any) -> list[str] | None:
         return None
 
 
+def preprocessing_plan_to_clean_config(
+    plan: PreprocessingPlan | dict[str, Any],
+    *,
+    target: str,
+    task_type: str,
+) -> CleanConfig:
+    payload = artifact_to_dict(plan)
+    global_params = payload.get("global_params", {}) if isinstance(payload, dict) else {}
+    raw_steps = payload.get("steps", []) if isinstance(payload, dict) else []
+    applied_step_ids = payload.get("applied_step_ids", []) if isinstance(payload, dict) else []
+    applied_ids = {str(item) for item in applied_step_ids if str(item).strip()}
+
+    resolved_steps: dict[str, dict[str, Any]] = {}
+    for raw_step in raw_steps:
+        if not isinstance(raw_step, dict):
+            continue
+        step_id = str(raw_step.get("id") or "")
+        if applied_ids and step_id not in applied_ids:
+            continue
+        if not bool(raw_step.get("enabled", True)):
+            continue
+        kind = str(raw_step.get("kind") or "").strip()
+        if not kind:
+            continue
+        resolved_steps[kind] = raw_step
+
+    missing_step = resolved_steps.get("missing_value", {})
+    encoding_step = resolved_steps.get("categorical_encoding", {})
+    scaling_step = resolved_steps.get("numeric_scaling", {})
+    feature_step = resolved_steps.get("feature_engineering", {})
+
+    missing_params = missing_step.get("params", {}) if isinstance(missing_step, dict) else {}
+    encoding_params = encoding_step.get("params", {}) if isinstance(encoding_step, dict) else {}
+    scaling_params = scaling_step.get("params", {}) if isinstance(scaling_step, dict) else {}
+    feature_params = feature_step.get("params", {}) if isinstance(feature_step, dict) else {}
+
+    feature_operations: list[FeatureEngineeringOperation] = []
+    if bool(feature_params.get("enabled", True)):
+        for raw_operation in feature_params.get("operations", []) or []:
+            if not isinstance(raw_operation, dict):
+                continue
+            feature_operations.append(
+                FeatureEngineeringOperation(
+                    operation=str(raw_operation.get("operation", "")),
+                    source_column=str(raw_operation.get("source_column") or "") or None,
+                    columns=[str(item) for item in raw_operation.get("columns", []) if str(item).strip()],
+                    parts=[str(item) for item in raw_operation.get("parts", []) if str(item).strip()],
+                    operator=str(raw_operation.get("operator") or "") or None,
+                    bins=int(raw_operation["bins"]) if raw_operation.get("bins") is not None else None,
+                    mapping={
+                        str(key): str(value)
+                        for key, value in dict(raw_operation.get("mapping", {})).items()
+                        if str(key).strip()
+                    },
+                    default_value=str(raw_operation.get("default_value") or "other"),
+                    rationale=str(raw_operation.get("rationale") or ""),
+                )
+            )
+
+    return CleanConfig(
+        target=target,
+        task_type=task_type,
+        test_size=float(global_params.get("test_size", 0.2)),
+        random_state=int(global_params.get("random_state", 42)),
+        high_missing_threshold=float(missing_params.get("high_missing_threshold", 0.9)),
+        numeric_imputation_strategy=str(missing_params.get("numeric_imputation_strategy", "median")),
+        categorical_imputation_strategy=str(missing_params.get("categorical_imputation_strategy", "most_frequent")),
+        categorical_encoding_strategy=str(encoding_params.get("strategy", "one_hot")),
+        standardize_numeric=bool(scaling_params.get("standardize_numeric", True)),
+        feature_engineering_operations=feature_operations or None,
+    )
+
+
 def clean_and_split(df: pd.DataFrame, config: CleanConfig, tracker: DataFlowTracker | None = None) -> CleanedData:
     if config.target not in df.columns:
         raise ValueError(f"Target column not found: {config.target}")
@@ -88,6 +162,8 @@ def clean_and_split(df: pd.DataFrame, config: CleanConfig, tracker: DataFlowTrac
         raise ValueError("Unsupported numeric_imputation_strategy.")
     if config.categorical_imputation_strategy not in {"most_frequent", "constant_missing"}:
         raise ValueError("Unsupported categorical_imputation_strategy.")
+    if config.categorical_encoding_strategy not in {"one_hot"}:
+        raise ValueError("Unsupported categorical_encoding_strategy.")
 
     logger.info("Cleaning dataset rows=%d columns=%d target=%s task_type=%s", len(df), len(df.columns), config.target, config.task_type)
     working = df.copy()
@@ -235,6 +311,7 @@ def clean_and_split(df: pd.DataFrame, config: CleanConfig, tracker: DataFlowTrac
             "categorical_features": categorical_features,
             "numeric_imputation_strategy": config.numeric_imputation_strategy,
             "categorical_imputation_strategy": config.categorical_imputation_strategy,
+            "categorical_encoding_strategy": config.categorical_encoding_strategy,
             "standardize_numeric": config.standardize_numeric,
             "feature_engineering_operations": [operation.operation for operation in feature_operations],
         }
@@ -265,6 +342,7 @@ def clean_and_split(df: pd.DataFrame, config: CleanConfig, tracker: DataFlowTrac
                 "categorical_features": categorical_features,
                 "numeric_imputation_strategy": config.numeric_imputation_strategy,
                 "categorical_imputation_strategy": config.categorical_imputation_strategy,
+                "categorical_encoding_strategy": config.categorical_encoding_strategy,
                 "standardize_numeric": config.standardize_numeric,
                 "feature_engineering_operations": [operation.operation for operation in feature_operations],
             },
@@ -300,6 +378,7 @@ def prepare_for_training(cleaned: CleanedData, tracker: DataFlowTracker | None =
             "prepared_feature_count": feature_count,
             "numeric_imputation_strategy": cleaned.config.numeric_imputation_strategy,
             "categorical_imputation_strategy": cleaned.config.categorical_imputation_strategy,
+            "categorical_encoding_strategy": cleaned.config.categorical_encoding_strategy,
             "standardize_numeric": cleaned.config.standardize_numeric,
         }
     )

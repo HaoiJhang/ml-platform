@@ -1,7 +1,7 @@
 import pandas as pd
 
-from ml_platform.artifacts import artifact_to_dict
-from ml_platform.cleaning import CleanConfig, clean_and_split, prepare_for_training
+from ml_platform.artifacts import PreprocessingPlan, PreprocessingStep, artifact_to_dict
+from ml_platform.cleaning import CleanConfig, clean_and_split, prepare_for_training, preprocessing_plan_to_clean_config
 from ml_platform.data_flow import DataFlowTracker
 
 
@@ -170,3 +170,65 @@ def test_prepare_for_training_materializes_preprocessed_matrices() -> None:
     assert prepared.X_train_prepared.shape[0] == len(prepared.X_train)
     assert prepared.X_test_prepared.shape[0] == len(prepared.X_test)
     assert any(step.get("step") == "prepare_training_data" for step in prepared.cleaning_log)
+
+
+def test_preprocessing_plan_maps_to_clean_config() -> None:
+    plan = PreprocessingPlan(
+        global_params={"test_size": 0.3, "random_state": 9},
+        applied_step_ids=[
+            "missing_value",
+            "categorical_encoding",
+            "numeric_scaling",
+            "feature_engineering",
+        ],
+        steps=[
+            PreprocessingStep(
+                id="missing_value",
+                kind="missing_value",
+                params={
+                    "high_missing_threshold": 0.75,
+                    "numeric_imputation_strategy": "mean",
+                    "categorical_imputation_strategy": "constant_missing",
+                },
+            ),
+            PreprocessingStep(
+                id="categorical_encoding",
+                kind="categorical_encoding",
+                params={"strategy": "one_hot"},
+            ),
+            PreprocessingStep(
+                id="numeric_scaling",
+                kind="numeric_scaling",
+                params={"standardize_numeric": False},
+            ),
+            PreprocessingStep(
+                id="feature_engineering",
+                kind="feature_engineering",
+                params={
+                    "operations": [
+                        {
+                            "operation": "frequency_encoding",
+                            "source_column": "segment",
+                            "rationale": "Encode a high-cardinality feature.",
+                        }
+                    ]
+                },
+            ),
+        ],
+    )
+
+    config = preprocessing_plan_to_clean_config(
+        plan,
+        target="target",
+        task_type="classification",
+    )
+
+    assert config.test_size == 0.3
+    assert config.random_state == 9
+    assert config.high_missing_threshold == 0.75
+    assert config.numeric_imputation_strategy == "mean"
+    assert config.categorical_imputation_strategy == "constant_missing"
+    assert config.categorical_encoding_strategy == "one_hot"
+    assert config.standardize_numeric is False
+    assert config.feature_engineering_operations is not None
+    assert config.feature_engineering_operations[0].operation == "frequency_encoding"

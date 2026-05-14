@@ -19,7 +19,7 @@ import streamlit as st
 
 from ml_platform.artifacts import artifact_to_dict
 from ml_platform.automl import train_model
-from ml_platform.cleaning import CleanConfig, clean_and_split, prepare_for_training
+from ml_platform.cleaning import clean_and_split, prepare_for_training, preprocessing_plan_to_clean_config
 from ml_platform.config import Settings, load_settings
 from ml_platform.data_flow import DataFlowTracker
 from ml_platform.data_io import read_csv
@@ -70,11 +70,20 @@ _LEGACY_LOCAL_LLM_KEYS = {
 PLANNER_CACHE_VERSION = 1
 FEATURE_PLAN_CACHE_VERSION = 2
 MANUAL_CLEANING_PLAN_CACHE_VERSION = 1
+PREPROCESSING_PLAN_VERSION = 1
 DEFAULT_UI_LANGUAGE = "en"
 UI_LANGUAGE_OPTIONS = ("en", "zh-CN")
 UI_LANGUAGE_LABELS = {
     "en": "English",
     "zh-CN": "中文",
+}
+PREPROCESSING_STEP_IDS = {
+    "column_selection": "column_selection",
+    "manual_cleaning": "manual_cleaning",
+    "missing_value": "missing_value",
+    "categorical_encoding": "categorical_encoding",
+    "numeric_scaling": "numeric_scaling",
+    "feature_engineering": "feature_engineering",
 }
 UI_TRANSLATIONS = {
     "zh-CN": {
@@ -418,6 +427,128 @@ def _dataset_fingerprint(df: pd.DataFrame) -> str:
         sort_keys=True,
     ).encode("utf-8")
     return hashlib.sha256(schema + payload).hexdigest()
+
+
+def _preprocessing_step(
+    kind: str,
+    *,
+    enabled: bool = True,
+    params: dict[str, Any] | None = None,
+    summary: str = "",
+    execution_mode: str = "materialize_before_training",
+) -> dict[str, Any]:
+    return {
+        "id": PREPROCESSING_STEP_IDS[kind],
+        "kind": kind,
+        "enabled": enabled,
+        "params": dict(params or {}),
+        "summary": summary,
+        "execution_mode": execution_mode,
+    }
+
+
+def _default_preprocessing_plan() -> dict[str, Any]:
+    steps = [
+        _preprocessing_step("column_selection", params={"excluded_columns": []}, summary="No excluded columns."),
+        _preprocessing_step("manual_cleaning", enabled=False, params={"plan": None}, summary="No manual cleaning rules applied."),
+        _preprocessing_step(
+            "missing_value",
+            params={
+                "high_missing_threshold": 0.9,
+                "numeric_imputation_strategy": "median",
+                "categorical_imputation_strategy": "most_frequent",
+            },
+            summary="Numeric: median. Categorical: most_frequent. High-missing threshold: 0.90.",
+        ),
+        _preprocessing_step(
+            "categorical_encoding",
+            params={"strategy": "one_hot"},
+            summary="One-hot encoding will be used for categorical features.",
+        ),
+        _preprocessing_step(
+            "numeric_scaling",
+            params={"standardize_numeric": True},
+            summary="Numeric features will be standardized.",
+        ),
+        _preprocessing_step(
+            "feature_engineering",
+            enabled=False,
+            params={"planner_name": "local_whitelist", "operations": [], "rejected_operations": [], "notes": []},
+            summary="Feature engineering is disabled.",
+        ),
+    ]
+    return {
+        "version": PREPROCESSING_PLAN_VERSION,
+        "global_params": {"test_size": 0.2, "random_state": 42},
+        "steps": steps,
+        "applied_step_ids": [str(step["id"]) for step in steps],
+        "notes": [],
+    }
+
+
+def _preprocessing_steps(plan_data: Any) -> list[dict[str, Any]]:
+    payload = artifact_to_dict(plan_data) if not isinstance(plan_data, dict) else plan_data
+    return [step for step in payload.get("steps", []) if isinstance(step, dict)]
+
+
+def _preprocessing_step_payload(plan_data: Any, kind: str) -> dict[str, Any] | None:
+    for step in _preprocessing_steps(plan_data):
+        if str(step.get("kind")) == kind:
+            return step
+    return None
+
+
+def _preprocessing_step_params(plan_data: Any, kind: str) -> dict[str, Any]:
+    step = _preprocessing_step_payload(plan_data, kind)
+    if not isinstance(step, dict):
+        return {}
+    params = step.get("params", {})
+    return dict(params) if isinstance(params, dict) else {}
+
+
+def _preprocessing_step_enabled(plan_data: Any, kind: str) -> bool:
+    step = _preprocessing_step_payload(plan_data, kind)
+    return bool(step and step.get("enabled", True))
+
+
+def _upsert_preprocessing_step(plan_data: dict[str, Any], step_data: dict[str, Any]) -> dict[str, Any]:
+    updated = json.loads(json.dumps(plan_data, ensure_ascii=False))
+    steps = [step for step in updated.get("steps", []) if isinstance(step, dict)]
+    replaced = False
+    for index, existing in enumerate(steps):
+        if str(existing.get("kind")) == str(step_data.get("kind")):
+            steps[index] = step_data
+            replaced = True
+            break
+    if not replaced:
+        steps.append(step_data)
+    updated["steps"] = steps
+    updated["applied_step_ids"] = [str(step.get("id")) for step in steps if str(step.get("id", "")).strip()]
+    return updated
+
+
+def _update_applied_preprocessing_step(step_data: dict[str, Any]) -> None:
+    applied_plan = st.session_state.get("_preprocessing_plan_applied") or _default_preprocessing_plan()
+    st.session_state["_preprocessing_plan_applied"] = _upsert_preprocessing_step(applied_plan, step_data)
+
+
+def _preprocessing_plan_global_params(plan_data: Any) -> dict[str, Any]:
+    payload = artifact_to_dict(plan_data) if not isinstance(plan_data, dict) else plan_data
+    params = payload.get("global_params", {})
+    return dict(params) if isinstance(params, dict) else {}
+
+
+def _set_applied_preprocessing_global_params(*, test_size: float, random_state: int) -> None:
+    applied_plan = st.session_state.get("_preprocessing_plan_applied") or _default_preprocessing_plan()
+    updated = json.loads(json.dumps(applied_plan, ensure_ascii=False))
+    updated["global_params"] = {"test_size": float(test_size), "random_state": int(random_state)}
+    st.session_state["_preprocessing_plan_applied"] = updated
+
+
+def _json_equal(left: Any, right: Any) -> bool:
+    return json.dumps(artifact_to_dict(left), sort_keys=True, ensure_ascii=True) == json.dumps(
+        artifact_to_dict(right), sort_keys=True, ensure_ascii=True
+    )
 
 
 def _load_hero_background() -> str:
@@ -1001,34 +1132,18 @@ def _experiment_signature(
     target_columns: list[str],
     task_type_choice: str,
     time_budget: int,
-    excluded_columns: list[str],
-    test_size: float,
-    high_missing_threshold: float,
-    random_state: int,
     priority_metric_choice: str,
-    numeric_imputation_strategy: str,
-    categorical_imputation_strategy: str,
-    standardize_numeric: bool,
     planner_brief: str,
-    feature_plan: Any,
-    manual_cleaning_plan: Any,
+    preprocessing_plan: Any,
 ) -> str:
     payload = {
         "dataset_fingerprint": dataset_fingerprint,
         "target_columns": target_columns,
         "task_type_choice": task_type_choice,
         "time_budget": time_budget,
-        "excluded_columns": excluded_columns,
-        "test_size": test_size,
-        "high_missing_threshold": high_missing_threshold,
-        "random_state": random_state,
         "priority_metric_choice": priority_metric_choice,
-        "numeric_imputation_strategy": numeric_imputation_strategy,
-        "categorical_imputation_strategy": categorical_imputation_strategy,
-        "standardize_numeric": standardize_numeric,
         "planner_brief": planner_brief.strip(),
-        "feature_engineering_operations": _feature_plan_operations(feature_plan) if feature_plan else [],
-        "manual_cleaning_plan": artifact_to_dict(manual_cleaning_plan) if manual_cleaning_plan else None,
+        "preprocessing_plan": artifact_to_dict(preprocessing_plan),
     }
     return hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=True).encode("utf-8")).hexdigest()
 
@@ -1052,17 +1167,21 @@ def _initialize_experiment_state(dataset_signature: str, columns: list[str]) -> 
     st.session_state["random_state_text"] = "42"
     st.session_state["numeric_imputation_strategy"] = "median"
     st.session_state["categorical_imputation_strategy"] = "most_frequent"
+    st.session_state["categorical_encoding_strategy"] = "one_hot"
     st.session_state["standardize_numeric"] = True
     st.session_state["_planner_signature"] = None
     st.session_state["_planner_suggestion"] = None
     st.session_state["_feature_engineering_plan_signature"] = None
     st.session_state["_feature_engineering_plan"] = None
     st.session_state["_feature_engineering_override_plan"] = None
+    st.session_state["_feature_engineering_applied_plan"] = None
     st.session_state["manual_cleaning_brief"] = ""
     st.session_state["_manual_cleaning_plan_signature"] = None
     st.session_state["_manual_cleaning_suggested_plan"] = None
     st.session_state["_manual_cleaning_plan"] = None
     st.session_state["_manual_cleaning_override_plan"] = None
+    st.session_state["_preprocessing_plan_applied"] = _default_preprocessing_plan()
+    st.session_state["_preprocessing_plan_draft"] = _default_preprocessing_plan()
     st.session_state["_latest_prepared_signature"] = None
     st.session_state["_latest_prepared_batches"] = []
     st.session_state["_latest_results_signature"] = None
@@ -1325,6 +1444,151 @@ def _feature_plan_operations(plan_data: Any) -> list[Any]:
     if isinstance(plan_data, dict):
         return list(plan_data.get("operations", []))
     return list(getattr(plan_data, "operations", []))
+
+
+def _enabled_manual_rule_count(plan_data: Any) -> int:
+    payload = artifact_to_dict(plan_data) if plan_data is not None else {}
+    rules = payload.get("rules", []) if isinstance(payload, dict) else []
+    return sum(1 for rule in rules if isinstance(rule, dict) and bool(rule.get("enabled", True)))
+
+
+def _preprocessing_manual_plan(plan_data: Any) -> dict[str, Any] | None:
+    params = _preprocessing_step_params(plan_data, "manual_cleaning")
+    manual_plan = params.get("plan")
+    return dict(manual_plan) if isinstance(manual_plan, dict) else None
+
+
+def _preprocessing_feature_plan(plan_data: Any) -> dict[str, Any] | None:
+    params = _preprocessing_step_params(plan_data, "feature_engineering")
+    if not bool(_preprocessing_step_enabled(plan_data, "feature_engineering")):
+        return None
+    operations = params.get("operations", [])
+    if not isinstance(operations, list) or not operations:
+        return None
+    return {
+        "planner_name": str(params.get("planner_name") or "local_whitelist"),
+        "operations": operations,
+        "rejected_operations": list(params.get("rejected_operations", [])),
+        "notes": list(params.get("notes", [])),
+    }
+
+
+def _build_preprocessing_plan(
+    *,
+    base_analysis_df: pd.DataFrame,
+    target_columns: list[str],
+    excluded_columns: list[str],
+    test_size: float,
+    random_state: int,
+    high_missing_threshold: float,
+    numeric_imputation_strategy: str,
+    categorical_imputation_strategy: str,
+    standardize_numeric: bool,
+    manual_cleaning_plan: Any,
+    feature_plan: Any,
+) -> dict[str, Any]:
+    visible_columns = [column for column in base_analysis_df.columns if column not in excluded_columns]
+    preview_df = base_analysis_df[visible_columns].copy() if visible_columns else base_analysis_df.iloc[:, :0].copy()
+    feature_columns = [column for column in preview_df.columns if column not in target_columns]
+    feature_df = preview_df[feature_columns].copy() if feature_columns else preview_df.iloc[:, :0].copy()
+    numeric_columns = feature_df.select_dtypes(include=["number"]).columns.tolist()
+    categorical_columns = [column for column in feature_df.columns if column not in numeric_columns]
+    high_missing_columns = [
+        column for column in feature_columns if float(feature_df[column].isna().mean()) > float(high_missing_threshold)
+    ]
+
+    encoded_feature_estimate = 0
+    for column in categorical_columns:
+        encoded_feature_estimate += max(int(feature_df[column].dropna().nunique()), 1)
+
+    manual_plan_data = artifact_to_dict(manual_cleaning_plan) if manual_cleaning_plan is not None else None
+    manual_rule_count = _enabled_manual_rule_count(manual_plan_data)
+    feature_plan_data = artifact_to_dict(feature_plan) if feature_plan is not None else None
+    feature_operations = _feature_plan_operations(feature_plan_data) if feature_plan_data else []
+
+    steps = [
+        _preprocessing_step(
+            "column_selection",
+            params={"excluded_columns": list(excluded_columns)},
+            summary=f"Excluded columns: {len(excluded_columns)}.",
+        ),
+        _preprocessing_step(
+            "manual_cleaning",
+            enabled=manual_rule_count > 0,
+            params={"plan": manual_plan_data},
+            summary="No manual cleaning rules applied."
+            if manual_rule_count == 0
+            else f"Manual cleaning rules enabled: {manual_rule_count}.",
+        ),
+        _preprocessing_step(
+            "missing_value",
+            params={
+                "high_missing_threshold": float(high_missing_threshold),
+                "numeric_imputation_strategy": numeric_imputation_strategy,
+                "categorical_imputation_strategy": categorical_imputation_strategy,
+                "high_missing_columns": high_missing_columns,
+            },
+            summary=(
+                f"Numeric: {numeric_imputation_strategy}. "
+                f"Categorical: {categorical_imputation_strategy}. "
+                f"Auto-drop high-missing columns: {len(high_missing_columns)}."
+            ),
+        ),
+        _preprocessing_step(
+            "categorical_encoding",
+            params={
+                "strategy": "one_hot",
+                "categorical_feature_count": len(categorical_columns),
+                "estimated_encoded_features": encoded_feature_estimate,
+            },
+            summary=f"One-hot encoding on {len(categorical_columns)} categorical columns.",
+        ),
+        _preprocessing_step(
+            "numeric_scaling",
+            params={
+                "standardize_numeric": bool(standardize_numeric),
+                "numeric_features": numeric_columns,
+            },
+            summary=(
+                f"Standardize {len(numeric_columns)} numeric columns."
+                if standardize_numeric
+                else "Numeric scaling disabled."
+            ),
+        ),
+        _preprocessing_step(
+            "feature_engineering",
+            enabled=bool(feature_plan_data and feature_operations),
+            params={
+                "planner_name": str((feature_plan_data or {}).get("planner_name") or "local_whitelist"),
+                "operations": feature_operations,
+                "rejected_operations": list((feature_plan_data or {}).get("rejected_operations", [])),
+                "notes": list((feature_plan_data or {}).get("notes", [])),
+            },
+            summary=(
+                "Feature engineering is disabled."
+                if not feature_operations
+                else f"Feature engineering operations: {len(feature_operations)}."
+            ),
+        ),
+    ]
+    return {
+        "version": PREPROCESSING_PLAN_VERSION,
+        "global_params": {"test_size": float(test_size), "random_state": int(random_state)},
+        "steps": steps,
+        "applied_step_ids": [str(step["id"]) for step in steps],
+        "notes": [],
+    }
+
+
+def _render_preprocessing_step_status(title: str, draft_step: dict[str, Any], applied_plan: Any) -> None:
+    applied_step = _preprocessing_step_payload(applied_plan, str(draft_step.get("kind")))
+    if applied_step is None:
+        _render_step_status(title, "This step has not been applied yet.", level="warning")
+        return
+    if _json_equal(applied_step, draft_step):
+        _render_step_status(title, "Current settings are applied.", level="success")
+        return
+    _render_step_status(title, "Draft changes are not applied yet.", level="info")
 
 
 def _get_feature_engineering_plan(
@@ -1942,14 +2206,8 @@ def _prepare_target_batches(
     task_types: dict[str, str],
     priority_metrics: dict[str, str],
     preflight_by_target: dict[str, object],
+    preprocessing_plan: Any,
     manual_cleaning_plan: Any,
-    test_size: float,
-    random_state: int,
-    high_missing_threshold: float,
-    numeric_imputation_strategy: str,
-    categorical_imputation_strategy: str,
-    standardize_numeric: bool,
-    feature_plan: Any,
 ) -> list[dict[str, object]]:
     if not candidate_feature_columns:
         raise ValueError("No feature columns remain after excluding selected target and ignored columns.")
@@ -2017,16 +2275,16 @@ def _prepare_target_batches(
                 metadata=manual_cleaning_impact,
             )
 
-        config = CleanConfig(
+        config = preprocessing_plan_to_clean_config(
+            preprocessing_plan,
             target=target,
             task_type=task_type,
-            test_size=float(test_size),
-            random_state=int(random_state),
-            high_missing_threshold=float(high_missing_threshold),
-            numeric_imputation_strategy=numeric_imputation_strategy,
-            categorical_imputation_strategy=categorical_imputation_strategy,
-            standardize_numeric=bool(standardize_numeric),
-            feature_engineering_operations=_feature_plan_operations(feature_plan) if feature_plan else None,
+        )
+        tracker.snapshot_artifact(
+            "preprocessing_plan",
+            "Preprocessing plan",
+            "intake",
+            metadata=artifact_to_dict(preprocessing_plan),
         )
         cleaned = clean_and_split(training_input_df, config, tracker=tracker)
         if manual_cleaning_log:
@@ -2144,12 +2402,6 @@ def main() -> None:
     exclude_options = [column for column in columns if column not in target_columns]
     with st.expander(_t("Advanced experiment settings"), expanded=False):
         st.caption(_t("Most first runs can keep the defaults here. Open this only if you want more control."))
-        excluded_columns = st.multiselect(
-            _t("Exclude columns from EDA and training features"),
-            exclude_options,
-            key="excluded_columns",
-            help=_t("Excluded columns are removed before EDA and are not used as model features."),
-        )
         top_advanced_cols = st.columns(2)
         with top_advanced_cols[0]:
             time_budget = _render_integer_input(_t("Training time budget seconds"), "time_budget", min_value=5)
@@ -2161,44 +2413,24 @@ def main() -> None:
                 help=_t("This is the score the trainer treats as most important when choosing the best baseline."),
             )
 
-        prep_cols = st.columns(3)
-        with prep_cols[0]:
-            numeric_imputation_strategy = st.selectbox(
-                "Numeric missing-value handling",
-                ["median", "mean", "most_frequent", "constant_zero"],
-                key="numeric_imputation_strategy",
-            )
-        with prep_cols[1]:
-            categorical_imputation_strategy = st.selectbox(
-                "Categorical missing-value handling",
-                ["most_frequent", "constant_missing"],
-                key="categorical_imputation_strategy",
-            )
-        with prep_cols[2]:
-            standardize_numeric = st.checkbox(
-                "Standardize numeric features",
-                key="standardize_numeric",
-                help="Apply scaling after numeric imputation.",
-            )
-
-        config_cols = st.columns(3)
-        with config_cols[0]:
-            test_size = st.slider(_t("Test size"), min_value=0.1, max_value=0.5, step=0.05, key="test_size")
-        with config_cols[1]:
-            high_missing_threshold = st.slider(
-                _t("Drop feature when missing rate is above"),
-                min_value=0.5,
-                max_value=1.0,
-                step=0.05,
-                key="high_missing_threshold",
-            )
-        with config_cols[2]:
-            random_state = _render_integer_input(_t("Random state"), "random_state")
-
-    analysis_columns = [column for column in columns if column not in excluded_columns]
+    applied_preprocessing_plan = st.session_state.get("_preprocessing_plan_applied") or _default_preprocessing_plan()
+    applied_global_params = _preprocessing_plan_global_params(applied_preprocessing_plan)
+    applied_excluded_columns = [
+        str(column)
+        for column in _preprocessing_step_params(applied_preprocessing_plan, "column_selection").get("excluded_columns", [])
+        if str(column).strip()
+    ]
+    if isinstance(applied_manual_cleaning_payload := _preprocessing_manual_plan(applied_preprocessing_plan), dict):
+        st.session_state["_manual_cleaning_plan"] = _clone_json_data(applied_manual_cleaning_payload)
+    applied_feature_plan_payload = _preprocessing_feature_plan(applied_preprocessing_plan)
+    if isinstance(applied_feature_plan_payload, dict):
+        st.session_state["_feature_engineering_applied_plan"] = _clone_json_data(applied_feature_plan_payload)
+    analysis_columns = [column for column in columns if column not in applied_excluded_columns]
     base_analysis_df = df[analysis_columns].copy()
+
     primary_target = target_columns[0]
-    applied_manual_cleaning_payload = st.session_state.get("_manual_cleaning_plan")
+    if applied_manual_cleaning_payload is None and isinstance(st.session_state.get("_manual_cleaning_plan"), dict):
+        applied_manual_cleaning_payload = dict(st.session_state["_manual_cleaning_plan"])
     manual_cleaning_plan = None
     analysis_manual_cleaning_log: list[dict[str, object]] = []
     analysis_manual_cleaning_impact: dict[str, object] = {}
@@ -2224,8 +2456,8 @@ def main() -> None:
         st.caption(_t("Multi-target mode trains and stores one independent run per target. Other selected targets are excluded from each model's feature set."))
 
     eda_summary = generate_eda_summary(analysis_df, target=primary_target)
-    st.subheader(_t("3. Check data before training"))
-    _section_caption(_t("Use the brief, validation checks, and data summary to catch issues before you spend time training."))
+    st.subheader("3. Configure preprocessing")
+    _section_caption("Configure each preprocessing step, review its preview, then apply it before preparing data.")
     st.write(_t("Planning help"))
     _section_caption(_t("This optional brief lets you describe your goal in plain language so the app can suggest a sensible first setup."))
     planner_brief = st.text_area(
@@ -2248,9 +2480,57 @@ def main() -> None:
             _queue_plan_suggestion(plan_data, columns)
             st.rerun()
 
-    feature_plan = None
-    with st.expander(_t("Advanced adjustments"), expanded=False):
-        st.caption(_t("Most first runs can skip this section. Open it only if you want to clean rows or columns manually, or add extra local feature transformations."))
+    draft_excluded_columns = st.multiselect(
+        _t("Exclude columns from EDA and training features"),
+        exclude_options,
+        key="excluded_columns",
+        help=_t("Excluded columns are removed before EDA and are not used as model features."),
+    )
+    draft_analysis_columns = [column for column in columns if column not in draft_excluded_columns]
+    draft_base_analysis_df = df[draft_analysis_columns].copy()
+
+    split_box = st.container(border=True)
+    with split_box:
+        st.write("Split settings")
+        split_cols = st.columns(3)
+        with split_cols[0]:
+            test_size = st.slider(_t("Test size"), min_value=0.1, max_value=0.5, step=0.05, key="test_size")
+        with split_cols[1]:
+            high_missing_threshold = st.slider(
+                _t("Drop feature when missing rate is above"),
+                min_value=0.5,
+                max_value=1.0,
+                step=0.05,
+                key="high_missing_threshold",
+            )
+        with split_cols[2]:
+            random_state = _render_integer_input(_t("Random state"), "random_state")
+        if float(applied_global_params.get("test_size", 0.2)) == float(test_size) and int(applied_global_params.get("random_state", 42)) == int(random_state):
+            _render_step_status("Split settings", "Current settings are applied.", level="success")
+        else:
+            _render_step_status("Split settings", "Draft changes are not applied yet.", level="info")
+        if st.button("Apply split settings"):
+            _set_applied_preprocessing_global_params(test_size=float(test_size), random_state=int(random_state))
+            st.rerun()
+
+    with st.container(border=True):
+        st.write("Step 3.1: Column selection and manual cleaning")
+        draft_column_step = _preprocessing_step(
+            "column_selection",
+            params={"excluded_columns": list(draft_excluded_columns)},
+            summary=f"Excluded columns: {len(draft_excluded_columns)}.",
+        )
+        _render_preprocessing_step_status("Column selection", draft_column_step, applied_preprocessing_plan)
+        column_cols = st.columns(3)
+        with column_cols[0]:
+            st.metric("Excluded columns", len(draft_excluded_columns))
+        with column_cols[1]:
+            st.metric("Columns after exclusion", len(draft_analysis_columns))
+        with column_cols[2]:
+            if st.button("Apply column selection"):
+                _update_applied_preprocessing_step(draft_column_step)
+                st.rerun()
+
         st.write(_t("Manual cleaning rules"))
         _section_caption(_t("If you already know some rows or columns should be filtered out, draft the rules here before training."))
         manual_cleaning_brief = st.text_area(
@@ -2263,7 +2543,7 @@ def main() -> None:
         with manual_rule_controls[0]:
             if st.button(_t("Generate cleaning rules")):
                 suggested_manual_plan = _get_manual_cleaning_plan(
-                    df=base_analysis_df,
+                    df=draft_base_analysis_df,
                     target=primary_target,
                     settings=settings,
                     user_brief=manual_cleaning_brief,
@@ -2278,31 +2558,46 @@ def main() -> None:
             if st.session_state.get("_manual_cleaning_plan") and st.button(_t("Clear applied manual rules")):
                 st.session_state["_manual_cleaning_plan"] = None
                 st.session_state["_manual_cleaning_override_plan"] = None
+                _update_applied_preprocessing_step(
+                    _preprocessing_step("manual_cleaning", enabled=False, params={"plan": None}, summary="No manual cleaning rules applied.")
+                )
                 st.rerun()
 
         if st.session_state.get("_manual_cleaning_override_plan") is None and manual_cleaning_plan is not None:
             st.session_state["_manual_cleaning_override_plan"] = _clone_json_data(manual_cleaning_plan)
 
-        draft_manual_plan = st.session_state.get("_manual_cleaning_override_plan")
-        if isinstance(draft_manual_plan, dict):
+        validated_manual_preview = None
+        preview_plan_data = None
+        if isinstance(st.session_state.get("_manual_cleaning_override_plan"), dict):
+            draft_manual_plan = st.session_state["_manual_cleaning_override_plan"]
             draft_manual_plan["user_brief"] = manual_cleaning_brief
             edited_manual_plan = _render_manual_cleaning_editor(
                 draft_manual_plan,
-                available_columns=list(base_analysis_df.columns),
+                available_columns=list(draft_base_analysis_df.columns),
             )
             validated_manual_preview = validate_manual_cleaning_plan(
                 edited_manual_plan,
-                base_analysis_df,
+                draft_base_analysis_df,
                 primary_target,
                 protected_columns=target_columns,
             )
             preview_df, preview_log, preview_impact = apply_manual_cleaning_plan(
-                base_analysis_df,
+                draft_base_analysis_df,
                 validated_manual_preview,
                 primary_target,
                 protected_columns=target_columns,
             )
             preview_plan_data = artifact_to_dict(validated_manual_preview)
+            draft_manual_step = _preprocessing_step(
+                "manual_cleaning",
+                enabled=_enabled_manual_rule_count(preview_plan_data) > 0,
+                params={"plan": preview_plan_data},
+                summary="No manual cleaning rules applied."
+                if _enabled_manual_rule_count(preview_plan_data) == 0
+                else f"Manual cleaning rules enabled: {_enabled_manual_rule_count(preview_plan_data)}.",
+            )
+            _render_preprocessing_step_status("Manual cleaning", draft_manual_step, applied_preprocessing_plan)
+
             summary_cols = st.columns(5)
             with summary_cols[0]:
                 st.metric(_t("Planner"), str(preview_plan_data.get("planner_name") or "manual"))
@@ -2325,9 +2620,9 @@ def main() -> None:
             with impact_cols[0]:
                 st.metric(_t("Columns removed"), len(preview_impact.get("columns_removed", [])))
             with impact_cols[1]:
-                st.metric(_t("Rows after"), int(preview_impact.get("rows_after") or len(base_analysis_df)))
+                st.metric(_t("Rows after"), int(preview_impact.get("rows_after") or len(draft_base_analysis_df)))
             with impact_cols[2]:
-                st.metric(_t("Columns after"), int(preview_impact.get("columns_after") or len(base_analysis_df.columns)))
+                st.metric(_t("Columns after"), int(preview_impact.get("columns_after") or len(draft_base_analysis_df.columns)))
 
             detail_cols = st.columns(2)
             with detail_cols[0]:
@@ -2347,6 +2642,7 @@ def main() -> None:
                 if st.button(_t("Apply manual cleaning rules"), type="primary"):
                     st.session_state["_manual_cleaning_plan"] = preview_plan_data
                     st.session_state["_manual_cleaning_override_plan"] = _clone_json_data(preview_plan_data)
+                    _update_applied_preprocessing_step(draft_manual_step)
                     st.rerun()
             with apply_cols[1]:
                 if st.session_state.get("_manual_cleaning_plan"):
@@ -2354,43 +2650,200 @@ def main() -> None:
         else:
             st.caption(_t("Generate rules from a brief or start with a blank rule to configure manual cleaning."))
 
+    with st.container(border=True):
+        st.write("Step 3.2: Missing-value handling")
+        numeric_imputation_strategy = st.selectbox(
+            "Numeric missing-value handling",
+            ["median", "mean", "most_frequent", "constant_zero"],
+            key="numeric_imputation_strategy",
+        )
+        categorical_imputation_strategy = st.selectbox(
+            "Categorical missing-value handling",
+            ["most_frequent", "constant_missing"],
+            key="categorical_imputation_strategy",
+        )
+        draft_missing_plan = _build_preprocessing_plan(
+            base_analysis_df=draft_base_analysis_df,
+            target_columns=target_columns,
+            excluded_columns=[],
+            test_size=float(test_size),
+            random_state=int(random_state),
+            high_missing_threshold=float(high_missing_threshold),
+            numeric_imputation_strategy=numeric_imputation_strategy,
+            categorical_imputation_strategy=categorical_imputation_strategy,
+            standardize_numeric=bool(st.session_state.get("standardize_numeric", True)),
+            manual_cleaning_plan=preview_plan_data if preview_plan_data is not None else st.session_state.get("_manual_cleaning_plan"),
+            feature_plan=st.session_state.get("_feature_engineering_applied_plan"),
+        )
+        draft_missing_step = _preprocessing_step_payload(draft_missing_plan, "missing_value") or _preprocessing_step("missing_value")
+        _render_preprocessing_step_status("Missing-value handling", draft_missing_step, applied_preprocessing_plan)
+        missing_params = draft_missing_step.get("params", {})
+        missing_cols = st.columns(3)
+        with missing_cols[0]:
+            st.metric("Feature columns", len([column for column in draft_base_analysis_df.columns if column not in target_columns]))
+        with missing_cols[1]:
+            st.metric("High-missing columns", len(missing_params.get("high_missing_columns", [])))
+        with missing_cols[2]:
+            if st.button("Apply missing-value step"):
+                _update_applied_preprocessing_step(draft_missing_step)
+                st.rerun()
+        high_missing_preview = missing_params.get("high_missing_columns", [])
+        if high_missing_preview:
+            st.dataframe(pd.DataFrame({"column": list(high_missing_preview)}), hide_index=True, use_container_width=True)
+        else:
+            st.caption("No feature columns will be auto-dropped by the current high-missing threshold.")
+
+    with st.container(border=True):
+        st.write("Step 3.3: Categorical encoding")
+        categorical_encoding_strategy = st.selectbox(
+            "Categorical encoding strategy",
+            ["one_hot"],
+            key="categorical_encoding_strategy",
+        )
+        draft_encoding_plan = _build_preprocessing_plan(
+            base_analysis_df=draft_base_analysis_df,
+            target_columns=target_columns,
+            excluded_columns=[],
+            test_size=float(test_size),
+            random_state=int(random_state),
+            high_missing_threshold=float(high_missing_threshold),
+            numeric_imputation_strategy=numeric_imputation_strategy,
+            categorical_imputation_strategy=categorical_imputation_strategy,
+            standardize_numeric=bool(st.session_state.get("standardize_numeric", True)),
+            manual_cleaning_plan=preview_plan_data if preview_plan_data is not None else st.session_state.get("_manual_cleaning_plan"),
+            feature_plan=st.session_state.get("_feature_engineering_applied_plan"),
+        )
+        draft_encoding_step = _preprocessing_step_payload(draft_encoding_plan, "categorical_encoding") or _preprocessing_step("categorical_encoding")
+        draft_encoding_step["params"]["strategy"] = categorical_encoding_strategy
+        draft_encoding_step["summary"] = f"One-hot encoding on {draft_encoding_step['params'].get('categorical_feature_count', 0)} categorical columns."
+        _render_preprocessing_step_status("Categorical encoding", draft_encoding_step, applied_preprocessing_plan)
+        encoding_cols = st.columns(3)
+        with encoding_cols[0]:
+            st.metric("Strategy", categorical_encoding_strategy)
+        with encoding_cols[1]:
+            st.metric("Categorical columns", int(draft_encoding_step["params"].get("categorical_feature_count", 0)))
+        with encoding_cols[2]:
+            st.metric("Estimated encoded features", int(draft_encoding_step["params"].get("estimated_encoded_features", 0)))
+        if st.button("Apply categorical encoding"):
+            _update_applied_preprocessing_step(draft_encoding_step)
+            st.rerun()
+
+    with st.container(border=True):
+        st.write("Step 3.4: Numeric scaling")
+        standardize_numeric = st.checkbox(
+            "Standardize numeric features",
+            key="standardize_numeric",
+            help="Apply scaling after numeric imputation.",
+        )
+        draft_scaling_plan = _build_preprocessing_plan(
+            base_analysis_df=draft_base_analysis_df,
+            target_columns=target_columns,
+            excluded_columns=[],
+            test_size=float(test_size),
+            random_state=int(random_state),
+            high_missing_threshold=float(high_missing_threshold),
+            numeric_imputation_strategy=numeric_imputation_strategy,
+            categorical_imputation_strategy=categorical_imputation_strategy,
+            standardize_numeric=bool(standardize_numeric),
+            manual_cleaning_plan=preview_plan_data if preview_plan_data is not None else st.session_state.get("_manual_cleaning_plan"),
+            feature_plan=st.session_state.get("_feature_engineering_applied_plan"),
+        )
+        draft_scaling_step = _preprocessing_step_payload(draft_scaling_plan, "numeric_scaling") or _preprocessing_step("numeric_scaling")
+        _render_preprocessing_step_status("Numeric scaling", draft_scaling_step, applied_preprocessing_plan)
+        scaling_cols = st.columns(3)
+        with scaling_cols[0]:
+            st.metric("Scaling enabled", "Yes" if standardize_numeric else "No")
+        with scaling_cols[1]:
+            st.metric("Numeric columns", len(draft_scaling_step.get("params", {}).get("numeric_features", [])))
+        with scaling_cols[2]:
+            if st.button("Apply numeric scaling"):
+                _update_applied_preprocessing_step(draft_scaling_step)
+                st.rerun()
+
+    feature_plan = _preprocessing_feature_plan(applied_preprocessing_plan)
+    with st.container(border=True):
+        st.write("Step 3.5: Feature engineering")
         apply_feature_engineering = st.checkbox(
             _t("Apply local whitelist feature engineering"),
             key="apply_feature_engineering",
             help=_t("LLM can propose a structured plan, but only local whitelisted transformations are executed inside the training pipeline."),
         )
+        draft_feature_plan = None
         if apply_feature_engineering:
             feature_plan_override = st.session_state.get("_feature_engineering_override_plan")
-            if isinstance(feature_plan_override, dict) and feature_plan_override.get("feature_engineering_operations"):
-                feature_plan = feature_plan_override
+            if isinstance(feature_plan_override, dict) and feature_plan_override.get("operations"):
+                draft_feature_plan = feature_plan_override
             else:
-                feature_plan_df = analysis_df[candidate_feature_columns + [primary_target]].copy()
-                feature_plan = _get_feature_engineering_plan(
-                    df=feature_plan_df,
-                    target=primary_target,
-                    settings=settings,
-                    user_brief=planner_brief,
+                feature_source_columns = [column for column in draft_base_analysis_df.columns if column not in target_columns]
+                feature_plan_df = draft_base_analysis_df[feature_source_columns + [primary_target]].copy()
+                draft_feature_plan = artifact_to_dict(
+                    _get_feature_engineering_plan(
+                        df=feature_plan_df,
+                        target=primary_target,
+                        settings=settings,
+                        user_brief=planner_brief,
+                    )
                 )
+        draft_feature_step = _preprocessing_step(
+            "feature_engineering",
+            enabled=bool(draft_feature_plan and _feature_plan_operations(draft_feature_plan)),
+            params={
+                "planner_name": str((draft_feature_plan or {}).get("planner_name") or "local_whitelist"),
+                "operations": _feature_plan_operations(draft_feature_plan) if draft_feature_plan else [],
+                "rejected_operations": list((draft_feature_plan or {}).get("rejected_operations", [])),
+                "notes": list((draft_feature_plan or {}).get("notes", [])),
+            },
+            summary=(
+                "Feature engineering is disabled."
+                if not draft_feature_plan or not _feature_plan_operations(draft_feature_plan)
+                else f"Feature engineering operations: {len(_feature_plan_operations(draft_feature_plan))}."
+            ),
+        )
+        _render_preprocessing_step_status("Feature engineering", draft_feature_step, applied_preprocessing_plan)
+        if draft_feature_plan:
             with st.expander(_t("Feature engineering plan"), expanded=True):
-                _render_feature_engineering_plan(artifact_to_dict(feature_plan))
+                _render_feature_engineering_plan(draft_feature_plan)
+        else:
+            st.caption("Feature engineering is currently disabled.")
+        feature_cols = st.columns(2)
+        with feature_cols[0]:
+            if st.button("Apply feature engineering step"):
+                st.session_state["_feature_engineering_applied_plan"] = draft_feature_plan
+                _update_applied_preprocessing_step(draft_feature_step)
+                st.rerun()
+        with feature_cols[1]:
+            if feature_plan:
+                st.caption("Applied feature engineering remains active until you apply a different draft.")
+
+    draft_preprocessing_plan = _build_preprocessing_plan(
+        base_analysis_df=draft_base_analysis_df,
+        target_columns=target_columns,
+        excluded_columns=[],
+        test_size=float(test_size),
+        random_state=int(random_state),
+        high_missing_threshold=float(high_missing_threshold),
+        numeric_imputation_strategy=numeric_imputation_strategy,
+        categorical_imputation_strategy=categorical_imputation_strategy,
+        standardize_numeric=bool(standardize_numeric),
+        manual_cleaning_plan=preview_plan_data if preview_plan_data is not None else st.session_state.get("_manual_cleaning_plan"),
+        feature_plan=draft_feature_plan,
+    )
+    draft_preprocessing_plan = _upsert_preprocessing_step(draft_preprocessing_plan, draft_column_step)
+    draft_preprocessing_plan = _upsert_preprocessing_step(draft_preprocessing_plan, draft_encoding_step)
+    st.session_state["_preprocessing_plan_draft"] = draft_preprocessing_plan
+    applied_preprocessing_plan = st.session_state.get("_preprocessing_plan_applied") or applied_preprocessing_plan
+    feature_plan = _preprocessing_feature_plan(applied_preprocessing_plan)
 
     current_experiment_signature = _experiment_signature(
         dataset_fingerprint=current_dataset_fingerprint,
         target_columns=target_columns,
         task_type_choice=task_type_choice,
         time_budget=int(time_budget),
-        excluded_columns=excluded_columns,
-        test_size=float(test_size),
-        high_missing_threshold=float(high_missing_threshold),
-        random_state=int(random_state),
         priority_metric_choice=priority_metric_choice,
-        numeric_imputation_strategy=numeric_imputation_strategy,
-        categorical_imputation_strategy=categorical_imputation_strategy,
-        standardize_numeric=bool(standardize_numeric),
         planner_brief=planner_brief,
-        feature_plan=feature_plan,
-        manual_cleaning_plan=manual_cleaning_plan,
+        preprocessing_plan=applied_preprocessing_plan,
     )
+    applied_missing_params = _preprocessing_step_params(applied_preprocessing_plan, "missing_value")
 
     priority_metrics = {
         target: resolve_priority_metric(_target_task_types(analysis_df, [target], task_type_choice)[target], priority_metric_choice)
@@ -2412,7 +2865,7 @@ def main() -> None:
             task_type=task_types[target],
             excluded_columns=[],
             priority_metric=priority_metric_choice,
-            high_missing_threshold=float(high_missing_threshold),
+            high_missing_threshold=float(applied_missing_params.get("high_missing_threshold", 0.9)),
         )
     failing_targets = [target for target, validation in preflight_by_target.items() if not validation.ok_to_run]
     if failing_targets:
@@ -2541,19 +2994,13 @@ def main() -> None:
                 analysis_manual_cleaning_log=analysis_manual_cleaning_log,
                 analysis_manual_cleaning_impact=analysis_manual_cleaning_impact,
                 candidate_feature_columns=candidate_feature_columns,
-                excluded_columns=excluded_columns,
+                excluded_columns=applied_excluded_columns,
                 target_columns=target_columns,
                 task_types=task_types,
                 priority_metrics=priority_metrics,
                 preflight_by_target=preflight_by_target,
+                preprocessing_plan=applied_preprocessing_plan,
                 manual_cleaning_plan=manual_cleaning_plan,
-                test_size=float(test_size),
-                random_state=int(random_state),
-                high_missing_threshold=float(high_missing_threshold),
-                numeric_imputation_strategy=numeric_imputation_strategy,
-                categorical_imputation_strategy=categorical_imputation_strategy,
-                standardize_numeric=bool(standardize_numeric),
-                feature_plan=feature_plan,
             )
         except ValueError as exc:
             st.error(str(exc))
@@ -2691,13 +3138,14 @@ def main() -> None:
                         "target_columns": target_columns,
                         "task_type": task_type,
                         "task_type_choice": task_type_choice,
-                        "excluded_columns": excluded_columns,
-                        "test_size": test_size,
-                        "high_missing_threshold": high_missing_threshold,
-                        "random_state": random_state,
-                        "numeric_imputation_strategy": numeric_imputation_strategy,
-                        "categorical_imputation_strategy": categorical_imputation_strategy,
-                        "standardize_numeric": bool(standardize_numeric),
+                        "excluded_columns": applied_excluded_columns,
+                        "test_size": cleaned.config.test_size,
+                        "high_missing_threshold": cleaned.config.high_missing_threshold,
+                        "random_state": cleaned.config.random_state,
+                        "numeric_imputation_strategy": cleaned.config.numeric_imputation_strategy,
+                        "categorical_imputation_strategy": cleaned.config.categorical_imputation_strategy,
+                        "categorical_encoding_strategy": cleaned.config.categorical_encoding_strategy,
+                        "standardize_numeric": bool(cleaned.config.standardize_numeric),
                         "time_budget": time_budget,
                         "priority_metric": priority_metric,
                         "trainer": trained.trainer_name,
@@ -2710,6 +3158,7 @@ def main() -> None:
                     }
                 )
                 storage.save_json(run, "plan.json", artifact_to_dict(plan_suggestion))
+                storage.save_json(run, "preprocessing_plan.json", artifact_to_dict(applied_preprocessing_plan))
                 if feature_plan:
                     storage.save_json(run, "feature_engineering_plan.json", artifact_to_dict(feature_plan))
                 if manual_cleaning_plan:

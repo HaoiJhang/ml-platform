@@ -46,6 +46,25 @@ class FeatureEngineeringPlan:
 
 
 @dataclass(frozen=True)
+class PreprocessingStep:
+    id: str
+    kind: str
+    enabled: bool = True
+    params: dict[str, Any] = field(default_factory=dict)
+    summary: str = ""
+    execution_mode: str = "materialize_before_training"
+
+
+@dataclass(frozen=True)
+class PreprocessingPlan:
+    version: int = 1
+    global_params: dict[str, Any] = field(default_factory=dict)
+    steps: list[PreprocessingStep] = field(default_factory=list)
+    applied_step_ids: list[str] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
 class ManualCleaningRule:
     id: str
     enabled: bool = True
