@@ -1,6 +1,6 @@
 # ML Platform 中文使用说明
 
-这是一个 Streamlit 表格机器学习原型工具，覆盖了从 CSV 导入、数据概览、基础清洗、模型训练、结果评估到报告导出的完整流程。它适合做快速 baseline、数据质量初筛和小规模实验记录，不适合直接当成生产系统。
+这是一个基于 Streamlit 的表格机器学习原型工具，覆盖从 CSV 导入、数据概览、基础清洗、模型训练、结果评估到报告导出的完整流程。它适合做快速 baseline、数据质量初筛和小规模实验记录，不适合直接作为生产系统。
 
 当前版本的定位比较明确：强调快速试验、单用户工作流和快速闭环。它没有做认证、多用户协作、分布式训练和生产监控。
 
@@ -8,7 +8,7 @@
 
 这个应用主要面向表格型数据集。你可以上传一个 CSV，选择一个或多个目标列，查看 EDA 摘要，决定要排除哪些字段，运行本地训练，然后下载模型、预测样本和分析报告。
 
-如果配置了 LLM，还可以得到更自然语言的计划建议和实验报告；如果没有配置，流程仍然会完成，只是回退到本地规则版报告。
+如果配置了 LLM，还可以得到更自然的规划建议和实验报告；如果没有配置，流程仍然会完成，只是回退到本地规则版报告。
 
 ## 2. 环境准备
 
@@ -63,7 +63,7 @@ LLM_BASE_URL = "..."
 LLM_MODEL = "gpt-4o-mini"
 ```
 
-默认情况下，只要勾选页面里的 `Remember LLM settings on this device`，应用就会把 LLM 配置保存到当前项目目录下的本地文件 `.ml_platform.local.json`。如果是共享机器或公网部署，建议显式设置环境变量 `ML_PLATFORM_ALLOW_LOCAL_LLM_CONFIG=0` 关闭这个能力，改用宿主环境 secrets。
+默认情况下，只要勾选页面里的 `Remember LLM settings on this device`，应用就会把 LLM 配置保存到当前项目目录下的本地文件 `.ml_platform.local.json`。如果是共享机器或公网部署，建议显式设置环境变量 `ML_PLATFORM_ALLOW_LOCAL_LLM_CONFIG=0` 关闭这个能力，改用宿主环境的 secrets。
 
 ## 4. 页面使用流程
 
@@ -100,7 +100,7 @@ LLM_MODEL = "gpt-4o-mini"
 
 如果你一次选择多个目标列，系统会为每个目标列分别训练一套模型，并分别保存结果。
 
-### 4.4 Planning brief
+### 4.4 需求描述
 
 这是一个自然语言输入框，用来描述你的目标，例如：
 
@@ -108,7 +108,7 @@ LLM_MODEL = "gpt-4o-mini"
 predict churn, optimize recall, ignore customer_id-like fields, keep this as a quick baseline.
 ```
 
-系统会基于这段描述生成建议，包括推荐目标列、任务类型、应排除字段和优先指标。你可以查看 `Planner suggestion`，然后点击 `Apply planner suggestions` 自动把建议带入表单。
+系统会基于这段描述生成建议，包括推荐目标列、任务类型、应排除字段和优先指标。你可以先查看“规划建议”，再点击 `Apply planner suggestions` 自动把建议带入表单。
 
 ### 4.5 Feature engineering plan
 
@@ -124,7 +124,7 @@ predict churn, optimize recall, ignore customer_id-like fields, keep this as a q
 
 为了降低泄漏风险，频次编码和数值分箱会作为 sklearn pipeline 的一部分只在训练集 `fit`，测试集只 `transform`。目标列不会被允许进入特征工程计划；多目标训练时，其他目标列也不会作为特征输入。
 
-### 4.6 Execution plan / Preflight validation
+### 4.6 训练前校验
 
 在真正训练之前，页面会先展示一些自动检查结果，例如：
 
@@ -151,7 +151,7 @@ predict churn, optimize recall, ignore customer_id-like fields, keep this as a q
 - 目标关系摘要
 - 数据质量告警
 
-### 4.8 Run training
+### 4.8 开始训练
 
 点击 `Run training` 后，应用会在本地执行完整流程：
 
@@ -162,7 +162,7 @@ predict churn, optimize recall, ignore customer_id-like fields, keep this as a q
 5. 生成报告
 6. 保存 artifacts
 
-### 4.9 Artifacts / Run results
+### 4.9 输出文件与运行结果
 
 训练完成后，你可以直接在页面中：
 
@@ -178,9 +178,9 @@ predict churn, optimize recall, ignore customer_id-like fields, keep this as a q
 - 特征重要性
 - 分析报告正文
 
-## 5. 运行产物保存在哪里
+## 5. 输出文件保存在哪里
 
-每次完成训练后，输出会保存在 `runs/` 目录下。单次 run 通常会包含这些文件：
+每次完成训练后，输出文件会保存在 `runs/` 目录下。单次运行通常会包含这些文件：
 
 - `config.json`
 - `plan.json`
@@ -205,7 +205,7 @@ predict churn, optimize recall, ignore customer_id-like fields, keep this as a q
 
 `Base URL` 支持兼容接口。如果你接的是代理或兼容服务，可以在这里填写对应地址。
 
-如果 LLM 调用失败，应用会自动回退到本地规则版 planner 或 report，不会因为 LLM 不可用而阻断整个训练流程。
+如果 LLM 调用失败，应用会自动回退到本地规则版规划建议或报告，不会因为 LLM 不可用而阻断整个训练流程。
 
 ## 7. 常见问题
 
@@ -215,7 +215,7 @@ predict churn, optimize recall, ignore customer_id-like fields, keep this as a q
 
 ### 7.2 看到 “LLM report generation failed” 但训练已经完成
 
-这通常表示模型训练没问题，只是 LLM 生成自然语言报告失败。应用会自动回退到 rule-based 报告，所以实验结果和 artifacts 仍然是可用的。
+这通常表示模型训练没问题，只是 LLM 生成自然语言报告失败。应用会自动回退到 rule-based 报告，所以实验结果和输出文件仍然可用。
 
 ### 7.3 代理环境下出现 SOCKS 相关报错
 
@@ -229,7 +229,7 @@ UV_CACHE_DIR=.uv-cache uv sync
 
 ### 7.4 没有 API key 能不能用
 
-可以。没有 API key 时，LLM 辅助能力会关闭，但本地训练、评估、规则版报告和 artifacts 导出都仍然可用。
+可以。没有 API key 时，LLM 辅助能力会关闭，但本地训练、评估、规则版报告和输出文件导出仍然可用。
 
 ## 8. 开发与测试
 

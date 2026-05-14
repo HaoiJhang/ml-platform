@@ -38,6 +38,7 @@ from ml_platform.manual_cleaning import (
 )
 from ml_platform.planner import suggest_plan
 from ml_platform.storage import RunStorage
+from ml_platform.ui_i18n import translate_ui_text
 from ml_platform.validation import build_recommendations, resolve_priority_metric, validate_postrun, validate_preflight
 
 logging.basicConfig(
@@ -85,276 +86,12 @@ PREPROCESSING_STEP_IDS = {
     "numeric_scaling": "numeric_scaling",
     "feature_engineering": "feature_engineering",
 }
-UI_TRANSLATIONS = {
-    "zh-CN": {
-        "Upload a tabular dataset, inspect data quality, train a local baseline,\n                and export the artifacts from one compact experiment surface.": "上传表格数据集，检查数据质量，训练本地基线模型，并在一个紧凑的实验界面中导出产物。",
-        "Dates": "数据",
-        "Submit": "提交",
-        "Experiments": "实验",
-        "Artifacts": "产物",
-        "Quick start": "快速开始",
-        "This page is organized as a guided first run. Advanced settings stay out of the way until you need them.": "这个页面按照首次使用向导组织。高级设置会先收起，等你需要时再展开。",
-        "Upload a dataset, choose the column to predict, review the checks, then run training. Optional AI help and advanced adjustments can stay closed for a first pass.": "先上传数据，选择要预测的列，检查校验结果，然后开始训练。第一次使用时，可选 AI 帮助和高级调整都可以先不展开。",
-        "Now: {current_action} Next: {next_action}": "当前：{current_action} 下一步：{next_action}",
-        "Optional AI help: you can finish the full local training flow without any API key. Add one only if you want AI-generated suggestions and a more natural-language report.": "可选 AI 帮助：即使没有 API key，你也可以完成完整的本地训练流程。只有在你希望获得 AI 建议和更自然语言的报告时，才需要填写。",
-        "Optional AI help": "可选 AI 帮助",
-        "This environment can remember settings locally. Hosted deployments can also use `LLM_API_KEY` or Streamlit Secrets.": "当前环境可以在本地记住这些设置。部署到线上时，也可以使用 `LLM_API_KEY` 或 Streamlit Secrets。",
-        "Local persistence is disabled here, so enter a key per session or configure `LLM_API_KEY` / Streamlit Secrets.": "这里已禁用本地持久化，所以需要每次会话重新输入，或者通过 `LLM_API_KEY` / Streamlit Secrets 配置。",
-        "API key": "API key",
-        "Uses LLM_API_KEY if empty": "留空时使用 LLM_API_KEY",
-        "Base URL": "Base URL",
-        "LLM default or compatible API URL": "LLM 默认地址或兼容 API 地址",
-        "Model": "模型",
-        "Remember LLM settings on this device": "在当前设备记住 LLM 设置",
-        "Forget saved LLM settings": "清除已保存的 LLM 设置",
-        "5. Review results": "5. 查看结果",
-        "Training has finished. Start with the short summary below, then open details or download files.": "训练已经完成。先看下面的简要总结，再按需展开详情或下载文件。",
-        "Training finished for: {completed_targets}.": "训练已完成，目标列：{completed_targets}。",
-        "Check the validation notes first, then download the report, model, or prediction sample you need.": "建议先看校验说明，再下载你需要的报告、模型或预测样本。",
-        "Completed runs": "已完成运行",
-        "Targets trained": "已训练目标",
-        "Result files per run": "每次运行可下载文件数",
-        "Run summary": "运行摘要",
-        "Download files": "下载文件",
-        "Download model": "下载模型",
-        "Download report": "下载报告",
-        "Download predictions": "下载预测结果",
-        "Detailed results": "详细结果",
-        "{target} results": "{target} 结果",
-        "Metrics": "指标",
-        "Validation checks": "校验检查",
-        "Data flow": "数据流",
-        "Feature importance": "特征重要性",
-        "Analysis report": "分析报告",
-        "Artifacts saved to {path}": "产物已保存到 {path}",
-        "Planner": "规划器",
-        "Task type": "任务类型",
-        "Priority metric": "优先指标",
-        "Suggested targets": "建议目标列",
-        "No target suggestion.": "暂无目标列建议。",
-        "Suggested exclusions": "建议排除列",
-        "No excluded columns suggested.": "暂无排除列建议。",
-        "Notes": "备注",
-        "No notes.": "暂无备注。",
-        "Risk flags": "风险提示",
-        "No risk flags.": "暂无风险提示。",
-        "Raw planner JSON": "原始 planner JSON",
-        "Accepted ops": "已接受操作",
-        "Rejected ops": "已拒绝操作",
-        "No feature engineering operations were accepted.": "没有被接受的特征工程操作。",
-        "Rejected operations": "已拒绝操作",
-        "No rejected operations.": "没有被拒绝的操作。",
-        "Operation": "操作",
-        "Source": "来源",
-        "Detail": "细节",
-        "Apply only before training": "仅在训练前应用",
-        "Apply before EDA and training": "在 EDA 和训练前应用",
-        "Rule effect stage": "规则生效阶段",
-        "Rule {index}: {column}": "规则 {index}：{column}",
-        "Select column": "选择列",
-        "Enabled": "启用",
-        "Rule type": "规则类型",
-        "Drop column": "删除列",
-        "Filter rows": "筛选行",
-        "Column": "列",
-        "Delete rule": "删除规则",
-        "Operator": "运算符",
-        "No value is needed for this operator.": "这个运算符不需要填写值。",
-        "Values (comma-separated)": "多个值（用逗号分隔）",
-        "Value": "值",
-        "This rule drops the selected column before downstream processing.": "这条规则会在后续处理前删除所选列。",
-        "Rationale": "说明理由",
-        "Add blank rule": "新增空白规则",
-        "Reset draft": "重置草稿",
-        "Effect stage": "生效阶段",
-        "Accepted rules": "已接受规则",
-        "Target": "目标列",
-        "Missing rows": "缺失行数",
-        "Unique values": "唯一值数量",
-        "Stat": "统计项",
-        "Count": "数量",
-        "Top target values": "目标列高频值",
-        "Numeric feature relationships": "数值特征关系",
-        "Numeric feature distribution by target": "按目标列划分的数值特征分布",
-        "Categorical feature target distribution": "类别特征的目标分布",
-        "No target relationship summary available.": "暂无目标关系摘要。",
-        "Priority value": "优先指标值",
-        "Test metrics": "测试集指标",
-        "No test metrics.": "暂无测试集指标。",
-        "Train metrics": "训练集指标",
-        "No train metrics.": "暂无训练集指标。",
-        "No data flow trace available.": "暂无数据流追踪。",
-        "{index}. {label}": "{index}. {label}",
-        "Shape": "形状",
-        "{stage} | {partition} | delta {delta_text}": "{stage} | {partition} | 变化 {delta_text}",
-        "Inspect data flow step": "查看数据流步骤",
-        "Stage": "阶段",
-        "Partition": "分区",
-        "Kind": "类型",
-        "Memory": "内存",
-        "Rows delta": "行数变化",
-        "Columns added": "新增列",
-        "Columns removed": "删除列",
-        "Columns after": "处理后列数",
-        "Metadata": "元数据",
-        "No columns added.": "没有新增列。",
-        "No columns removed.": "没有删除列。",
-        "Preview": "预览",
-        "Preview truncated to the first rows.": "预览只显示前几行。",
-        "Requested metric": "请求指标",
-        "Preflight": "训练前检查",
-        "OK": "正常",
-        "Blocked": "阻断",
-        "Postrun": "训练后检查",
-        "Check issues": "需检查问题",
-        "Trainer": "训练器",
-        "Feature count": "特征数量",
-        "Dropped target rows": "被丢弃的目标行数",
-        "Report mode": "报告模式",
-        "Generalization gap": "泛化差距",
-        "Class balance": "类别分布",
-        "Recommended exclusions": "建议排除列",
-        "No extra exclusions suggested.": "暂无额外排除建议。",
-        "Potential leakage columns": "潜在泄漏列",
-        "No leakage columns detected.": "未检测到泄漏列。",
-        "Preflight issues": "训练前问题",
-        "Postrun issues": "训练后问题",
-        "Recommendation summary": "建议摘要",
-        "No summary available.": "暂无摘要。",
-        "Next steps": "下一步建议",
-        "No next steps available.": "暂无下一步建议。",
-        "No issues surfaced.": "未发现问题。",
-        "Enter a whole number. Using {current_value} until corrected.": "请输入整数。在修正前将继续使用 {current_value}。",
-        "Enter a value greater than or equal to {min_value}. Using {current_value} until corrected.": "请输入大于等于 {min_value} 的值。在修正前将继续使用 {current_value}。",
-        "1. Upload data": "1. 上传数据",
-        "Start with one CSV file or a demo dataset. The app saves each run under the configured runs directory.": "先选择一个 CSV 文件或示例数据集。应用会把每次运行结果保存到配置好的 runs 目录。",
-        "Data source": "数据来源",
-        "Upload CSV": "上传 CSV",
-        "Demo: {name}": "示例：{name}",
-        "Loaded demo dataset `{demo_name}` with {rows} rows and {columns} columns.": "已加载示例数据集 `{demo_name}`，共 {rows} 行、{columns} 列。",
-        "Choose the column you want to predict.": "选择你想预测的列。",
-        "No dataset has been loaded yet.": "当前还没有加载数据集。",
-        "Upload a CSV or pick a demo dataset to unlock the next step.": "上传 CSV 或选择示例数据集后，才能进入下一步。",
-        "Drop a CSV here to unlock schema inspection, missingness checks, training controls, and exportable run artifacts.": "把 CSV 拖到这里后，就可以查看字段结构、缺失情况、训练设置以及可导出的运行产物。",
-        "Loaded `{file_name}` with {rows} rows and {columns} columns.": "已加载 `{file_name}`，共 {rows} 行、{columns} 列。",
-        "2. Choose what to predict": "2. 选择要预测的内容",
-        "Pick the column you want the app to predict. The app can infer the task type automatically.": "选择你希望应用预测的列。应用可以自动判断任务类型。",
-        "Target variables": "目标列",
-        "Select one or more targets. Multi-target runs train one model per target.": "选择一个或多个目标列。多目标模式会为每个目标列分别训练一个模型。",
-        "Your dataset is ready, but no prediction target has been selected yet.": "数据已经准备好，但你还没有选择预测目标。",
-        "Select at least one target column to continue to the checks step.": "至少选择一个目标列后，才能进入检查步骤。",
-        "Selected target column: {selected_targets}.": "已选择目标列：{selected_targets}。",
-        "Selected target columns: {selected_targets}.": "已选择目标列：{selected_targets}。",
-        "Review the data checks before starting training.": "开始训练前，先看一下数据检查结果。",
-        "Advanced experiment settings": "高级实验设置",
-        "Most first runs can keep the defaults here. Open this only if you want more control.": "第一次运行通常保留默认值就可以。只有在你想要更多控制时，再展开这里。",
-        "Exclude columns from EDA and training features": "从 EDA 和训练特征中排除列",
-        "Excluded columns are removed before EDA and are not used as model features.": "被排除的列会在 EDA 前移除，也不会作为模型特征使用。",
-        "Training time budget seconds": "训练时间预算（秒）",
-        "This is the score the trainer treats as most important when choosing the best baseline.": "训练器会把这个分数当作选择最佳 baseline 时最重要的指标。",
-        "Test size": "测试集比例",
-        "Drop feature when missing rate is above": "当缺失率高于该值时删除特征",
-        "Random state": "随机种子",
-        "Multi-target mode trains and stores one independent run per target. Other selected targets are excluded from each model's feature set.": "多目标模式会为每个目标列分别训练并保存一次独立运行。其他已选目标列不会进入对应模型的特征集合。",
-        "3. Check data before training": "3. 训练前检查数据",
-        "Use the brief, validation checks, and data summary to catch issues before you spend time training.": "先通过需求描述、校验结果和数据摘要发现问题，再决定是否开始训练。",
-        "Planning help": "规划帮助",
-        "This optional brief lets you describe your goal in plain language so the app can suggest a sensible first setup.": "这里是可选的自然语言描述框。你可以直接说出目标，让应用给出更合理的初始建议。",
-        "Planning brief": "需求描述",
-        "Example: predict churn, treat customer_id as reference only, and keep this as a quick first pass.": "例如：预测 churn，把 customer_id 只当作参考字段，并把这次训练当成快速初版。",
-        "Optional natural-language brief used to suggest targets, task type, exclusions, and a priority metric.": "可选的自然语言描述，用来建议目标列、任务类型、排除列和优先指标。",
-        "Planner suggestion": "规划建议",
-        "Apply planner suggestions": "应用规划建议",
-        "Advanced adjustments": "高级调整",
-        "Most first runs can skip this section. Open it only if you want to clean rows or columns manually, or add extra local feature transformations.": "第一次运行通常可以跳过这一节。只有在你想手动清洗行/列，或者添加额外本地特征变换时，再展开。",
-        "Manual cleaning rules": "手动清洗规则",
-        "If you already know some rows or columns should be filtered out, draft the rules here before training.": "如果你已经知道某些行或列需要被筛掉，可以在训练前先在这里写规则。",
-        "Cleaning rules brief": "清洗规则描述",
-        "Example: drop customer_id and keep rows where monthly_spend > 20 and churn equals 1.": "例如：删除 customer_id，并只保留 monthly_spend > 20 且 churn 等于 1 的行。",
-        "Natural-language rules are converted into a structured draft. Nothing is applied until you confirm.": "自然语言规则会被转换成结构化草稿。在你确认之前，不会真正应用。",
-        "Generate cleaning rules": "生成清洗规则",
-        "Start with blank rule": "从空白规则开始",
-        "Clear applied manual rules": "清除已应用的手动规则",
-        "No manual cleaning rules are in the current draft.": "当前草稿里还没有手动清洗规则。",
-        "Rows removed": "删除行数",
-        "Rows after": "处理后行数",
-        "Rejected rules": "被拒绝的规则",
-        "Manual cleaning preview impact": "手动清洗预览影响",
-        "Planned cleaning log": "计划中的清洗日志",
-        "Apply manual cleaning rules": "应用手动清洗规则",
-        "Applied rules remain active until you clear them or apply a different draft.": "已应用的规则会一直生效，直到你清除它们或应用另一份草稿。",
-        "Generate rules from a brief or start with a blank rule to configure manual cleaning.": "你可以根据描述生成规则，也可以从空白规则开始配置手动清洗。",
-        "Apply local whitelist feature engineering": "应用本地白名单特征工程",
-        "LLM can propose a structured plan, but only local whitelisted transformations are executed inside the training pipeline.": "LLM 可以提出结构化方案，但训练流程里真正会执行的只有本地白名单中的变换。",
-        "Feature engineering plan": "特征工程方案",
-        "The app found blocking issues in the current setup.": "当前配置里存在阻断问题。",
-        "Fix the checks for: {failing_targets} before starting training.": "开始训练前，请先解决这些目标列的检查问题：{failing_targets}。",
-        "The dataset and target selection passed the current checks.": "当前数据和目标列选择已通过检查。",
-        "You can start training after this review, or adjust the setup first.": "看完这部分后，你可以直接开始训练，或者先调整设置。",
-        "Preflight validation": "训练前校验",
-        "This check looks for blocking issues before training, such as missing target values or no usable feature columns.": "这里会在训练前检查阻断问题，例如目标列缺失值过多，或没有可用特征列。",
-        "Resolved priority metric: {priority_metric}": "最终使用的优先指标：{priority_metric}",
-        "Data preview": "数据预览",
-        "First 50 rows are shown for a quick sanity check before training.": "这里展示前 50 行，方便你在训练前做一次快速确认。",
-        "Manual cleaning rules are set to apply only before training. The data preview and EDA below still show the pre-cleaning analysis subset.": "手动清洗规则当前设定为只在训练前生效，所以这里的数据预览和下面的 EDA 仍然显示清洗前的分析子集。",
-        "EDA summary": "EDA 摘要",
-        "EDA means a quick health check for the dataset: shape, duplicates, missing values, correlations, and target behavior.": "EDA 可以理解为数据健康检查，主要看形状、重复值、缺失值、相关性和目标列表现。",
-        "Rows": "行数",
-        "Columns": "列数",
-        "Duplicate rows": "重复行数",
-        "Rows with missing": "存在缺失值的行数",
-        "Column profile": "字段概览",
-        "Missing rate": "缺失率",
-        "Primary target profile": "主目标列概览",
-        "Target profile": "目标列概览",
-        "Target task types": "目标列任务类型",
-        "Missingness": "缺失情况",
-        "Correlations": "相关性",
-        "Target relationships": "目标关系",
-        "Quality warnings": "质量警告",
-        "Correlated missingness pairs": "缺失情况相关的字段对",
-        "Numeric correlations with target": "与目标列的数值相关性",
-        "Strong numeric feature correlations": "高相关的数值特征对",
-        "4. Start training": "4. 开始训练",
-        "Launch the local baseline after you have reviewed the target, checks, and data summary.": "确认目标列、检查结果和数据摘要后，就可以启动本地 baseline 训练。",
-        "Training is blocked by validation issues.": "训练被校验问题阻止。",
-        "Resolve the flagged issues for: {failing_targets}.": "请先解决这些目标列的提示问题：{failing_targets}。",
-        "The run is ready to start.": "当前运行已经可以开始。",
-        "Click Run training to build the local baseline and unlock the results step.": "点击“开始训练”即可生成本地 baseline，并进入结果步骤。",
-        "Run training": "开始训练",
-        "Cleaning data and training model locally...": "正在本地清洗数据并训练模型……",
-        "Resolve blocking preflight issues before training: {failing_targets}": "训练前请先解决这些阻断性检查问题：{failing_targets}",
-        "No feature columns remain after excluding selected target and ignored columns.": "排除目标列和忽略列之后，已经没有可用特征列了。",
-        "Run completed: {completed_ids}": "运行已完成：{completed_ids}",
-        "Language / 语言": "Language / 语言",
-        "auto": "自动",
-        "classification": "分类",
-        "regression": "回归",
-        "drop_column": "删除列",
-        "filter_row": "筛选行",
-        "is_null": "为空",
-        "not_null": "不为空",
-        "equals": "等于",
-        "not_equals": "不等于",
-        "in": "属于",
-        "not_in": "不属于",
-        "contains": "包含",
-        "not_contains": "不包含",
-        "gt": "大于",
-        "gte": "大于等于",
-        "lt": "小于",
-        "lte": "小于等于",
-    }
-}
-
-
 def _ui_language() -> str:
     return str(st.session_state.get("ui_language", DEFAULT_UI_LANGUAGE))
 
 
 def _t(text: str, **kwargs: Any) -> str:
-    template = UI_TRANSLATIONS.get(_ui_language(), {}).get(text, text)
-    return template.format(**kwargs) if kwargs else template
+    return translate_ui_text(_ui_language(), text, **kwargs)
 
 
 def _render_language_switcher() -> None:
@@ -997,7 +734,7 @@ def _render_hero() -> None:
     hero_description = _t(
         "Upload a tabular dataset, inspect data quality, train a local baseline,\n                and export the artifacts from one compact experiment surface."
     )
-    hero_pills = [_t("Dates"), _t("Submit"), _t("Experiments"), _t("Artifacts")]
+    hero_pills = [_t("Data"), _t("Submit"), _t("Experiments"), _t("Artifacts")]
     st.markdown(
         """
         <section class="lab-hero">
@@ -1037,7 +774,7 @@ def _section_caption(text: str) -> None:
 
 
 def _render_step_status(current_action: str, next_action: str, level: str = "info") -> None:
-    message = _t("Now: {current_action} Next: {next_action}", current_action=current_action, next_action=next_action)
+    message = _t("Now: {current_action} Next: {next_action}", current_action=_t(current_action), next_action=_t(next_action))
     if level == "success":
         st.success(message)
     elif level == "warning":
@@ -2313,105 +2050,117 @@ def main() -> None:
     storage = RunStorage(settings.runs_dir)
 
     st.subheader(_t("1. Upload data"))
-    _section_caption(_t("Start with one CSV file or a demo dataset. The app saves each run under the configured runs directory."))
+    with st.container(border=True):
+        _section_caption(_t("Start with one CSV file or a demo dataset. The app saves each run under the configured runs directory."))
 
-    demo_csvs = sorted(Path(p).name for p in PROJECT_ROOT.glob("data/*.csv") if p.is_file())
+        demo_csvs = sorted(Path(p).name for p in PROJECT_ROOT.glob("data/*.csv") if p.is_file())
 
-    upload_label = _t("Upload CSV")
-    demo_label_to_name = {_t("Demo: {name}", name=name): name for name in demo_csvs}
-    data_source = st.radio(
-        _t("Data source"),
-        [upload_label, *list(demo_label_to_name.keys())],
-        horizontal=True,
-        index=0,
-    )
-
-    df: pd.DataFrame
-    if data_source in demo_label_to_name:
-        demo_name = demo_label_to_name[data_source]
-        demo_path = PROJECT_ROOT / "data" / demo_name
-        df = read_csv(demo_path)
-        _render_step_status(
-            _t("Loaded demo dataset `{demo_name}` with {rows} rows and {columns} columns.", demo_name=demo_name, rows=len(df), columns=len(df.columns)),
-            _t("Choose the column you want to predict."),
-            level="success",
+        upload_label = _t("Upload CSV")
+        demo_label_to_name = {_t("Demo: {name}", name=name): name for name in demo_csvs}
+        data_source = st.radio(
+            _t("Data source"),
+            [upload_label, *list(demo_label_to_name.keys())],
+            horizontal=True,
+            index=0,
         )
-    else:
-        uploaded_file = st.file_uploader(_t("Upload CSV"), type=["csv"], label_visibility="collapsed")
-        if uploaded_file is None:
+
+        df: pd.DataFrame
+        if data_source in demo_label_to_name:
+            demo_name = demo_label_to_name[data_source]
+            demo_path = PROJECT_ROOT / "data" / demo_name
+            df = read_csv(demo_path)
             _render_step_status(
-                _t("No dataset has been loaded yet."),
-                _t("Upload a CSV or pick a demo dataset to unlock the next step."),
+                _t("Loaded demo dataset `{demo_name}` with {rows} rows and {columns} columns.", demo_name=demo_name, rows=len(df), columns=len(df.columns)),
+                _t("Choose the column you want to predict."),
+                level="success",
             )
-            st.markdown(
-                f"""
-                <div class="lab-empty">
-                    {_t("Drop a CSV here to unlock schema inspection, missingness checks, training controls, and exportable run artifacts.")}
-                </div>
-                """,
-                unsafe_allow_html=True,
+        else:
+            uploaded_file = st.file_uploader(_t("Upload CSV"), type=["csv"], label_visibility="collapsed")
+            if uploaded_file is None:
+                _render_step_status(
+                    _t("No dataset has been loaded yet."),
+                    _t("Upload a CSV or pick a demo dataset to unlock the next step."),
+                )
+                st.markdown(
+                    f"""
+                    <div class="lab-empty">
+                        {_t("Drop a CSV here to unlock schema inspection, missingness checks, training controls, and exportable run artifacts.")}
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+                return
+            df = read_csv(uploaded_file)
+            _render_step_status(
+                _t("Loaded `{file_name}` with {rows} rows and {columns} columns.", file_name=uploaded_file.name, rows=len(df), columns=len(df.columns)),
+                _t("Choose the column you want to predict."),
+                level="success",
             )
-            return
-        df = read_csv(uploaded_file)
-        _render_step_status(
-            _t("Loaded `{file_name}` with {rows} rows and {columns} columns.", file_name=uploaded_file.name, rows=len(df), columns=len(df.columns)),
-            _t("Choose the column you want to predict."),
-            level="success",
-        )
     current_dataset_fingerprint = _dataset_fingerprint(df)
     columns = list(df.columns)
     _initialize_experiment_state(current_dataset_fingerprint, columns)
     _consume_pending_plan_suggestion(columns)
 
     st.subheader(_t("2. Choose what to predict"))
-    _section_caption(_t("Pick the column you want the app to predict. The app can infer the task type automatically."))
-    setup_cols = st.columns([1.5, 1.0])
-    with setup_cols[0]:
-        target_columns = st.multiselect(
-            _t("Target variables"),
-            columns,
-            key="target_columns",
-            help=_t("Select one or more targets. Multi-target runs train one model per target."),
-        )
-    with setup_cols[1]:
-        task_type_choice = st.radio(
-            _t("Task type"),
-            ["auto", "classification", "regression"],
-            horizontal=True,
-            key="task_type_choice",
-            format_func=lambda value: _t(value),
-        )
-
-    if not target_columns:
-        _render_step_status(
-            _t("Your dataset is ready, but no prediction target has been selected yet."),
-            _t("Select at least one target column to continue to the checks step."),
-            level="warning",
-        )
-        return
-
-    selected_targets = ", ".join(str(target) for target in target_columns)
-    _render_step_status(
-        _t("Selected target columns: {selected_targets}.", selected_targets=selected_targets)
-        if len(target_columns) > 1
-        else _t("Selected target column: {selected_targets}.", selected_targets=selected_targets),
-        _t("Review the data checks before starting training."),
-        level="success",
-    )
-
-    exclude_options = [column for column in columns if column not in target_columns]
-    with st.expander(_t("Advanced experiment settings"), expanded=False):
-        st.caption(_t("Most first runs can keep the defaults here. Open this only if you want more control."))
-        top_advanced_cols = st.columns(2)
-        with top_advanced_cols[0]:
-            time_budget = _render_integer_input(_t("Training time budget seconds"), "time_budget", min_value=5)
-        with top_advanced_cols[1]:
-            priority_metric_choice = st.selectbox(
-                _t("Priority metric"),
-                ["auto", "accuracy", "f1_weighted", "precision_weighted", "recall_weighted", "roc_auc", "rmse", "mae", "r2"],
-                key="priority_metric_choice",
-                help=_t("This is the score the trainer treats as most important when choosing the best baseline."),
+    with st.container(border=True):
+        _section_caption(_t("Pick the column you want the app to predict. The app can infer the task type automatically."))
+        setup_cols = st.columns([1.5, 1.0])
+        with setup_cols[0]:
+            target_columns = st.multiselect(
+                _t("Target variables"),
+                columns,
+                key="target_columns",
+                help=_t("Select one or more targets. Multi-target runs train one model per target."),
             )
+        with setup_cols[1]:
+            task_type_labels = {
+                "auto": _t("auto"),
+                "classification": _t("classification"),
+                "regression": _t("regression"),
+            }
+            current_task_type_choice = str(st.session_state.get("task_type_choice", "auto"))
+            st.session_state["_task_type_choice_label"] = task_type_labels.get(current_task_type_choice, task_type_labels["auto"])
+            task_type_label = st.radio(
+                _t("Task type"),
+                list(task_type_labels.values()),
+                horizontal=True,
+                key="_task_type_choice_label",
+            )
+            task_type_choice = next(
+                value for value, label in task_type_labels.items() if label == str(task_type_label)
+            )
+            st.session_state["task_type_choice"] = task_type_choice
+
+        if not target_columns:
+            _render_step_status(
+                _t("Your dataset is ready, but no prediction target has been selected yet."),
+                _t("Select at least one target column to continue to the checks step."),
+                level="warning",
+            )
+            return
+
+        selected_targets = ", ".join(str(target) for target in target_columns)
+        _render_step_status(
+            _t("Selected target columns: {selected_targets}.", selected_targets=selected_targets)
+            if len(target_columns) > 1
+            else _t("Selected target column: {selected_targets}.", selected_targets=selected_targets),
+            _t("Review the data checks before starting training."),
+            level="success",
+        )
+
+        exclude_options = [column for column in columns if column not in target_columns]
+        with st.expander(_t("Advanced experiment settings"), expanded=False):
+            st.caption(_t("Most first runs can keep the defaults here. Open this only if you want more control."))
+            top_advanced_cols = st.columns(2)
+            with top_advanced_cols[0]:
+                time_budget = _render_integer_input(_t("Training time budget seconds"), "time_budget", min_value=5)
+            with top_advanced_cols[1]:
+                priority_metric_choice = st.selectbox(
+                    _t("Priority metric"),
+                    ["auto", "accuracy", "f1_weighted", "precision_weighted", "recall_weighted", "roc_auc", "rmse", "mae", "r2"],
+                    key="priority_metric_choice",
+                    help=_t("This is the score the trainer treats as most important when choosing the best baseline."),
+                )
 
     applied_preprocessing_plan = st.session_state.get("_preprocessing_plan_applied") or _default_preprocessing_plan()
     applied_global_params = _preprocessing_plan_global_params(applied_preprocessing_plan)
@@ -2456,42 +2205,43 @@ def main() -> None:
         st.caption(_t("Multi-target mode trains and stores one independent run per target. Other selected targets are excluded from each model's feature set."))
 
     eda_summary = generate_eda_summary(analysis_df, target=primary_target)
-    st.subheader("3. Configure preprocessing")
-    _section_caption("Configure each preprocessing step, review its preview, then apply it before preparing data.")
-    st.write(_t("Planning help"))
-    _section_caption(_t("This optional brief lets you describe your goal in plain language so the app can suggest a sensible first setup."))
-    planner_brief = st.text_area(
-        _t("Planning brief"),
-        key="planner_brief",
-        placeholder=_t("Example: predict churn, treat customer_id as reference only, and keep this as a quick first pass."),
-        help=_t("Optional natural-language brief used to suggest targets, task type, exclusions, and a priority metric."),
-    )
-    plan_suggestion = _get_planner_suggestion(
-        df=analysis_df,
-        eda_summary=eda_summary,
-        settings=settings,
-        user_brief=planner_brief,
-        dataset_fingerprint=current_dataset_fingerprint,
-    )
-    plan_data = artifact_to_dict(plan_suggestion)
-    with st.expander(_t("Planner suggestion"), expanded=bool(planner_brief.strip())):
-        _render_planner_suggestion(plan_data)
-        if st.button(_t("Apply planner suggestions")):
-            _queue_plan_suggestion(plan_data, columns)
-            st.rerun()
+    st.subheader(_t("3. Configure preprocessing"))
+    _section_caption(_t("Configure each preprocessing step, review its preview, then apply it before preparing data."))
+    with st.container(border=True):
+        st.write(_t("Planning help"))
+        _section_caption(_t("This optional brief lets you describe your goal in plain language so the app can suggest a sensible first setup."))
+        planner_brief = st.text_area(
+            _t("Planning brief"),
+            key="planner_brief",
+            placeholder=_t("Example: predict churn, treat customer_id as reference only, and keep this as a quick first pass."),
+            help=_t("Optional natural-language brief used to suggest targets, task type, exclusions, and a priority metric."),
+        )
+        plan_suggestion = _get_planner_suggestion(
+            df=analysis_df,
+            eda_summary=eda_summary,
+            settings=settings,
+            user_brief=planner_brief,
+            dataset_fingerprint=current_dataset_fingerprint,
+        )
+        plan_data = artifact_to_dict(plan_suggestion)
+        with st.expander(_t("Planner suggestion"), expanded=bool(planner_brief.strip())):
+            _render_planner_suggestion(plan_data)
+            if st.button(_t("Apply planner suggestions")):
+                _queue_plan_suggestion(plan_data, columns)
+                st.rerun()
 
-    draft_excluded_columns = st.multiselect(
-        _t("Exclude columns from EDA and training features"),
-        exclude_options,
-        key="excluded_columns",
-        help=_t("Excluded columns are removed before EDA and are not used as model features."),
-    )
-    draft_analysis_columns = [column for column in columns if column not in draft_excluded_columns]
-    draft_base_analysis_df = df[draft_analysis_columns].copy()
+        draft_excluded_columns = st.multiselect(
+            _t("Exclude columns from EDA and training features"),
+            exclude_options,
+            key="excluded_columns",
+            help=_t("Excluded columns are removed before EDA and are not used as model features."),
+        )
+        draft_analysis_columns = [column for column in columns if column not in draft_excluded_columns]
+        draft_base_analysis_df = df[draft_analysis_columns].copy()
 
     split_box = st.container(border=True)
     with split_box:
-        st.write("Split settings")
+        st.write(_t("Split settings"))
         split_cols = st.columns(3)
         with split_cols[0]:
             test_size = st.slider(_t("Test size"), min_value=0.1, max_value=0.5, step=0.05, key="test_size")
@@ -2509,12 +2259,12 @@ def main() -> None:
             _render_step_status("Split settings", "Current settings are applied.", level="success")
         else:
             _render_step_status("Split settings", "Draft changes are not applied yet.", level="info")
-        if st.button("Apply split settings"):
+        if st.button(_t("Apply split settings")):
             _set_applied_preprocessing_global_params(test_size=float(test_size), random_state=int(random_state))
             st.rerun()
 
     with st.container(border=True):
-        st.write("Step 3.1: Column selection and manual cleaning")
+        st.write(_t("Step 3.1: Column selection and manual cleaning"))
         draft_column_step = _preprocessing_step(
             "column_selection",
             params={"excluded_columns": list(draft_excluded_columns)},
@@ -2523,11 +2273,11 @@ def main() -> None:
         _render_preprocessing_step_status("Column selection", draft_column_step, applied_preprocessing_plan)
         column_cols = st.columns(3)
         with column_cols[0]:
-            st.metric("Excluded columns", len(draft_excluded_columns))
+            st.metric(_t("Excluded columns"), len(draft_excluded_columns))
         with column_cols[1]:
-            st.metric("Columns after exclusion", len(draft_analysis_columns))
+            st.metric(_t("Columns after exclusion"), len(draft_analysis_columns))
         with column_cols[2]:
-            if st.button("Apply column selection"):
+            if st.button(_t("Apply column selection")):
                 _update_applied_preprocessing_step(draft_column_step)
                 st.rerun()
 
@@ -2651,14 +2401,14 @@ def main() -> None:
             st.caption(_t("Generate rules from a brief or start with a blank rule to configure manual cleaning."))
 
     with st.container(border=True):
-        st.write("Step 3.2: Missing-value handling")
+        st.write(_t("Step 3.2: Missing-value handling"))
         numeric_imputation_strategy = st.selectbox(
-            "Numeric missing-value handling",
+            _t("Numeric missing-value handling"),
             ["median", "mean", "most_frequent", "constant_zero"],
             key="numeric_imputation_strategy",
         )
         categorical_imputation_strategy = st.selectbox(
-            "Categorical missing-value handling",
+            _t("Categorical missing-value handling"),
             ["most_frequent", "constant_missing"],
             key="categorical_imputation_strategy",
         )
@@ -2680,23 +2430,23 @@ def main() -> None:
         missing_params = draft_missing_step.get("params", {})
         missing_cols = st.columns(3)
         with missing_cols[0]:
-            st.metric("Feature columns", len([column for column in draft_base_analysis_df.columns if column not in target_columns]))
+            st.metric(_t("Feature columns"), len([column for column in draft_base_analysis_df.columns if column not in target_columns]))
         with missing_cols[1]:
-            st.metric("High-missing columns", len(missing_params.get("high_missing_columns", [])))
+            st.metric(_t("High-missing columns"), len(missing_params.get("high_missing_columns", [])))
         with missing_cols[2]:
-            if st.button("Apply missing-value step"):
+            if st.button(_t("Apply missing-value step")):
                 _update_applied_preprocessing_step(draft_missing_step)
                 st.rerun()
         high_missing_preview = missing_params.get("high_missing_columns", [])
         if high_missing_preview:
             st.dataframe(pd.DataFrame({"column": list(high_missing_preview)}), hide_index=True, use_container_width=True)
         else:
-            st.caption("No feature columns will be auto-dropped by the current high-missing threshold.")
+            st.caption(_t("No feature columns will be auto-dropped by the current high-missing threshold."))
 
     with st.container(border=True):
-        st.write("Step 3.3: Categorical encoding")
+        st.write(_t("Step 3.3: Categorical encoding"))
         categorical_encoding_strategy = st.selectbox(
-            "Categorical encoding strategy",
+            _t("Categorical encoding strategy"),
             ["one_hot"],
             key="categorical_encoding_strategy",
         )
@@ -2719,21 +2469,21 @@ def main() -> None:
         _render_preprocessing_step_status("Categorical encoding", draft_encoding_step, applied_preprocessing_plan)
         encoding_cols = st.columns(3)
         with encoding_cols[0]:
-            st.metric("Strategy", categorical_encoding_strategy)
+            st.metric(_t("Strategy"), categorical_encoding_strategy)
         with encoding_cols[1]:
-            st.metric("Categorical columns", int(draft_encoding_step["params"].get("categorical_feature_count", 0)))
+            st.metric(_t("Categorical columns"), int(draft_encoding_step["params"].get("categorical_feature_count", 0)))
         with encoding_cols[2]:
-            st.metric("Estimated encoded features", int(draft_encoding_step["params"].get("estimated_encoded_features", 0)))
-        if st.button("Apply categorical encoding"):
+            st.metric(_t("Estimated encoded features"), int(draft_encoding_step["params"].get("estimated_encoded_features", 0)))
+        if st.button(_t("Apply categorical encoding")):
             _update_applied_preprocessing_step(draft_encoding_step)
             st.rerun()
 
     with st.container(border=True):
-        st.write("Step 3.4: Numeric scaling")
+        st.write(_t("Step 3.4: Numeric scaling"))
         standardize_numeric = st.checkbox(
-            "Standardize numeric features",
+            _t("Standardize numeric features"),
             key="standardize_numeric",
-            help="Apply scaling after numeric imputation.",
+            help=_t("Apply scaling after numeric imputation."),
         )
         draft_scaling_plan = _build_preprocessing_plan(
             base_analysis_df=draft_base_analysis_df,
@@ -2752,17 +2502,17 @@ def main() -> None:
         _render_preprocessing_step_status("Numeric scaling", draft_scaling_step, applied_preprocessing_plan)
         scaling_cols = st.columns(3)
         with scaling_cols[0]:
-            st.metric("Scaling enabled", "Yes" if standardize_numeric else "No")
+            st.metric(_t("Scaling enabled"), _t("Yes") if standardize_numeric else _t("No"))
         with scaling_cols[1]:
-            st.metric("Numeric columns", len(draft_scaling_step.get("params", {}).get("numeric_features", [])))
+            st.metric(_t("Numeric columns"), len(draft_scaling_step.get("params", {}).get("numeric_features", [])))
         with scaling_cols[2]:
-            if st.button("Apply numeric scaling"):
+            if st.button(_t("Apply numeric scaling")):
                 _update_applied_preprocessing_step(draft_scaling_step)
                 st.rerun()
 
     feature_plan = _preprocessing_feature_plan(applied_preprocessing_plan)
     with st.container(border=True):
-        st.write("Step 3.5: Feature engineering")
+        st.write(_t("Step 3.5: Feature engineering"))
         apply_feature_engineering = st.checkbox(
             _t("Apply local whitelist feature engineering"),
             key="apply_feature_engineering",
@@ -2804,16 +2554,16 @@ def main() -> None:
             with st.expander(_t("Feature engineering plan"), expanded=True):
                 _render_feature_engineering_plan(draft_feature_plan)
         else:
-            st.caption("Feature engineering is currently disabled.")
+            st.caption(_t("Feature engineering is currently disabled."))
         feature_cols = st.columns(2)
         with feature_cols[0]:
-            if st.button("Apply feature engineering step"):
+            if st.button(_t("Apply feature engineering step")):
                 st.session_state["_feature_engineering_applied_plan"] = draft_feature_plan
                 _update_applied_preprocessing_step(draft_feature_step)
                 st.rerun()
         with feature_cols[1]:
             if feature_plan:
-                st.caption("Applied feature engineering remains active until you apply a different draft.")
+                st.caption(_t("Applied feature engineering remains active until you apply a different draft."))
 
     draft_preprocessing_plan = _build_preprocessing_plan(
         base_analysis_df=draft_base_analysis_df,
@@ -2880,246 +2630,238 @@ def main() -> None:
             _t("You can start training after this review, or adjust the setup first."),
             level="success",
         )
-    st.write(_t("Preflight validation"))
-    _section_caption(_t("This check looks for blocking issues before training, such as missing target values or no usable feature columns."))
-    with st.expander(_t("Preflight validation"), expanded=True):
-        for target in target_columns:
-            validation = artifact_to_dict(preflight_by_target[target])
-            st.write(f"{target} ({_t(task_types[target])})")
-            st.caption(_t("Resolved priority metric: {priority_metric}", priority_metric=priority_metrics[target]))
-            _render_issue_table(validation.get("issues", []))
+    with st.container(border=True):
+        st.write(_t("Preflight validation"))
+        _section_caption(_t("This check looks for blocking issues before training, such as missing target values or no usable feature columns."))
+        with st.expander(_t("Preflight validation"), expanded=True):
+            for target in target_columns:
+                validation = artifact_to_dict(preflight_by_target[target])
+                st.write(f"{target} ({_t(task_types[target])})")
+                st.caption(_t("Resolved priority metric: {priority_metric}", priority_metric=priority_metrics[target]))
+                _render_issue_table(validation.get("issues", []))
 
-    st.write(_t("Data preview"))
-    _section_caption(_t("First 50 rows are shown for a quick sanity check before training."))
-    if manual_cleaning_plan is not None and any(rule.enabled for rule in manual_cleaning_plan.rules) and manual_cleaning_plan.effect_stage == "pre_training":
-        st.info(_t("Manual cleaning rules are set to apply only before training. The data preview and EDA below still show the pre-cleaning analysis subset."))
-    st.dataframe(analysis_df.head(50), use_container_width=True)
+    with st.container(border=True):
+        st.write(_t("Data preview"))
+        _section_caption(_t("First 50 rows are shown for a quick sanity check before training."))
+        if manual_cleaning_plan is not None and any(rule.enabled for rule in manual_cleaning_plan.rules) and manual_cleaning_plan.effect_stage == "pre_training":
+            st.info(_t("Manual cleaning rules are set to apply only before training. The data preview and EDA below still show the pre-cleaning analysis subset."))
+        st.dataframe(analysis_df.head(50), use_container_width=True)
 
-    st.write(_t("EDA summary"))
-    _section_caption(_t("EDA means a quick health check for the dataset: shape, duplicates, missing values, correlations, and target behavior."))
-    metric_cols = st.columns(4)
-    with metric_cols[0]:
-        st.metric(_t("Rows"), eda_summary["shape"]["rows"])
-    with metric_cols[1]:
-        st.metric(_t("Columns"), eda_summary["shape"]["columns"])
-    with metric_cols[2]:
-        st.metric(_t("Duplicate rows"), eda_summary["duplicate_rows"])
-    with metric_cols[3]:
-        st.metric(_t("Rows with missing"), eda_summary["missingness"]["rows_with_any_missing"])
+    with st.container(border=True):
+        st.write(_t("EDA summary"))
+        _section_caption(_t("EDA means a quick health check for the dataset: shape, duplicates, missing values, correlations, and target behavior."))
+        metric_cols = st.columns(4)
+        with metric_cols[0]:
+            st.metric(_t("Rows"), eda_summary["shape"]["rows"])
+        with metric_cols[1]:
+            st.metric(_t("Columns"), eda_summary["shape"]["columns"])
+        with metric_cols[2]:
+            st.metric(_t("Duplicate rows"), eda_summary["duplicate_rows"])
+        with metric_cols[3]:
+            st.metric(_t("Rows with missing"), eda_summary["missingness"]["rows_with_any_missing"])
 
-    st.write(_t("Column profile"))
-    st.dataframe(pd.DataFrame(eda_summary["columns"]).T, use_container_width=True)
+        st.write(_t("Column profile"))
+        st.dataframe(pd.DataFrame(eda_summary["columns"]).T, use_container_width=True)
 
-    if primary_target in analysis_df.columns and eda_summary.get("target"):
-        label = _t("Primary target profile") if len(target_columns) > 1 else _t("Target profile")
-        st.write(label)
-        _render_target_profile(eda_summary["target"])
-    if len(target_columns) > 1:
-        st.write(_t("Target task types"))
-        st.dataframe(
-            pd.DataFrame(
-                [{_t("Target"): target, _t("Task type"): _t(task_type)} for target, task_type in task_types.items()]
-            ),
-            use_container_width=True,
-        )
-
-    eda_tabs = st.tabs([_t("Missingness"), _t("Correlations"), _t("Target relationships"), _t("Quality warnings")])
-    with eda_tabs[0]:
-        top_missing = eda_summary["missingness"]["top_missing_columns"]
-        if top_missing:
+        if primary_target in analysis_df.columns and eda_summary.get("target"):
+            label = _t("Primary target profile") if len(target_columns) > 1 else _t("Target profile")
+            st.write(label)
+            _render_target_profile(eda_summary["target"])
+        if len(target_columns) > 1:
+            st.write(_t("Target task types"))
             st.dataframe(
                 pd.DataFrame(
-                    [{_t("Column"): column, _t("Missing rate"): rate} for column, rate in top_missing.items()]
+                    [{_t("Target"): target, _t("Task type"): _t(task_type)} for target, task_type in task_types.items()]
                 ),
                 use_container_width=True,
             )
-        correlated_missing = eda_summary["missingness"]["correlated_missing_pairs"]
-        if correlated_missing:
-            st.write(_t("Correlated missingness pairs"))
-            st.dataframe(pd.DataFrame(correlated_missing), use_container_width=True)
-    with eda_tabs[1]:
-        top_pairs = eda_summary["correlations"]["top_numeric_pairs"]
-        target_corr = eda_summary["correlations"]["target_numeric_correlations"]
-        if target_corr:
-            st.write(_t("Numeric correlations with target"))
-            st.dataframe(pd.DataFrame(target_corr), use_container_width=True)
-        if top_pairs:
-            st.write(_t("Strong numeric feature correlations"))
-            st.dataframe(pd.DataFrame(top_pairs), use_container_width=True)
-    with eda_tabs[2]:
-        _render_target_relationships(eda_summary.get("target_relationships", {}))
-    with eda_tabs[3]:
-        for warning in eda_summary["quality_warnings"]:
-            st.warning(warning)
+
+        eda_tabs = st.tabs([_t("Missingness"), _t("Correlations"), _t("Target relationships"), _t("Quality warnings")])
+        with eda_tabs[0]:
+            top_missing = eda_summary["missingness"]["top_missing_columns"]
+            if top_missing:
+                st.dataframe(
+                    pd.DataFrame(
+                        [{_t("Column"): column, _t("Missing rate"): rate} for column, rate in top_missing.items()]
+                    ),
+                    use_container_width=True,
+                )
+            correlated_missing = eda_summary["missingness"]["correlated_missing_pairs"]
+            if correlated_missing:
+                st.write(_t("Correlated missingness pairs"))
+                st.dataframe(pd.DataFrame(correlated_missing), use_container_width=True)
+        with eda_tabs[1]:
+            top_pairs = eda_summary["correlations"]["top_numeric_pairs"]
+            target_corr = eda_summary["correlations"]["target_numeric_correlations"]
+            if target_corr:
+                st.write(_t("Numeric correlations with target"))
+                st.dataframe(pd.DataFrame(target_corr), use_container_width=True)
+            if top_pairs:
+                st.write(_t("Strong numeric feature correlations"))
+                st.dataframe(pd.DataFrame(top_pairs), use_container_width=True)
+        with eda_tabs[2]:
+            _render_target_relationships(eda_summary.get("target_relationships", {}))
+        with eda_tabs[3]:
+            for warning in eda_summary["quality_warnings"]:
+                st.warning(warning)
 
     prepared_batches: list[dict[str, object]] = []
     prepared_ready = st.session_state.get("_latest_prepared_signature") == current_experiment_signature
     if prepared_ready:
         prepared_batches = list(st.session_state.get("_latest_prepared_batches", []))
 
-    st.subheader("4. Prepare data")
-    _section_caption("Apply the selected cleaning and preprocessing methods first, then train models as a separate step.")
-    if failing_targets:
-        _render_step_status(
-            "Data preparation is blocked by validation issues.",
-            f"Resolve the flagged issues for: {', '.join(failing_targets)} before preparing data.",
-            level="warning",
-        )
-    elif prepared_ready:
-        _render_step_status(
-            "Data preparation is complete for the current setup.",
-            "Review the prepared train/test summary below, then continue to model training.",
-            level="success",
-        )
-    else:
-        _render_step_status(
-            "The preprocessing methods are configured but have not been applied yet.",
-            "Click Prepare data to split the dataset and materialize the train/test matrices before training.",
-            level="info",
-        )
-
-    prepare_cols = st.columns([0.8, 1.2])
-    with prepare_cols[0]:
-        prepare_clicked = st.button("Prepare data", type="primary", disabled=bool(failing_targets))
-    with prepare_cols[1]:
-        if prepared_ready:
-            st.caption(f"Prepared targets: {', '.join(str(batch['target']) for batch in prepared_batches)}")
-
-    if prepare_clicked:
-        try:
-            prepared_batches = _prepare_target_batches(
-                df=df,
-                base_analysis_df=base_analysis_df,
-                analysis_df=analysis_df,
-                analysis_manual_cleaning_log=analysis_manual_cleaning_log,
-                analysis_manual_cleaning_impact=analysis_manual_cleaning_impact,
-                candidate_feature_columns=candidate_feature_columns,
-                excluded_columns=applied_excluded_columns,
-                target_columns=target_columns,
-                task_types=task_types,
-                priority_metrics=priority_metrics,
-                preflight_by_target=preflight_by_target,
-                preprocessing_plan=applied_preprocessing_plan,
-                manual_cleaning_plan=manual_cleaning_plan,
+    st.subheader(_t("4. Prepare data"))
+    with st.container(border=True):
+        _section_caption(_t("Apply the selected cleaning and preprocessing methods first, then train models as a separate step."))
+        if failing_targets:
+            _render_step_status(
+                "Data preparation is blocked by validation issues.",
+                f"Resolve the flagged issues for: {', '.join(failing_targets)} before preparing data.",
+                level="warning",
             )
-        except ValueError as exc:
-            st.error(str(exc))
-            return
+        elif prepared_ready:
+            _render_step_status(
+                "Data preparation is complete for the current setup.",
+                "Review the prepared train/test summary below, then continue to model training.",
+                level="success",
+            )
+        else:
+            _render_step_status(
+                "The preprocessing methods are configured but have not been applied yet.",
+                "Click Prepare data to split the dataset and materialize the train/test matrices before training.",
+                level="info",
+            )
 
-        st.session_state["_latest_prepared_signature"] = current_experiment_signature
-        st.session_state["_latest_prepared_batches"] = list(prepared_batches)
-        prepared_ready = True
-        st.success(f"Data preparation completed: {', '.join(str(batch['target']) for batch in prepared_batches)}")
+        prepare_cols = st.columns([0.8, 1.2])
+        with prepare_cols[0]:
+            prepare_clicked = st.button(_t("Prepare data"), type="primary", disabled=bool(failing_targets))
+        with prepare_cols[1]:
+            if prepared_ready:
+                st.caption(
+                    _t(
+                        "Prepared targets: {prepared_targets}",
+                        prepared_targets=", ".join(str(batch["target"]) for batch in prepared_batches),
+                    )
+                )
+        if prepare_clicked:
+            try:
+                prepared_batches = _prepare_target_batches(
+                    df=df,
+                    base_analysis_df=base_analysis_df,
+                    analysis_df=analysis_df,
+                    analysis_manual_cleaning_log=analysis_manual_cleaning_log,
+                    analysis_manual_cleaning_impact=analysis_manual_cleaning_impact,
+                    candidate_feature_columns=candidate_feature_columns,
+                    excluded_columns=applied_excluded_columns,
+                    target_columns=target_columns,
+                    task_types=task_types,
+                    priority_metrics=priority_metrics,
+                    preflight_by_target=preflight_by_target,
+                    preprocessing_plan=applied_preprocessing_plan,
+                    manual_cleaning_plan=manual_cleaning_plan,
+                )
+            except ValueError as exc:
+                st.error(str(exc))
+                return
 
-    if prepared_ready and prepared_batches:
-        st.dataframe(
-            pd.DataFrame(
-                [
-                    {
-                        "target": str(batch["target"]),
-                        "task_type": str(batch["task_type"]),
-                        "train_rows": len(batch["cleaned"].X_train),
-                        "test_rows": len(batch["cleaned"].X_test),
-                        "prepared_features": len(batch["cleaned"].prepared_feature_names or []),
-                    }
-                    for batch in prepared_batches
-                ]
-            ),
-            hide_index=True,
-            use_container_width=True,
-        )
+            st.session_state["_latest_prepared_signature"] = current_experiment_signature
+            st.session_state["_latest_prepared_batches"] = list(prepared_batches)
+            prepared_ready = True
+            st.success(
+                _t(
+                    "Data preparation completed: {prepared_targets}",
+                    prepared_targets=", ".join(str(batch["target"]) for batch in prepared_batches),
+                )
+            )
 
-    st.subheader("5. Start training")
-    _section_caption("Training now uses the prepared train/test data from the previous step instead of rerunning preprocessing inside the fit step.")
-    if failing_targets:
-        _render_step_status(
-            _t("Training is blocked by validation issues."),
-            _t("Resolve the flagged issues for: {failing_targets}.", failing_targets=", ".join(failing_targets)),
-            level="warning",
-        )
-    elif not prepared_ready:
-        _render_step_status(
-            "Training is waiting for data preparation.",
-            "Run Prepare data first so the missing-value handling and feature processing finish before model fitting.",
-            level="warning",
-        )
-    else:
-        _render_step_status(
-            _t("The run is ready to start."),
-            "Click Run training to fit models on the prepared data and unlock the results step.",
-            level="success",
-        )
+        if prepared_ready and prepared_batches:
+            st.dataframe(
+                pd.DataFrame(
+                    [
+                        {
+                            _t("prepared target"): str(batch["target"]),
+                            _t("prepared task type"): str(batch["task_type"]),
+                            _t("prepared train rows"): len(batch["cleaned"].X_train),
+                            _t("prepared test rows"): len(batch["cleaned"].X_test),
+                            _t("prepared features"): len(batch["cleaned"].prepared_feature_names or []),
+                        }
+                        for batch in prepared_batches
+                    ]
+                ),
+                hide_index=True,
+                use_container_width=True,
+            )
+
+    st.subheader(_t("5. Start training"))
     results: list[dict[str, object]] = []
     if st.session_state.get("_latest_results_signature") == current_experiment_signature:
         results = list(st.session_state.get("_latest_results", []))
 
-    if st.button(_t("Run training"), type="primary", disabled=bool(failing_targets) or not prepared_ready):
-        results = []
-        with st.spinner("Training models on the prepared data..."):
-            if failing_targets:
-                logger.error("Blocking preflight issues targets=%s", failing_targets)
-                st.error(_t("Resolve blocking preflight issues before training: {failing_targets}", failing_targets=", ".join(failing_targets)))
-                return
+    with st.container(border=True):
+        _section_caption(_t("Training now uses the prepared train/test data from the previous step instead of rerunning preprocessing inside the fit step."))
+        if failing_targets:
+            _render_step_status(
+                _t("Training is blocked by validation issues."),
+                _t("Resolve the flagged issues for: {failing_targets}.", failing_targets=", ".join(failing_targets)),
+                level="warning",
+            )
+        elif not prepared_ready:
+            _render_step_status(
+                "Training is waiting for data preparation.",
+                "Run Prepare data first so the missing-value handling and feature processing finish before model fitting.",
+                level="warning",
+            )
+        else:
+            _render_step_status(
+                _t("The run is ready to start."),
+                "Click Run training to fit models on the prepared data and unlock the results step.",
+                level="success",
+            )
 
-            if not prepared_batches:
-                logger.error("Training requested without prepared batches")
-                st.error("Prepare data before training.")
-                return
+        if st.button(_t("Run training"), type="primary", disabled=bool(failing_targets) or not prepared_ready):
+            results = []
+            with st.spinner(_t("Training models on the prepared data...")):
+                if failing_targets:
+                    logger.error("Blocking preflight issues targets=%s", failing_targets)
+                    st.error(_t("Resolve blocking preflight issues before training: {failing_targets}", failing_targets=", ".join(failing_targets)))
+                    return
 
-            logger.info("Starting training pipeline targets=%s task_types=%s", target_columns, task_types)
-            for batch in prepared_batches:
-                target = str(batch["target"])
-                task_type = str(batch["task_type"])
-                priority_metric = str(batch["priority_metric"])
-                preflight_validation = batch["preflight_validation"]
-                tracker = batch["tracker"]
-                target_eda_summary = batch["target_eda_summary"]
-                cleaned = batch["cleaned"]
-                logger.info("Training target=%s task_type=%s", target, task_type)
-                trained = train_model(cleaned, time_budget=int(time_budget), metric_preference=priority_metric, tracker=tracker)
-                metrics, prediction_sample = evaluate_model(trained.model, cleaned, task_type=task_type, tracker=tracker)
-                tracker.snapshot_artifact(
-                    "metrics_summary",
-                    "Metrics summary",
-                    "evaluation",
-                    metadata={"metrics": metrics, "priority_metric": priority_metric},
-                )
-                planned_report_mode = "llm" if settings.llm_enabled else "rule_based"
-                postrun_validation = validate_postrun(
-                    metrics=metrics,
-                    prediction_sample=prediction_sample,
-                    task_type=task_type,
-                    priority_metric=priority_metric,
-                    trainer_name=trained.trainer_name,
-                    optimization_metric_used=trained.optimization_metric_used,
-                    feature_importance=trained.feature_importance,
-                    report_mode=planned_report_mode,
-                )
-                recommendations = build_recommendations(preflight_validation, postrun_validation)
+                if not prepared_batches:
+                    logger.error("Training requested without prepared batches")
+                    st.error(_t("Prepare data before training."))
+                    return
 
-                report, report_mode = generate_report_result(
-                    eda_summary=target_eda_summary,
-                    cleaning_log=cleaned.cleaning_log,
-                    metrics=metrics,
-                    feature_importance=trained.feature_importance,
-                    settings=settings,
-                    plan_suggestion=plan_suggestion,
-                    preflight_validation=preflight_validation,
-                    postrun_validation=postrun_validation,
-                    recommendations=recommendations,
-                )
-                postrun_validation = validate_postrun(
-                    metrics=metrics,
-                    prediction_sample=prediction_sample,
-                    task_type=task_type,
-                    priority_metric=priority_metric,
-                    trainer_name=trained.trainer_name,
-                    optimization_metric_used=trained.optimization_metric_used,
-                    feature_importance=trained.feature_importance,
-                    report_mode=report_mode,
-                )
-                recommendations = build_recommendations(preflight_validation, postrun_validation)
-                if report_mode != planned_report_mode:
+                logger.info("Starting training pipeline targets=%s task_types=%s", target_columns, task_types)
+                for batch in prepared_batches:
+                    target = str(batch["target"])
+                    task_type = str(batch["task_type"])
+                    priority_metric = str(batch["priority_metric"])
+                    preflight_validation = batch["preflight_validation"]
+                    tracker = batch["tracker"]
+                    target_eda_summary = batch["target_eda_summary"]
+                    cleaned = batch["cleaned"]
+                    logger.info("Training target=%s task_type=%s", target, task_type)
+                    trained = train_model(cleaned, time_budget=int(time_budget), metric_preference=priority_metric, tracker=tracker)
+                    metrics, prediction_sample = evaluate_model(trained.model, cleaned, task_type=task_type, tracker=tracker)
+                    tracker.snapshot_artifact(
+                        "metrics_summary",
+                        "Metrics summary",
+                        "evaluation",
+                        metadata={"metrics": metrics, "priority_metric": priority_metric},
+                    )
+                    planned_report_mode = "llm" if settings.llm_enabled else "rule_based"
+                    postrun_validation = validate_postrun(
+                        metrics=metrics,
+                        prediction_sample=prediction_sample,
+                        task_type=task_type,
+                        priority_metric=priority_metric,
+                        trainer_name=trained.trainer_name,
+                        optimization_metric_used=trained.optimization_metric_used,
+                        feature_importance=trained.feature_importance,
+                        report_mode=planned_report_mode,
+                    )
+                    recommendations = build_recommendations(preflight_validation, postrun_validation)
+
                     report, report_mode = generate_report_result(
                         eda_summary=target_eda_summary,
                         cleaning_log=cleaned.cleaning_log,
@@ -3131,89 +2873,112 @@ def main() -> None:
                         postrun_validation=postrun_validation,
                         recommendations=recommendations,
                     )
+                    postrun_validation = validate_postrun(
+                        metrics=metrics,
+                        prediction_sample=prediction_sample,
+                        task_type=task_type,
+                        priority_metric=priority_metric,
+                        trainer_name=trained.trainer_name,
+                        optimization_metric_used=trained.optimization_metric_used,
+                        feature_importance=trained.feature_importance,
+                        report_mode=report_mode,
+                    )
+                    recommendations = build_recommendations(preflight_validation, postrun_validation)
+                    if report_mode != planned_report_mode:
+                        report, report_mode = generate_report_result(
+                            eda_summary=target_eda_summary,
+                            cleaning_log=cleaned.cleaning_log,
+                            metrics=metrics,
+                            feature_importance=trained.feature_importance,
+                            settings=settings,
+                            plan_suggestion=plan_suggestion,
+                            preflight_validation=preflight_validation,
+                            postrun_validation=postrun_validation,
+                            recommendations=recommendations,
+                        )
 
-                run = storage.create_run(
-                    config={
-                        "target": target,
-                        "target_columns": target_columns,
-                        "task_type": task_type,
-                        "task_type_choice": task_type_choice,
-                        "excluded_columns": applied_excluded_columns,
-                        "test_size": cleaned.config.test_size,
-                        "high_missing_threshold": cleaned.config.high_missing_threshold,
-                        "random_state": cleaned.config.random_state,
-                        "numeric_imputation_strategy": cleaned.config.numeric_imputation_strategy,
-                        "categorical_imputation_strategy": cleaned.config.categorical_imputation_strategy,
-                        "categorical_encoding_strategy": cleaned.config.categorical_encoding_strategy,
-                        "standardize_numeric": bool(cleaned.config.standardize_numeric),
-                        "time_budget": time_budget,
-                        "priority_metric": priority_metric,
-                        "trainer": trained.trainer_name,
-                        "planner_name": plan_suggestion.planner_name,
-                        "feature_engineering_enabled": bool(feature_plan),
-                        "manual_cleaning_enabled": bool(manual_cleaning_plan and any(rule.enabled for rule in manual_cleaning_plan.rules)),
-                        "manual_cleaning_effect_stage": manual_cleaning_plan.effect_stage if manual_cleaning_plan else None,
-                        "dataset_fingerprint": current_dataset_fingerprint,
-                        "prepared_before_training": True,
-                    }
-                )
-                storage.save_json(run, "plan.json", artifact_to_dict(plan_suggestion))
-                storage.save_json(run, "preprocessing_plan.json", artifact_to_dict(applied_preprocessing_plan))
-                if feature_plan:
-                    storage.save_json(run, "feature_engineering_plan.json", artifact_to_dict(feature_plan))
-                if manual_cleaning_plan:
-                    storage.save_json(run, "manual_cleaning_plan.json", artifact_to_dict(manual_cleaning_plan))
-                storage.save_json(run, "eda_summary.json", target_eda_summary)
-                storage.save_json(run, "cleaning_log.json", cleaned.cleaning_log)
-                storage.save_json(run, "metrics.json", metrics)
-                data_flow_payload = artifact_to_dict(tracker.to_trace())
-                storage.save_json(run, "data_flow.json", data_flow_payload)
-                storage.save_json(run, "feature_importance.json", trained.feature_importance)
-                storage.save_json(run, "validation_pre.json", artifact_to_dict(preflight_validation))
-                storage.save_json(run, "validation_post.json", artifact_to_dict(postrun_validation))
-                storage.save_json(run, "recommendations.json", artifact_to_dict(recommendations))
-                storage.save_json(
-                    run,
-                    "training_summary.json",
-                    {
-                        "trainer_name": trained.trainer_name,
-                        "optimization_metric_used": trained.optimization_metric_used,
-                        "training_notes": trained.training_notes or [],
-                        "manual_cleaning_effect_stage": manual_cleaning_plan.effect_stage if manual_cleaning_plan else None,
-                        "manual_cleaning_applied_rules": 0
-                        if not manual_cleaning_plan
-                        else sum(1 for rule in manual_cleaning_plan.rules if rule.enabled),
-                        "prepared_before_training": True,
-                    },
-                )
-                report_path = storage.save_text(run, "report.md", report)
-                prediction_path = storage.save_predictions(run, prediction_sample)
-                model_path = storage.save_model(run, trained.model)
-                storage.record_run(run, metrics=metrics, status="completed")
-                results.append(
-                    {
-                        "target": target,
-                        "task_type": task_type,
-                        "run": run,
-                        "trained": trained,
-                        "metrics": metrics,
-                        "report": report,
-                        "preflight_validation": preflight_validation,
-                        "postrun_validation": postrun_validation,
-                        "recommendations": recommendations,
-                        "priority_metric": priority_metric,
-                        "data_flow": data_flow_payload,
-                        "report_path": report_path,
-                        "prediction_path": prediction_path,
-                        "model_path": model_path,
-                    }
-                )
+                    run = storage.create_run(
+                        config={
+                            "target": target,
+                            "target_columns": target_columns,
+                            "task_type": task_type,
+                            "task_type_choice": task_type_choice,
+                            "excluded_columns": applied_excluded_columns,
+                            "test_size": cleaned.config.test_size,
+                            "high_missing_threshold": cleaned.config.high_missing_threshold,
+                            "random_state": cleaned.config.random_state,
+                            "numeric_imputation_strategy": cleaned.config.numeric_imputation_strategy,
+                            "categorical_imputation_strategy": cleaned.config.categorical_imputation_strategy,
+                            "categorical_encoding_strategy": cleaned.config.categorical_encoding_strategy,
+                            "standardize_numeric": bool(cleaned.config.standardize_numeric),
+                            "time_budget": time_budget,
+                            "priority_metric": priority_metric,
+                            "trainer": trained.trainer_name,
+                            "planner_name": plan_suggestion.planner_name,
+                            "feature_engineering_enabled": bool(feature_plan),
+                            "manual_cleaning_enabled": bool(manual_cleaning_plan and any(rule.enabled for rule in manual_cleaning_plan.rules)),
+                            "manual_cleaning_effect_stage": manual_cleaning_plan.effect_stage if manual_cleaning_plan else None,
+                            "dataset_fingerprint": current_dataset_fingerprint,
+                            "prepared_before_training": True,
+                        }
+                    )
+                    storage.save_json(run, "plan.json", artifact_to_dict(plan_suggestion))
+                    storage.save_json(run, "preprocessing_plan.json", artifact_to_dict(applied_preprocessing_plan))
+                    if feature_plan:
+                        storage.save_json(run, "feature_engineering_plan.json", artifact_to_dict(feature_plan))
+                    if manual_cleaning_plan:
+                        storage.save_json(run, "manual_cleaning_plan.json", artifact_to_dict(manual_cleaning_plan))
+                    storage.save_json(run, "eda_summary.json", target_eda_summary)
+                    storage.save_json(run, "cleaning_log.json", cleaned.cleaning_log)
+                    storage.save_json(run, "metrics.json", metrics)
+                    data_flow_payload = artifact_to_dict(tracker.to_trace())
+                    storage.save_json(run, "data_flow.json", data_flow_payload)
+                    storage.save_json(run, "feature_importance.json", trained.feature_importance)
+                    storage.save_json(run, "validation_pre.json", artifact_to_dict(preflight_validation))
+                    storage.save_json(run, "validation_post.json", artifact_to_dict(postrun_validation))
+                    storage.save_json(run, "recommendations.json", artifact_to_dict(recommendations))
+                    storage.save_json(
+                        run,
+                        "training_summary.json",
+                        {
+                            "trainer_name": trained.trainer_name,
+                            "optimization_metric_used": trained.optimization_metric_used,
+                            "training_notes": trained.training_notes or [],
+                            "manual_cleaning_effect_stage": manual_cleaning_plan.effect_stage if manual_cleaning_plan else None,
+                            "manual_cleaning_applied_rules": 0
+                            if not manual_cleaning_plan
+                            else sum(1 for rule in manual_cleaning_plan.rules if rule.enabled),
+                            "prepared_before_training": True,
+                        },
+                    )
+                    report_path = storage.save_text(run, "report.md", report)
+                    prediction_path = storage.save_predictions(run, prediction_sample)
+                    model_path = storage.save_model(run, trained.model)
+                    storage.record_run(run, metrics=metrics, status="completed")
+                    results.append(
+                        {
+                            "target": target,
+                            "task_type": task_type,
+                            "run": run,
+                            "trained": trained,
+                            "metrics": metrics,
+                            "report": report,
+                            "preflight_validation": preflight_validation,
+                            "postrun_validation": postrun_validation,
+                            "recommendations": recommendations,
+                            "priority_metric": priority_metric,
+                            "data_flow": data_flow_payload,
+                            "report_path": report_path,
+                            "prediction_path": prediction_path,
+                            "model_path": model_path,
+                        }
+                    )
 
-        st.session_state["_latest_results_signature"] = current_experiment_signature
-        st.session_state["_latest_results"] = list(results)
-        completed_ids = ", ".join(str(result["run"].run_id) for result in results)
-        logger.info("Training pipeline complete run_ids=%s", completed_ids)
-        st.success(_t("Run completed: {completed_ids}", completed_ids=completed_ids))
+            st.session_state["_latest_results_signature"] = current_experiment_signature
+            st.session_state["_latest_results"] = list(results)
+            completed_ids = ", ".join(str(result["run"].run_id) for result in results)
+            logger.info("Training pipeline complete run_ids=%s", completed_ids)
+            st.success(_t("Run completed: {completed_ids}", completed_ids=completed_ids))
 
     if results:
         _render_run_outputs(results)

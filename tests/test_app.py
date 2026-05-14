@@ -47,6 +47,40 @@ def test_can_switch_ui_language_to_chinese(monkeypatch, tmp_path) -> None:
     assert any(subheader.value == "1. 上传数据" for subheader in app.subheader)
 
 
+def test_chinese_ui_covers_preprocessing_and_results_labels(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("ML_PLATFORM_RUNS_DIR", str(tmp_path / "runs"))
+
+    app = AppTest.from_file("app.py")
+    app.run(timeout=120)
+
+    app.selectbox(key="ui_language").set_value("zh-CN")
+    app.run(timeout=120)
+
+    app.radio[0].set_value("示例：demo_customer_churn.csv")
+    app.run(timeout=120)
+
+    app.multiselect(key="target_columns").set_value(["churn"])
+    app.run(timeout=120)
+
+    assert any(subheader.value == "3. 配置数据预处理" for subheader in app.subheader)
+    assert any(subheader.value == "4. 准备数据" for subheader in app.subheader)
+    assert any(subheader.value == "5. 开始训练" for subheader in app.subheader)
+    assert any(button.label == "准备数据" for button in app.button)
+    assert any(button.label == "开始训练" for button in app.button)
+
+    prepare_data = next(button for button in app.button if button.label == "准备数据")
+    prepare_data.click()
+    app.run(timeout=120)
+
+    run_training = next(button for button in app.button if button.label == "开始训练")
+    run_training.click()
+    app.run(timeout=120)
+
+    assert any(subheader.value == "6. 查看结果" for subheader in app.subheader)
+    assert any(metric.label == "已完成运行数" for metric in app.metric)
+    assert any(selectbox.label == "查看数据处理流程步骤" for selectbox in app.selectbox)
+
+
 def test_workflow_waits_for_target_selection(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("ML_PLATFORM_RUNS_DIR", str(tmp_path / "runs"))
 
