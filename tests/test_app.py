@@ -54,6 +54,33 @@ def test_can_switch_ui_language_to_chinese(monkeypatch, tmp_path) -> None:
     assert any(subheader.value == "1. 上传数据" for subheader in app.subheader)
 
 
+def test_distribution_tab_shows_default_feature_and_excludes_target(
+    monkeypatch, tmp_path
+) -> None:
+    monkeypatch.setenv("ML_PLATFORM_RUNS_DIR", str(tmp_path / "runs"))
+
+    app = AppTest.from_file("app.py")
+    app.run(timeout=120)
+
+    app.radio[0].set_value("Demo: demo_customer_churn.csv")
+    app.run(timeout=120)
+
+    app.multiselect(key="target_columns").set_value(["churn"])
+    app.run(timeout=120)
+
+    assert any(tab.label == "Distributions" for tab in app.tabs)
+    distribution_feature = app.selectbox(key="distribution_feature_column")
+    assert distribution_feature.label == "Feature to inspect"
+    assert distribution_feature.value == "tenure_months"
+    assert "churn" not in distribution_feature.options
+    assert not any(selectbox.key == "distribution_compare_target" for selectbox in app.selectbox)
+    assert any(
+        caption.value
+        == "Use this view to scan feature distributions and compare them against the selected target."
+        for caption in app.caption
+    )
+
+
 def test_categorical_encoding_strategy_offers_three_options(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("ML_PLATFORM_RUNS_DIR", str(tmp_path / "runs"))
 
@@ -113,6 +140,9 @@ def test_chinese_ui_covers_preprocessing_and_results_labels(monkeypatch, tmp_pat
     assert any(button.label == "准备数据" for button in app.button)
     assert any(button.label == "开始训练" for button in app.button)
     assert any("类别编码策略" in caption.value for caption in app.caption)
+    assert any("目标列就是你希望模型预测的结果" in caption.value for caption in app.caption)
+    assert any("这些检查会解释为什么当前可以继续训练" in caption.value for caption in app.caption)
+    assert any("这些检查项不会阻止训练" in alert.value for alert in app.info)
 
     run_training = next(button for button in app.button if button.label == "开始训练")
     run_training.click()
@@ -121,6 +151,35 @@ def test_chinese_ui_covers_preprocessing_and_results_labels(monkeypatch, tmp_pat
     assert any(subheader.value == "6. 查看结果" for subheader in app.subheader)
     assert any(metric.label == "已完成运行数" for metric in app.metric)
     assert any(selectbox.label == "查看数据处理流程步骤" for selectbox in app.selectbox)
+    assert any(caption.value == "如何看结果" for caption in app.caption)
+    assert any("建议先看运行摘要和校验说明" in alert.value for alert in app.info)
+    assert any(caption.value == "结果解读" for caption in app.caption)
+
+
+def test_chinese_ui_translates_distribution_tab_and_controls(
+    monkeypatch, tmp_path
+) -> None:
+    monkeypatch.setenv("ML_PLATFORM_RUNS_DIR", str(tmp_path / "runs"))
+
+    app = AppTest.from_file("app.py")
+    app.run(timeout=120)
+
+    app.selectbox(key="ui_language").set_value("zh-CN")
+    app.run(timeout=120)
+
+    app.radio[0].set_value("示例：demo_customer_churn.csv")
+    app.run(timeout=120)
+
+    app.multiselect(key="target_columns").set_value(["churn"])
+    app.run(timeout=120)
+
+    assert any(tab.label == "分布可视化" for tab in app.tabs)
+    distribution_feature = app.selectbox(key="distribution_feature_column")
+    assert distribution_feature.label == "选择要观察的特征列"
+    assert any(
+        caption.value == "这个视图用于快速扫一遍特征分布，并和当前选择的目标列做对比。"
+        for caption in app.caption
+    )
 
 
 def test_workflow_waits_for_target_selection(monkeypatch, tmp_path) -> None:
@@ -149,6 +208,10 @@ def test_workflow_waits_for_target_selection(monkeypatch, tmp_path) -> None:
     assert any(subheader.value == "5. Start training" for subheader in app.subheader)
     run_training = next(button for button in app.button if button.label == "Run training")
     assert run_training.disabled is False
+    assert any("Your target column is the outcome you want the model to predict." in caption.value for caption in app.caption)
+    assert any("The app currently reads `churn` as" in alert.value for alert in app.info)
+    assert any("These checks explain why training can continue" in caption.value for caption in app.caption)
+    assert any("These checks will not stop training" in alert.value for alert in app.info)
 
 
 def test_data_flow_selection_does_not_drop_latest_results(monkeypatch, tmp_path) -> None:
@@ -172,6 +235,9 @@ def test_data_flow_selection_does_not_drop_latest_results(monkeypatch, tmp_path)
 
     assert any(subheader.value == "6. Review results" for subheader in app.subheader)
     assert any(metric.label == "Completed runs" for metric in app.metric)
+    assert any(caption.value == "How to read the results" for caption in app.caption)
+    assert any("Start with the run summary and validation notes." in alert.value for alert in app.info)
+    assert any(caption.value == "Result translation" for caption in app.caption)
 
     data_flow_select = next(selectbox for selectbox in app.selectbox if selectbox.label == "Inspect data flow step")
     data_flow_select.set_value(data_flow_select.options[1])
@@ -253,6 +319,47 @@ def test_applied_preprocessing_step_invalidates_prepared_data(monkeypatch, tmp_p
 
     run_config = _latest_run_config(tmp_path / "runs")
     assert run_config["numeric_imputation_strategy"] == "mean"
+
+
+def test_blocking_preflight_explanation_is_shown_when_no_features_remain(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("ML_PLATFORM_RUNS_DIR", str(tmp_path / "runs"))
+
+    app = AppTest.from_file("app.py")
+    app.run(timeout=120)
+
+    app.radio[0].set_value("Demo: demo_customer_churn.csv")
+    app.run(timeout=120)
+
+    app.multiselect(key="target_columns").set_value(["churn"])
+    app.run(timeout=120)
+
+    app.multiselect(key="excluded_columns").set_value(
+        [
+            "customer_id",
+            "signup_date",
+            "tenure_months",
+            "monthly_spend",
+            "support_tickets_90d",
+            "contract_type",
+            "region",
+            "autopay",
+            "late_payments_6m",
+            "nps_score",
+        ]
+    )
+    app.run(timeout=120)
+
+    apply_column_selection = next(
+        button for button in app.button if button.label == "Apply column selection"
+    )
+    apply_column_selection.click()
+    app.run(timeout=120)
+
+    assert any("These checks can stop training." in alert.value for alert in app.warning)
+    assert any(
+        "The app needs at least one input column to learn from." in markdown.value
+        for markdown in app.markdown
+    )
 
 
 def test_run_training_uses_applied_preprocessing_not_unapplied_draft(monkeypatch, tmp_path) -> None:

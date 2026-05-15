@@ -1,13 +1,20 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Collection
 import warnings
 
 import numpy as np
 import pandas as pd
 
 logger = logging.getLogger(__name__)
+
+CONTINUOUS_NUMERIC_UNIQUE_THRESHOLD = 20
+MAX_COMPARE_GROUPS = 10
+MAX_TOP_CATEGORIES = 20
+TARGET_GROUP_COLUMN = "target_group"
+FEATURE_VALUE_COLUMN = "feature_value"
+TIME_BUCKET_COLUMN = "time_bucket"
 
 
 def _json_safe(value: Any) -> Any:
@@ -33,6 +40,213 @@ def infer_column_types(df: pd.DataFrame) -> dict[str, list[str]]:
         else:
             categorical.append(column)
     return {"numeric": numeric, "categorical": categorical, "datetime_like": datetime_like}
+
+
+def infer_distribution_display_mode(
+    series: pd.Series,
+    *,
+    column_name: str | None = None,
+    datetime_like_columns: Collection[str] | None = None,
+) -> str:
+    if pd.api.types.is_datetime64_any_dtype(series):
+        return "datetime_like"
+    if (
+        column_name is not None
+        and datetime_like_columns is not None
+        and column_name in set(datetime_like_columns)
+    ):
+        return "datetime_like"
+    if pd.api.types.is_numeric_dtype(series):
+        unique_count = int(series.nunique(dropna=True))
+        if unique_count > CONTINUOUS_NUMERIC_UNIQUE_THRESHOLD:
+            return "continuous_numeric"
+        return "discrete_numeric"
+    return "categorical"
+
+
+def build_distribution_overview(
+    df: pd.DataFrame, feature_columns: list[str] | None = None
+) -> pd.DataFrame:
+    feature_columns = feature_columns or list(df.columns)
+    column_types = infer_column_types(df)
+    datetime_like_columns = set(column_types["datetime_like"])
+    rows: list[dict[str, Any]] = []
+
+    for column in feature_columns:
+        if column not in df.columns:
+            continue
+        series = df[column]
+        rows.append(
+            {
+                "column": column,
+                "dtype": str(series.dtype),
+                "display_mode": infer_distribution_display_mode(
+                    series,
+                    column_name=column,
+                    datetime_like_columns=datetime_like_columns,
+                ),
+                "non_null_count": int(series.notna().sum()),
+                "missing_rate": float(series.isna().mean()) if len(series) else 0.0,
+                "unique_count": int(series.nunique(dropna=True)),
+            }
+        )
+
+    return pd.DataFrame(rows)
+
+
+def choose_default_distribution_feature(
+    df: pd.DataFrame, feature_columns: list[str] | None = None
+) -> str | None:
+    overview = build_distribution_overview(df, feature_columns)
+    if overview.empty:
+        return None
+    continuous = overview[overview["display_mode"] == "continuous_numeric"]
+    if not continuous.empty:
+        return str(continuous.iloc[0]["column"])
+    return str(overview.iloc[0]["column"])
+
+
+def build_target_compare_groups(target_series: pd.Series) -> tuple[pd.Series | None, dict[str, Any]]:
+    non_null = target_series.dropna()
+    unique_count = int(non_null.nunique(dropna=True))
+    metadata: dict[str, Any] = {
+        "enabled": False,
+        "mode": "none",
+        "reason": "no_target_values",
+        "group_count": 0,
+    }
+    if non_null.empty:
+        return None, metadata
+
+    if unique_count <= MAX_COMPARE_GROUPS:
+        grouped = target_series.astype("string").where(target_series.notna())
+        return grouped, {
+            "enabled": True,
+            "mode": "category",
+            "reason": None,
+            "group_count": unique_count,
+        }
+
+    if pd.api.types.is_numeric_dtype(target_series):
+        numeric_target = pd.to_numeric(target_series, errors="coerce")
+        try:
+            quartiles = pd.qcut(
+                numeric_target.dropna(),
+                q=4,
+                labels=["Q1", "Q2", "Q3", "Q4"],
+                duplicates="drop",
+            )
+        except ValueError:
+            quartiles = None
+        if quartiles is not None and len(quartiles.cat.categories) == 4:
+            grouped = pd.Series(pd.NA, index=target_series.index, dtype="string")
+            grouped.loc[quartiles.index] = quartiles.astype("string")
+            return grouped, {
+                "enabled": True,
+                "mode": "quartile",
+                "reason": None,
+                "group_count": 4,
+            }
+        return None, {
+            "enabled": False,
+            "mode": "none",
+            "reason": "unstable_quartiles",
+            "group_count": unique_count,
+        }
+
+    return None, {
+        "enabled": False,
+        "mode": "none",
+        "reason": "too_many_groups",
+        "group_count": unique_count,
+    }
+
+
+def build_distribution_plot_data(
+    df: pd.DataFrame,
+    feature_column: str,
+    target_column: str | None = None,
+) -> dict[str, Any]:
+    if feature_column not in df.columns:
+        raise KeyError(f"Feature column not found: {feature_column}")
+
+    series = df[feature_column]
+    column_types = infer_column_types(df[[column for column in df.columns if column != target_column]])
+    datetime_like_columns = set(column_types["datetime_like"])
+    display_mode = infer_distribution_display_mode(
+        series,
+        column_name=feature_column,
+        datetime_like_columns=datetime_like_columns,
+    )
+    compare_groups: pd.Series | None = None
+    compare_metadata: dict[str, Any] = {
+        "enabled": False,
+        "mode": "none",
+        "reason": "no_target_selected",
+        "group_count": 0,
+    }
+    if target_column and target_column in df.columns:
+        compare_groups, compare_metadata = build_target_compare_groups(df[target_column])
+
+    if display_mode == "datetime_like":
+        parsed = pd.to_datetime(series, errors="coerce")
+        non_null = parsed.dropna()
+        bucket_unit = "day"
+        if not non_null.empty:
+            span_days = int((non_null.max() - non_null.min()).days)
+            bucket_unit = "day" if span_days <= 90 else "month"
+        bucketed = (
+            parsed.dt.floor("D")
+            if bucket_unit == "day"
+            else parsed.dt.to_period("M").dt.to_timestamp()
+        )
+        value_column = TIME_BUCKET_COLUMN
+        plot_data = pd.DataFrame({TIME_BUCKET_COLUMN: bucketed}, index=df.index)
+    elif display_mode in {"continuous_numeric", "discrete_numeric"}:
+        numeric = pd.to_numeric(series, errors="coerce")
+        value_column = FEATURE_VALUE_COLUMN
+        plot_data = pd.DataFrame({FEATURE_VALUE_COLUMN: numeric}, index=df.index)
+        bucket_unit = None
+    else:
+        categorical = series.astype("string")
+        top_categories = categorical.dropna().value_counts().head(MAX_TOP_CATEGORIES).index
+        collapsed = categorical.where(categorical.isin(top_categories), other="Other")
+        collapsed = collapsed.where(categorical.notna())
+        value_column = FEATURE_VALUE_COLUMN
+        plot_data = pd.DataFrame({FEATURE_VALUE_COLUMN: collapsed}, index=df.index)
+        bucket_unit = None
+
+    plot_data = plot_data[plot_data[value_column].notna()].copy()
+    compare_enabled = bool(compare_metadata["enabled"] and compare_groups is not None)
+    if compare_enabled and compare_groups is not None:
+        plot_data[TARGET_GROUP_COLUMN] = compare_groups.loc[plot_data.index]
+        plot_data = plot_data[plot_data[TARGET_GROUP_COLUMN].notna()].copy()
+
+    chart_type = {
+        "continuous_numeric": "histogram",
+        "discrete_numeric": "grouped_bar" if compare_enabled else "bar",
+        "categorical": "stacked_normalized_bar" if compare_enabled else "bar",
+        "datetime_like": "faceted_time" if compare_enabled else "time_series",
+    }[display_mode]
+
+    return {
+        "column": feature_column,
+        "dtype": str(series.dtype),
+        "display_mode": display_mode,
+        "chart_type": chart_type,
+        "plot_data": plot_data.reset_index(drop=True),
+        "value_column": value_column,
+        "target_column": target_column,
+        "compare_enabled": compare_enabled,
+        "compare_mode": compare_metadata["mode"],
+        "compare_reason": compare_metadata["reason"],
+        "compare_group_count": int(compare_metadata.get("group_count", 0)),
+        "sample_count": int(len(plot_data)),
+        "non_null_count": int(series.notna().sum()),
+        "missing_rate": float(series.isna().mean()) if len(series) else 0.0,
+        "unique_count": int(series.nunique(dropna=True)),
+        "datetime_bucket_unit": bucket_unit,
+    }
 
 
 def generate_eda_summary(df: pd.DataFrame, target: str | None = None) -> dict[str, Any]:

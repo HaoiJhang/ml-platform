@@ -16,6 +16,7 @@ if str(SRC_DIR) not in sys.path:
 
 import pandas as pd
 import streamlit as st
+import altair as alt
 
 from ml_platform.artifacts import artifact_to_dict
 from ml_platform.automl import train_model
@@ -27,7 +28,12 @@ from ml_platform.cleaning import (
 from ml_platform.config import Settings, load_settings
 from ml_platform.data_flow import DataFlowTracker
 from ml_platform.data_io import read_csv
-from ml_platform.eda import generate_eda_summary
+from ml_platform.eda import (
+    build_distribution_overview,
+    build_distribution_plot_data,
+    choose_default_distribution_feature,
+    generate_eda_summary,
+)
 from ml_platform.evaluation import evaluate_model
 from ml_platform.feature_engineering import suggest_feature_engineering_plan
 from ml_platform.llm_report import generate_report_result
@@ -840,6 +846,15 @@ def _render_step_status(
         st.info(message)
 
 
+def _render_message(level: str, text: str) -> None:
+    if level == "success":
+        st.success(text)
+    elif level == "warning":
+        st.warning(text)
+    else:
+        st.info(text)
+
+
 def _configure_llm_settings(settings: Settings) -> Settings:
     allow_local_llm_config = _local_llm_config_enabled()
     saved_config = _load_local_llm_config()
@@ -1009,6 +1024,12 @@ def _render_run_outputs(results: list[dict[str, object]]) -> None:
             "Training has finished. Start with the short summary below, then open details or download files."
         )
     )
+    st.caption(_t("How to read the results"))
+    st.info(
+        _t(
+            "Start with the run summary and validation notes. They tell you whether this run looks safe to trust before you focus on detailed metrics or downloads."
+        )
+    )
     completed_targets = ", ".join(str(result["target"]) for result in results)
     _render_step_status(
         _t(
@@ -1082,6 +1103,9 @@ def _render_run_outputs(results: list[dict[str, object]]) -> None:
         with st.expander(
             _t("{target} results", target=result["target"]), expanded=len(results) == 1
         ):
+            st.caption(_t("Result translation"))
+            result_level, result_summary = _result_translation_summary(result)
+            _render_message(result_level, result_summary)
             st.write(_t("Metrics"))
             _render_metrics(
                 result["metrics"], priority_metric=result["priority_metric"]
@@ -1549,6 +1573,206 @@ def _preprocessing_summary_text(
     return " | ".join(parts)
 
 
+def _task_type_plain_language(task_type: str) -> str:
+    if task_type == "classification":
+        return _t("predicting labels such as yes/no or named categories")
+    return _t("predicting numbers such as price, spend, or duration")
+
+
+def _target_selection_summary(
+    *,
+    target_columns: list[str],
+    task_type_choice: str,
+    inferred_task_types: dict[str, str],
+) -> tuple[str, str]:
+    if task_type_choice == "auto":
+        if len(target_columns) == 1:
+            target = str(target_columns[0])
+            inferred = inferred_task_types.get(target, "regression")
+            return (
+                "info",
+                _t(
+                    "Your target is the result you want to predict. The app currently reads `{target}` as {task_type_explanation}. This is only a suggestion, and you can still change Task type manually.",
+                    target=target,
+                    task_type_explanation=_task_type_plain_language(inferred),
+                ),
+            )
+        return (
+            "info",
+            _t(
+                "Each selected target will train as a separate run. With automatic task detection, the app will decide for each target whether it looks more like labels or numbers."
+            ),
+        )
+
+    return (
+        "success",
+        _t(
+            "Your target is the result you want to predict. You set the task type manually, so the app will treat the selected target as {task_type_explanation}.",
+            task_type_explanation=_task_type_plain_language(task_type_choice),
+        ),
+    )
+
+
+def _preflight_explanation_items(validation: dict[str, object]) -> list[str]:
+    explanations: list[str] = []
+    seen: set[str] = set()
+    for issue in validation.get("issues", []):
+        if not isinstance(issue, dict):
+            continue
+        code = str(issue.get("code") or "")
+        if code in seen:
+            continue
+        seen.add(code)
+        if code == "identifier_candidates":
+            explanations.append(
+                _t(
+                    "Some columns look like record IDs. They help identify rows, but they usually do not help the model generalize, so excluding them is often safer."
+                )
+            )
+        elif code == "possible_leakage":
+            explanations.append(
+                _t(
+                    "Some columns look too close to the target. That can leak the answer into training and make the model look better than it really is."
+                )
+            )
+        elif code == "high_missing_features":
+            explanations.append(
+                _t(
+                    "Some features are missing too often. The app can still continue, but dropping or revisiting those columns usually makes the baseline easier to trust."
+                )
+            )
+        elif code == "small_dataset":
+            explanations.append(
+                _t(
+                    "Only a small number of rows are available for training and testing, so the score can swing a lot. Treat this run as an early signal, not a final answer."
+                )
+            )
+        elif code == "class_imbalance":
+            explanations.append(
+                _t(
+                    "One class is much rarer than the others. The model can still run, but overall scores may hide weak performance on the rare cases you care about."
+                )
+            )
+        elif code == "missing_target":
+            explanations.append(
+                _t(
+                    "The target column could not be found, so the app does not know what outcome to train on yet."
+                )
+            )
+        elif code == "empty_after_target_drop":
+            explanations.append(
+                _t(
+                    "Rows with missing target values are dropped before training. Here, that leaves no usable rows, so training cannot continue."
+                )
+            )
+        elif code == "no_features":
+            explanations.append(
+                _t(
+                    "No usable feature columns remain after exclusions. The app needs at least one input column to learn from."
+                )
+            )
+    if int(validation.get("dropped_target_rows") or 0) > 0:
+        explanations.append(
+            _t(
+                "Some rows are missing the target value and will be removed before training. If too many rows are dropped, trust the result more cautiously."
+            )
+        )
+    return explanations
+
+
+def _preflight_explanation_summary(validation: dict[str, object]) -> tuple[str, str]:
+    issues = [
+        issue for issue in validation.get("issues", []) if isinstance(issue, dict)
+    ]
+    has_errors = any(str(issue.get("severity")) == "error" for issue in issues)
+    has_warnings = any(
+        str(issue.get("severity")) in {"warning", "info"} for issue in issues
+    )
+    if has_errors:
+        return (
+            "warning",
+            _t(
+                "These checks can stop training. Fix the blocking items first, then run again."
+            ),
+        )
+    if has_warnings:
+        return (
+            "info",
+            _t(
+                "These checks will not stop training, but they can make the result less reliable. Review the notes below before you trust the model."
+            ),
+        )
+    return (
+        "success",
+        _t(
+            "No blocking or major caution signals were found for this target. You can use this run as a first baseline."
+        ),
+    )
+
+
+def _priority_metric_plain_language(task_type: str, priority_metric: str) -> str:
+    metric = resolve_priority_metric(task_type, priority_metric)
+    metric_meanings = {
+        "accuracy": _t("the share of predictions that were correct"),
+        "f1_weighted": _t(
+            "the balance between catching each class and avoiding wrong labels"
+        ),
+        "precision_weighted": _t(
+            "how often the predicted labels were right when the model made that call"
+        ),
+        "recall_weighted": _t(
+            "how often the model found the cases it was supposed to catch"
+        ),
+        "roc_auc": _t(
+            "how well the model separates classes across different decision thresholds"
+        ),
+        "rmse": _t("the typical prediction error size, where lower is better"),
+        "mae": _t("the average absolute prediction error, where lower is better"),
+        "r2": _t("how much of the target variation the model explains"),
+    }
+    return metric_meanings.get(metric, metric)
+
+
+def _result_translation_summary(result: dict[str, object]) -> tuple[str, str]:
+    task_type = str(result["task_type"])
+    priority_metric = str(result["priority_metric"])
+    preflight = artifact_to_dict(result["preflight_validation"])
+    postrun = artifact_to_dict(result["postrun_validation"])
+    preflight_issues = [
+        issue for issue in preflight.get("issues", []) if isinstance(issue, dict)
+    ]
+    postrun_issues = [
+        issue for issue in postrun.get("issues", []) if isinstance(issue, dict)
+    ]
+    if any(str(issue.get("severity")) == "error" for issue in postrun_issues):
+        level = "warning"
+        reliability = _t(
+            "This run completed, but there are blocking result issues. Read the warnings carefully before you rely on it."
+        )
+    elif preflight_issues or postrun_issues:
+        level = "info"
+        reliability = _t(
+            "This run is best treated as a baseline. It is useful for direction, but you should read the warnings before trusting it for decisions."
+        )
+    else:
+        level = "success"
+        reliability = _t(
+            "This run looks like a clean first baseline. It is still a good idea to compare it with another run before relying on it."
+        )
+    return (
+        level,
+        _t(
+            "This model is {task_type_explanation}. The priority metric here is `{priority_metric}`, which tells you {metric_explanation}. {reliability}",
+            task_type_explanation=_task_type_plain_language(task_type),
+            priority_metric=resolve_priority_metric(task_type, priority_metric),
+            metric_explanation=_priority_metric_plain_language(
+                task_type, priority_metric
+            ),
+            reliability=reliability,
+        ),
+    )
+
+
 def _get_feature_engineering_plan(
     df: pd.DataFrame,
     target: str,
@@ -1984,6 +2208,225 @@ def _render_target_relationships(relationships: dict[str, object]) -> None:
         and categorical_distribution.empty
     ):
         st.caption(_t("No target relationship summary available."))
+
+
+def _distribution_mode_label(mode: str) -> str:
+    labels = {
+        "continuous_numeric": "Continuous numeric",
+        "discrete_numeric": "Discrete numeric",
+        "categorical": "Categorical",
+        "datetime_like": "Datetime-like",
+    }
+    return _t(labels.get(mode, mode))
+
+
+def _distribution_compare_message(
+    plot_spec: dict[str, object],
+) -> tuple[str, str] | None:
+    target_column = str(plot_spec.get("target_column") or "")
+    if not target_column:
+        return None
+    if bool(plot_spec.get("compare_enabled")):
+        if plot_spec.get("compare_mode") == "quartile":
+            return (
+                "info",
+                _t(
+                    "Comparing feature values against quartiles of `{target}` (Q1 to Q4).",
+                    target=target_column,
+                ),
+            )
+        return (
+            "info",
+            _t(
+                "Comparing feature values against target groups from `{target}`.",
+                target=target_column,
+            ),
+        )
+
+    reason = str(plot_spec.get("compare_reason") or "")
+    if reason == "too_many_groups":
+        return (
+            "caption",
+            _t(
+                "Target `{target}` has {group_count} distinct values, so this chart shows the overall distribution only.",
+                target=target_column,
+                group_count=int(plot_spec.get("compare_group_count") or 0),
+            ),
+        )
+    if reason == "unstable_quartiles":
+        return (
+            "caption",
+            _t(
+                "Target `{target}` could not be split into four stable quartiles, so this chart shows the overall distribution only.",
+                target=target_column,
+            ),
+        )
+    if reason == "no_target_values":
+        return (
+            "caption",
+            _t(
+                "Target `{target}` has no usable values for comparison.",
+                target=target_column,
+            ),
+        )
+    return None
+
+
+def _build_distribution_chart(plot_spec: dict[str, object]) -> alt.Chart | alt.FacetChart | None:
+    plot_data = plot_spec.get("plot_data")
+    if not isinstance(plot_data, pd.DataFrame) or plot_data.empty:
+        return None
+
+    display_mode = str(plot_spec.get("display_mode") or "")
+    compare_enabled = bool(plot_spec.get("compare_enabled"))
+    target_group_title = _t("Target group")
+    count_title = _t("Count")
+    share_title = _t("Share")
+    feature_column = str(plot_spec.get("column") or "")
+    base = alt.Chart(plot_data)
+
+    if display_mode == "continuous_numeric":
+        histogram = base.mark_bar(color="#4C78A8").encode(
+            x=alt.X(
+                "feature_value:Q",
+                bin=alt.Bin(maxbins=30),
+                title=feature_column,
+            ),
+            y=alt.Y("count():Q", title=count_title),
+        )
+        if compare_enabled:
+            return histogram.properties(height=220).facet(
+                column=alt.Column(f"{'target_group'}:N", title=target_group_title)
+            )
+        return histogram.properties(height=320)
+
+    if display_mode == "discrete_numeric":
+        discrete = base.mark_bar().encode(
+            x=alt.X("feature_value:O", title=feature_column, sort="ascending"),
+            y=alt.Y("count():Q", title=count_title),
+        )
+        if compare_enabled:
+            discrete = discrete.encode(
+                color=alt.Color("target_group:N", title=target_group_title)
+            )
+        return discrete.properties(height=320)
+
+    if display_mode == "datetime_like":
+        datetime_chart = base.mark_bar(color="#72B7B2").encode(
+            x=alt.X("time_bucket:T", title=feature_column),
+            y=alt.Y("count():Q", title=count_title),
+        )
+        if compare_enabled:
+            return datetime_chart.properties(height=220).facet(
+                column=alt.Column("target_group:N", title=target_group_title)
+            )
+        return datetime_chart.properties(height=320)
+
+    categorical = base.mark_bar().encode(
+        x=alt.X("feature_value:N", title=feature_column, sort="-y"),
+        y=alt.Y(
+            "count():Q",
+            title=share_title if compare_enabled else count_title,
+            stack="normalize" if compare_enabled else None,
+        ),
+    )
+    if compare_enabled:
+        categorical = categorical.encode(
+            color=alt.Color("target_group:N", title=target_group_title)
+        )
+    return categorical.properties(height=320)
+
+
+def _render_distribution_explorer(
+    analysis_df: pd.DataFrame,
+    *,
+    feature_columns: list[str],
+    target_columns: list[str],
+    primary_target: str,
+) -> None:
+    st.write(_t("Distribution explorer"))
+    st.caption(
+        _t(
+            "Use this view to scan feature distributions and compare them against the selected target."
+        )
+    )
+    if not feature_columns:
+        st.info(_t("No feature columns available for distribution charts."))
+        return
+
+    overview = build_distribution_overview(analysis_df, feature_columns)
+    if overview.empty:
+        st.info(_t("No feature columns available for distribution charts."))
+        return
+
+    default_feature = choose_default_distribution_feature(analysis_df, feature_columns)
+    default_index = 0
+    if default_feature and default_feature in feature_columns:
+        default_index = feature_columns.index(default_feature)
+
+    control_cols = st.columns(2 if len(target_columns) > 1 else 1)
+    with control_cols[0]:
+        selected_feature = st.selectbox(
+            _t("Feature to inspect"),
+            options=feature_columns,
+            index=default_index,
+            key="distribution_feature_column",
+        )
+    selected_target = primary_target
+    if len(target_columns) > 1:
+        with control_cols[1]:
+            selected_target = st.selectbox(
+                _t("Compare target"),
+                options=target_columns,
+                index=target_columns.index(primary_target),
+                key="distribution_compare_target",
+            )
+
+    overview_display = overview.copy()
+    overview_display["display_mode"] = overview_display["display_mode"].map(
+        _distribution_mode_label
+    )
+    overview_display = overview_display.rename(
+        columns={
+            "column": _t("Column"),
+            "dtype": _t("Dtype"),
+            "display_mode": _t("Display mode"),
+            "non_null_count": _t("Non-null rows"),
+            "missing_rate": _t("Missing rate"),
+            "unique_count": _t("Unique values"),
+        }
+    )
+    st.write(_t("Distribution overview"))
+    st.dataframe(overview_display, hide_index=True, use_container_width=True)
+
+    plot_spec = build_distribution_plot_data(
+        analysis_df,
+        feature_column=selected_feature,
+        target_column=selected_target,
+    )
+    detail_cols = st.columns(4)
+    with detail_cols[0]:
+        st.metric(_t("Display mode"), _distribution_mode_label(str(plot_spec["display_mode"])))
+    with detail_cols[1]:
+        st.metric(_t("Missing rate"), f"{float(plot_spec['missing_rate']):.1%}")
+    with detail_cols[2]:
+        st.metric(_t("Unique values"), int(plot_spec["unique_count"]))
+    with detail_cols[3]:
+        st.metric(_t("Rows used in chart"), int(plot_spec["sample_count"]))
+
+    compare_message = _distribution_compare_message(plot_spec)
+    if compare_message is not None:
+        level, text = compare_message
+        if level == "info":
+            st.info(text)
+        else:
+            st.caption(text)
+
+    chart = _build_distribution_chart(plot_spec)
+    if chart is None:
+        st.info(_t("No rows available for the selected distribution chart."))
+        return
+    st.altair_chart(chart, use_container_width=True)
 
 
 def _render_metrics(
@@ -2549,6 +2992,11 @@ def main() -> None:
                 "Pick the column you want the app to predict. The app can infer the task type automatically."
             )
         )
+        st.caption(
+            _t(
+                "Your target column is the outcome you want the model to predict. Labels like yes/no usually mean classification, while numbers like price or spend usually mean regression."
+            )
+        )
         setup_cols = st.columns([1.5, 1.0])
         with setup_cols[0]:
             target_columns = st.multiselect(
@@ -2595,6 +3043,7 @@ def main() -> None:
             return
 
         selected_targets = ", ".join(str(target) for target in target_columns)
+        selection_task_types = _target_task_types(df, target_columns, task_type_choice)
         _render_step_status(
             _t(
                 "Selected target columns: {selected_targets}.",
@@ -2608,6 +3057,12 @@ def main() -> None:
             _t("Review the data checks before starting training."),
             level="success",
         )
+        target_explanation_level, target_explanation = _target_selection_summary(
+            target_columns=target_columns,
+            task_type_choice=task_type_choice,
+            inferred_task_types=selection_task_types,
+        )
+        _render_message(target_explanation_level, target_explanation)
 
         exclude_options = [column for column in columns if column not in target_columns]
         with st.expander(_t("Advanced experiment settings"), expanded=False):
@@ -3543,6 +3998,11 @@ def main() -> None:
                 "This check looks for blocking issues before training, such as missing target values or no usable feature columns."
             )
         )
+        st.caption(
+            _t(
+                "These checks explain why training can continue or why it should pause. Blocking items stop the run; caution items let you continue but make the result less trustworthy."
+            )
+        )
         with st.expander(_t("Preflight validation"), expanded=True):
             for target in target_columns:
                 validation = artifact_to_dict(preflight_by_target[target])
@@ -3553,6 +4013,17 @@ def main() -> None:
                         priority_metric=priority_metrics[target],
                     )
                 )
+                validation_level, validation_summary = _preflight_explanation_summary(
+                    validation
+                )
+                _render_message(validation_level, validation_summary)
+                explanation_items = _preflight_explanation_items(validation)
+                if explanation_items:
+                    _render_text_items(
+                        "What this means",
+                        explanation_items,
+                        "No extra explanation available.",
+                    )
                 _render_issue_table(validation.get("issues", []))
 
     with st.container(border=True):
@@ -3615,11 +4086,15 @@ def main() -> None:
                 use_container_width=True,
             )
 
+        distribution_feature_columns = [
+            column for column in analysis_df.columns if column not in target_columns
+        ]
         eda_tabs = st.tabs(
             [
                 _t("Missingness"),
                 _t("Correlations"),
                 _t("Target relationships"),
+                _t("Distributions"),
                 _t("Quality warnings"),
             ]
         )
@@ -3651,6 +4126,13 @@ def main() -> None:
         with eda_tabs[2]:
             _render_target_relationships(eda_summary.get("target_relationships", {}))
         with eda_tabs[3]:
+            _render_distribution_explorer(
+                analysis_df,
+                feature_columns=distribution_feature_columns,
+                target_columns=target_columns,
+                primary_target=primary_target,
+            )
+        with eda_tabs[4]:
             for warning in eda_summary["quality_warnings"]:
                 st.warning(warning)
 
