@@ -18,6 +18,11 @@ def _latest_run_config(runs_dir: Path) -> dict[str, object]:
     return json.loads((latest_run / "config.json").read_text(encoding="utf-8"))
 
 
+def _switch_to_english(app: AppTest) -> None:
+    app.selectbox(key="ui_language").set_value("en")
+    app.run(timeout=120)
+
+
 def test_local_llm_config_enabled_by_default(monkeypatch) -> None:
     monkeypatch.delenv("ML_PLATFORM_ALLOW_LOCAL_LLM_CONFIG", raising=False)
     assert app_module._local_llm_config_enabled() is True
@@ -34,6 +39,8 @@ def test_optional_ai_help_is_collapsed_by_default(monkeypatch, tmp_path) -> None
     app = AppTest.from_file("app.py")
     app.run(timeout=120)
 
+    _switch_to_english(app)
+
     ai_help = next(expander for expander in app.expander if expander.label == "Optional AI help")
     assert ai_help.proto.expanded is False
     assert not any(subheader.value == "2. Report engine" for subheader in app.subheader)
@@ -45,13 +52,14 @@ def test_can_switch_ui_language_to_chinese(monkeypatch, tmp_path) -> None:
     app = AppTest.from_file("app.py")
     app.run(timeout=120)
 
-    assert any(subheader.value == "Quick start" for subheader in app.subheader)
-
-    app.selectbox(key="ui_language").set_value("zh-CN")
-    app.run(timeout=120)
-
     assert any(subheader.value == "快速开始" for subheader in app.subheader)
     assert any(subheader.value == "1. 上传数据" for subheader in app.subheader)
+
+    app.selectbox(key="ui_language").set_value("en")
+    app.run(timeout=120)
+
+    assert any(subheader.value == "Quick start" for subheader in app.subheader)
+    assert any(subheader.value == "1. Upload data" for subheader in app.subheader)
 
 
 def test_distribution_tab_shows_default_feature_and_excludes_target(
@@ -61,6 +69,8 @@ def test_distribution_tab_shows_default_feature_and_excludes_target(
 
     app = AppTest.from_file("app.py")
     app.run(timeout=120)
+
+    _switch_to_english(app)
 
     app.radio[0].set_value("Demo: demo_customer_churn.csv")
     app.run(timeout=120)
@@ -87,6 +97,8 @@ def test_categorical_encoding_strategy_offers_three_options(monkeypatch, tmp_pat
     app = AppTest.from_file("app.py")
     app.run(timeout=120)
 
+    _switch_to_english(app)
+
     app.radio[0].set_value("Demo: demo_customer_churn.csv")
     app.run(timeout=120)
 
@@ -102,6 +114,8 @@ def test_preprocessing_section_is_collapsed_by_default(monkeypatch, tmp_path) ->
 
     app = AppTest.from_file("app.py")
     app.run(timeout=120)
+
+    _switch_to_english(app)
 
     app.radio[0].set_value("Demo: demo_customer_churn.csv")
     app.run(timeout=120)
@@ -188,6 +202,8 @@ def test_workflow_waits_for_target_selection(monkeypatch, tmp_path) -> None:
     app = AppTest.from_file("app.py")
     app.run(timeout=120)
 
+    _switch_to_english(app)
+
     assert any(subheader.value == "1. Upload data" for subheader in app.subheader)
     assert not any(subheader.value == "2. Choose what to predict" for subheader in app.subheader)
 
@@ -219,6 +235,8 @@ def test_data_flow_selection_does_not_drop_latest_results(monkeypatch, tmp_path)
 
     app = AppTest.from_file("app.py")
     app.run(timeout=120)
+
+    _switch_to_english(app)
 
     app.radio[0].set_value("Demo: demo_customer_churn.csv")
     app.run(timeout=120)
@@ -254,27 +272,27 @@ def test_manual_cleaning_rules_only_change_eda_after_apply(monkeypatch, tmp_path
     app = AppTest.from_file("app.py")
     app.run(timeout=120)
 
-    app.radio[0].set_value("Demo: demo_customer_churn.csv")
+    app.radio[0].set_value("示例：demo_customer_churn.csv")
     app.run(timeout=120)
 
     app.multiselect(key="target_columns").set_value(["churn"])
     app.run(timeout=120)
 
     def rows_metric_value() -> str:
-        return next(metric.value for metric in app.metric if metric.label == "Rows")
+        return next(metric.value for metric in app.metric if metric.label == "行数")
 
     assert rows_metric_value() == "24"
 
     app.text_area(key="manual_cleaning_brief").set_value("keep rows where churn equals yes")
     app.run(timeout=120)
 
-    generate_button = next(button for button in app.button if button.label == "Generate cleaning rules")
+    generate_button = next(button for button in app.button if button.label == "生成清洗规则")
     generate_button.click()
     app.run(timeout=120)
 
     assert rows_metric_value() == "24"
 
-    apply_button = next(button for button in app.button if button.label == "Apply manual cleaning rules")
+    apply_button = next(button for button in app.button if button.label == "应用手动清洗规则")
     apply_button.click()
     app.run(timeout=120)
 
@@ -286,6 +304,8 @@ def test_applied_preprocessing_step_invalidates_prepared_data(monkeypatch, tmp_p
 
     app = AppTest.from_file("app.py")
     app.run(timeout=120)
+
+    _switch_to_english(app)
 
     app.radio[0].set_value("Demo: demo_customer_churn.csv")
     app.run(timeout=120)
@@ -327,6 +347,8 @@ def test_blocking_preflight_explanation_is_shown_when_no_features_remain(monkeyp
     app = AppTest.from_file("app.py")
     app.run(timeout=120)
 
+    _switch_to_english(app)
+
     app.radio[0].set_value("Demo: demo_customer_churn.csv")
     app.run(timeout=120)
 
@@ -367,6 +389,8 @@ def test_run_training_uses_applied_preprocessing_not_unapplied_draft(monkeypatch
 
     app = AppTest.from_file("app.py")
     app.run(timeout=120)
+
+    _switch_to_english(app)
 
     app.radio[0].set_value("Demo: demo_customer_churn.csv")
     app.run(timeout=120)

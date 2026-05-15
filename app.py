@@ -87,7 +87,7 @@ PLANNER_CACHE_VERSION = 1
 FEATURE_PLAN_CACHE_VERSION = 2
 MANUAL_CLEANING_PLAN_CACHE_VERSION = 1
 PREPROCESSING_PLAN_VERSION = 1
-DEFAULT_UI_LANGUAGE = "en"
+DEFAULT_UI_LANGUAGE = "zh-CN"
 UI_LANGUAGE_OPTIONS = ("en", "zh-CN")
 UI_LANGUAGE_LABELS = {
     "en": "English",
@@ -115,9 +115,13 @@ def _render_language_switcher() -> None:
     topbar_cols = st.columns([0.82, 0.18])
     with topbar_cols[1]:
         st.caption(_t("Language / 语言"))
+        current_language = _ui_language()
+        if current_language not in UI_LANGUAGE_OPTIONS:
+            current_language = DEFAULT_UI_LANGUAGE
         st.selectbox(
             _t("Language / 语言"),
             UI_LANGUAGE_OPTIONS,
+            index=UI_LANGUAGE_OPTIONS.index(current_language),
             key="ui_language",
             label_visibility="collapsed",
             format_func=lambda code: UI_LANGUAGE_LABELS.get(code, code),
@@ -1909,13 +1913,35 @@ def _render_manual_cleaning_editor(
     if effect_stage_value not in VALID_EFFECT_STAGES:
         effect_stage_value = DEFAULT_EFFECT_STAGE
     effect_stage_options = ["pre_eda", "pre_training"]
-    effect_stage = st.radio(
+    effect_stage_widget_key = "manual_cleaning_effect_stage"
+    effect_stage_option_labels = {
+        option: _manual_cleaning_effect_stage_label(option)
+        for option in effect_stage_options
+    }
+    effect_stage_display_options = [
+        effect_stage_option_labels[option] for option in effect_stage_options
+    ]
+    display_to_effect_stage = {
+        label: option for option, label in effect_stage_option_labels.items()
+    }
+    stored_effect_stage = st.session_state.get(effect_stage_widget_key)
+    if isinstance(stored_effect_stage, str):
+        if stored_effect_stage in effect_stage_options:
+            st.session_state[effect_stage_widget_key] = effect_stage_option_labels[
+                stored_effect_stage
+            ]
+        elif stored_effect_stage not in effect_stage_display_options:
+            st.session_state.pop(effect_stage_widget_key, None)
+    selected_effect_stage_label = st.radio(
         _t("Rule effect stage"),
-        effect_stage_options,
-        index=effect_stage_options.index(effect_stage_value),
-        format_func=_manual_cleaning_effect_stage_label,
+        effect_stage_display_options,
+        index=effect_stage_display_options.index(
+            effect_stage_option_labels[effect_stage_value]
+        ),
+        key=effect_stage_widget_key,
         horizontal=True,
     )
+    effect_stage = display_to_effect_stage[selected_effect_stage_label]
 
     updated_rules: list[dict[str, object]] = []
     delete_rule_id: str | None = None
@@ -1925,6 +1951,26 @@ def _render_manual_cleaning_editor(
         rule_type_default = str(rule.get("rule_type") or "filter_row")
         if rule_type_default not in VALID_RULE_TYPES:
             rule_type_default = "filter_row"
+        rule_type_widget_key = f"manual_rule_type_{rule_id}"
+        rule_type_option_labels = {
+            "drop_column": _t("Drop column"),
+            "filter_row": _t("Filter rows"),
+        }
+        rule_type_display_options = [
+            rule_type_option_labels["drop_column"],
+            rule_type_option_labels["filter_row"],
+        ]
+        display_to_rule_type = {
+            label: option for option, label in rule_type_option_labels.items()
+        }
+        stored_rule_type = st.session_state.get(rule_type_widget_key)
+        if isinstance(stored_rule_type, str):
+            if stored_rule_type in rule_type_option_labels:
+                st.session_state[rule_type_widget_key] = rule_type_option_labels[
+                    stored_rule_type
+                ]
+            elif stored_rule_type not in rule_type_display_options:
+                st.session_state.pop(rule_type_widget_key, None)
         column_default = str(rule.get("column") or "")
         operator_default = (
             str(rule.get("operator") or "equals")
@@ -1950,17 +1996,15 @@ def _render_manual_cleaning_editor(
                     key=f"manual_rule_enabled_{rule_id}",
                 )
             with top_cols[1]:
-                rule_type = st.selectbox(
+                selected_rule_type_label = st.selectbox(
                     _t("Rule type"),
-                    ["drop_column", "filter_row"],
-                    index=["drop_column", "filter_row"].index(rule_type_default),
-                    key=f"manual_rule_type_{rule_id}",
-                    format_func=lambda value: (
-                        _t("Drop column")
-                        if value == "drop_column"
-                        else _t("Filter rows")
+                    rule_type_display_options,
+                    index=rule_type_display_options.index(
+                        rule_type_option_labels[rule_type_default]
                     ),
+                    key=rule_type_widget_key,
                 )
+                rule_type = display_to_rule_type[selected_rule_type_label]
             with top_cols[2]:
                 column_options = ["", *available_columns]
                 column_index = (
@@ -2003,13 +2047,34 @@ def _render_manual_cleaning_editor(
                         "lt",
                         "lte",
                     ]
-                    operator = st.selectbox(
+                    operator_widget_key = f"manual_rule_operator_{rule_id}"
+                    operator_option_labels = {
+                        option: _t(option) for option in operator_options
+                    }
+                    operator_display_options = [
+                        operator_option_labels[option] for option in operator_options
+                    ]
+                    display_to_operator = {
+                        label: option
+                        for option, label in operator_option_labels.items()
+                    }
+                    stored_operator = st.session_state.get(operator_widget_key)
+                    if isinstance(stored_operator, str):
+                        if stored_operator in operator_option_labels:
+                            st.session_state[operator_widget_key] = (
+                                operator_option_labels[stored_operator]
+                            )
+                        elif stored_operator not in operator_display_options:
+                            st.session_state.pop(operator_widget_key, None)
+                    selected_operator_label = st.selectbox(
                         _t("Operator"),
-                        operator_options,
-                        index=operator_options.index(operator_default),
-                        key=f"manual_rule_operator_{rule_id}",
-                        format_func=lambda value: _t(value),
+                        operator_display_options,
+                        index=operator_display_options.index(
+                            operator_option_labels[operator_default]
+                        ),
+                        key=operator_widget_key,
                     )
+                    operator = display_to_operator[selected_operator_label]
                 with operator_cols[1]:
                     if operator in {"is_null", "not_null"}:
                         st.caption(_t("No value is needed for this operator."))
