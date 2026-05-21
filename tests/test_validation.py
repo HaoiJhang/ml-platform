@@ -43,7 +43,7 @@ def test_postrun_detects_generalization_gap_and_builds_recommendations() -> None
         prediction_sample=pd.DataFrame({"prediction": [0, 1]}),
         task_type="classification",
         priority_metric="recall_weighted",
-        trainer_name="flaml",
+        trainer_name="autogluon_tabular",
         optimization_metric_used="accuracy",
         feature_importance=[{"feature": "x", "importance": 1.0}],
         report_mode="rule_based",

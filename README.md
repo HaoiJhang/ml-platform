@@ -29,7 +29,8 @@ The app is available at `http://localhost:8501` by default.
 The app writes experiment artifacts under `runs/`. Each completed run gets a
 directory containing `config.json`, `eda_summary.json`, `cleaning_log.json`,
 `metrics.json`, `feature_importance.json`, `prediction_sample.csv`,
-`model.joblib`, and `report.md`. Run metadata is also recorded in
+`autogluon_predictor/`, `autogluon_predictor.zip`, `leaderboard.json`,
+`fit_summary.json`, and `report.md`. Run metadata is also recorded in
 `runs/runs.sqlite`.
 
 LLM report generation is optional. If `LLM_API_KEY` is not configured, the

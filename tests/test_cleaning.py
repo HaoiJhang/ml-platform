@@ -47,9 +47,11 @@ def test_cleaning_handles_all_categorical_features() -> None:
         df,
         CleanConfig(target="target", task_type="classification", test_size=0.33, random_state=3),
     )
-    transformed = cleaned.preprocessor.fit_transform(cleaned.X_train)
+    prepared = prepare_for_training(cleaned)
 
-    assert transformed.shape[0] == len(cleaned.X_train)
+    assert prepared.X_train_prepared is not None
+    assert prepared.X_train_prepared.shape[0] == len(cleaned.X_train)
+    assert list(prepared.X_train_prepared.columns) == ["plan", "region"]
     assert cleaned.numeric_features == []
     assert cleaned.categorical_features == ["plan", "region"]
 
@@ -121,9 +123,11 @@ def test_cleaning_handles_all_numeric_features() -> None:
         df,
         CleanConfig(target="target", task_type="classification", test_size=0.33, random_state=3),
     )
-    transformed = cleaned.preprocessor.fit_transform(cleaned.X_train)
+    prepared = prepare_for_training(cleaned)
 
-    assert transformed.shape[0] == len(cleaned.X_train)
+    assert prepared.X_train_prepared is not None
+    assert prepared.X_train_prepared.shape[0] == len(cleaned.X_train)
+    assert list(prepared.X_train_prepared.columns) == ["amount", "visits"]
     assert cleaned.numeric_features == ["amount", "visits"]
     assert cleaned.categorical_features == []
 
@@ -184,21 +188,14 @@ def test_cleaning_uses_user_selected_imputation_strategies() -> None:
         ),
     )
 
-    preprocessor = cleaned.preprocessor
-    transformed = preprocessor.fit_transform(cleaned.X_train)
-    numeric_pipeline = preprocessor.named_transformers_["numeric"]
-    categorical_pipeline = preprocessor.named_transformers_["categorical"]
+    prepared = prepare_for_training(cleaned)
 
-    assert transformed.shape[0] == len(cleaned.X_train)
-    assert numeric_pipeline.named_steps["imputer"].strategy == "mean"
-    assert categorical_pipeline.named_steps["imputer"].strategy == "constant"
-    assert categorical_pipeline.named_steps["imputer"].fill_value == "missing"
-    assert "scaler" not in numeric_pipeline.named_steps
+    assert prepared.X_train_prepared is not None
+    assert prepared.X_train_prepared.shape[0] == len(cleaned.X_train)
+    assert prepared.X_train_prepared.isna().any().any()
     assert any(
         step.get("step") == "build_preprocessor"
-        and step.get("numeric_imputation_strategy") == "mean"
-        and step.get("categorical_imputation_strategy") == "constant_missing"
-        and step.get("standardize_numeric") is False
+        and step.get("trainer_preprocessing") == "autogluon"
         for step in cleaned.cleaning_log
     )
 
@@ -218,11 +215,12 @@ def test_prepare_for_training_materializes_preprocessed_matrices() -> None:
     )
     prepared = prepare_for_training(cleaned)
 
-    assert prepared.fitted_preprocessor is not None
+    assert prepared.fitted_preprocessor is None
     assert prepared.X_train_prepared is not None
     assert prepared.X_test_prepared is not None
     assert prepared.X_train_prepared.shape[0] == len(prepared.X_train)
     assert prepared.X_test_prepared.shape[0] == len(prepared.X_test)
+    assert prepared.prepared_feature_names == ["amount", "segment"]
     assert any(step.get("step") == "prepare_training_data" for step in prepared.cleaning_log)
 
 

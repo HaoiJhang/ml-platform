@@ -194,7 +194,10 @@ predict churn, optimize recall, ignore customer_id-like fields, keep this as a q
 - `validation_post.json`
 - `recommendations.json`
 - `training_summary.json`
-- `model.joblib`
+- `leaderboard.json`
+- `fit_summary.json`
+- `autogluon_predictor/`
+- `autogluon_predictor.zip`
 - `report.md`
 
 同时，运行元数据还会写入 `runs/runs.sqlite`。

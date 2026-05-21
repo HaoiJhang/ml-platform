@@ -86,7 +86,17 @@ _LEGACY_LOCAL_LLM_KEYS = {
 PLANNER_CACHE_VERSION = 1
 FEATURE_PLAN_CACHE_VERSION = 2
 MANUAL_CLEANING_PLAN_CACHE_VERSION = 1
-PREPROCESSING_PLAN_VERSION = 1
+PREPROCESSING_PLAN_VERSION = 2
+AUTOGLUON_DEFAULT_PRESETS = "medium_quality"
+AUTOGLUON_FEATURE_GENERATOR_DEFAULTS = {
+    "enable_numeric_features": True,
+    "enable_categorical_features": True,
+    "enable_datetime_features": True,
+    "enable_text_special_features": True,
+    "enable_text_ngram_features": True,
+    "enable_raw_text_features": False,
+    "enable_vision_features": False,
+}
 DEFAULT_UI_LANGUAGE = "zh-CN"
 UI_LANGUAGE_OPTIONS = ("en", "zh-CN")
 UI_LANGUAGE_LABELS = {
@@ -99,6 +109,7 @@ PREPROCESSING_STEP_IDS = {
     "missing_value": "missing_value",
     "categorical_encoding": "categorical_encoding",
     "numeric_scaling": "numeric_scaling",
+    "autogluon_feature_generator": "autogluon_feature_generator",
     "feature_engineering": "feature_engineering",
 }
 WIZARD_STEPS = (
@@ -238,20 +249,13 @@ def _default_preprocessing_plan() -> dict[str, Any]:
             "missing_value",
             params={
                 "high_missing_threshold": 0.9,
-                "numeric_imputation_strategy": "median",
-                "categorical_imputation_strategy": "most_frequent",
             },
-            summary="Numeric: median. Categorical: most_frequent. High-missing threshold: 0.90.",
+            summary="Auto-drop high-missing columns above 0.90.",
         ),
         _preprocessing_step(
-            "categorical_encoding",
-            params={"strategy": "one_hot"},
-            summary="Categorical encoding strategy: one_hot.",
-        ),
-        _preprocessing_step(
-            "numeric_scaling",
-            params={"standardize_numeric": True},
-            summary="Numeric features will be standardized.",
+            "autogluon_feature_generator",
+            params=dict(AUTOGLUON_FEATURE_GENERATOR_DEFAULTS),
+            summary="AutoGluon feature generation is enabled for numeric, categorical, datetime, and text features.",
         ),
         _preprocessing_step(
             "feature_engineering",
@@ -267,7 +271,11 @@ def _default_preprocessing_plan() -> dict[str, Any]:
     ]
     return {
         "version": PREPROCESSING_PLAN_VERSION,
-        "global_params": {"test_size": 0.2, "random_state": 42},
+        "global_params": {
+            "test_size": 0.2,
+            "random_state": 42,
+            "autogluon_presets": AUTOGLUON_DEFAULT_PRESETS,
+        },
         "steps": steps,
         "applied_step_ids": [str(step["id"]) for step in steps],
         "notes": [],
@@ -299,6 +307,28 @@ def _preprocessing_step_params(plan_data: Any, kind: str) -> dict[str, Any]:
 def _preprocessing_step_enabled(plan_data: Any, kind: str) -> bool:
     step = _preprocessing_step_payload(plan_data, kind)
     return bool(step and step.get("enabled", True))
+
+
+def _autogluon_feature_generator_params(raw_params: Any = None) -> dict[str, bool]:
+    resolved = dict(AUTOGLUON_FEATURE_GENERATOR_DEFAULTS)
+    if isinstance(raw_params, dict):
+        for key in resolved:
+            if key in raw_params:
+                resolved[key] = bool(raw_params[key])
+    return resolved
+
+
+def _autogluon_enabled_feature_names(params: dict[str, bool]) -> list[str]:
+    labels = {
+        "enable_numeric_features": "numeric",
+        "enable_categorical_features": "categorical",
+        "enable_datetime_features": "datetime",
+        "enable_text_special_features": "text_special",
+        "enable_text_ngram_features": "text_ngram",
+        "enable_raw_text_features": "raw_text",
+        "enable_vision_features": "vision",
+    }
+    return [label for key, label in labels.items() if bool(params.get(key))]
 
 
 def _upsert_preprocessing_step(
@@ -350,6 +380,11 @@ def _set_applied_preprocessing_global_params(
     updated["global_params"] = {
         "test_size": float(test_size),
         "random_state": int(random_state),
+        "autogluon_presets": str(
+            _preprocessing_plan_global_params(applied_plan).get(
+                "autogluon_presets", AUTOGLUON_DEFAULT_PRESETS
+            )
+        ),
     }
     st.session_state["_preprocessing_plan_applied"] = updated
 
@@ -1090,6 +1125,8 @@ def _initialize_experiment_state(dataset_signature: str, columns: list[str]) -> 
     st.session_state["categorical_imputation_strategy"] = "most_frequent"
     st.session_state["categorical_encoding_strategy"] = "one_hot"
     st.session_state["standardize_numeric"] = True
+    for key, value in AUTOGLUON_FEATURE_GENERATOR_DEFAULTS.items():
+        st.session_state[key] = value
     st.session_state["_planner_signature"] = None
     st.session_state["_planner_suggestion"] = None
     st.session_state["_feature_engineering_plan_signature"] = None
@@ -1170,10 +1207,11 @@ def _render_run_outputs(results: list[dict[str, object]]) -> None:
         with st.expander(label, expanded=len(results) == 1):
             download_cols = st.columns(3)
             with download_cols[0]:
+                model_path = Path(result["model_path"])
                 st.download_button(
                     _t("Download model"),
-                    data=result["model_path"].read_bytes(),
-                    file_name=f"{run.run_id}_{result['target']}_model.joblib",
+                    data=model_path.read_bytes(),
+                    file_name=f"{run.run_id}_{result['target']}_{model_path.name}",
                     mime="application/octet-stream",
                 )
             with download_cols[1]:
@@ -1218,6 +1256,12 @@ def _render_run_outputs(results: list[dict[str, object]]) -> None:
                 pd.DataFrame(result["trained"].feature_importance),
                 use_container_width=True,
             )
+            if result["trained"].leaderboard:
+                st.write(_t("AutoGluon leaderboard"))
+                st.dataframe(
+                    pd.DataFrame(result["trained"].leaderboard),
+                    use_container_width=True,
+                )
             st.write(_t("Analysis report"))
             st.markdown(result["report"])
             st.caption(_t("Artifacts saved to {path}", path=Path(run.path).resolve()))
@@ -1488,8 +1532,9 @@ def _build_preprocessing_plan(
     categorical_imputation_strategy: str,
     categorical_encoding_strategy: str,
     standardize_numeric: bool,
-    manual_cleaning_plan: Any,
-    feature_plan: Any,
+    autogluon_feature_generator_params: dict[str, Any] | None = None,
+    manual_cleaning_plan: Any = None,
+    feature_plan: Any = None,
 ) -> dict[str, Any]:
     visible_columns = [
         column for column in base_analysis_df.columns if column not in excluded_columns
@@ -1536,6 +1581,9 @@ def _build_preprocessing_plan(
     feature_operations = (
         _feature_plan_operations(feature_plan_data) if feature_plan_data else []
     )
+    autogluon_params = _autogluon_feature_generator_params(
+        autogluon_feature_generator_params
+    )
 
     steps = [
         _preprocessing_step(
@@ -1555,38 +1603,23 @@ def _build_preprocessing_plan(
             "missing_value",
             params={
                 "high_missing_threshold": float(high_missing_threshold),
-                "numeric_imputation_strategy": numeric_imputation_strategy,
-                "categorical_imputation_strategy": categorical_imputation_strategy,
                 "high_missing_columns": high_missing_columns,
             },
             summary=(
-                f"Numeric: {numeric_imputation_strategy}. "
-                f"Categorical: {categorical_imputation_strategy}. "
                 f"Auto-drop high-missing columns: {len(high_missing_columns)}."
             ),
         ),
         _preprocessing_step(
-            "categorical_encoding",
+            "autogluon_feature_generator",
             params={
-                "strategy": categorical_encoding_strategy,
+                **autogluon_params,
+                "numeric_feature_count": len(numeric_columns),
                 "categorical_feature_count": len(categorical_columns),
-                "estimated_encoded_features": encoded_feature_estimate,
+                "estimated_one_hot_features_if_legacy": encoded_feature_estimate,
             },
             summary=(
-                f"Categorical encoding strategy: {categorical_encoding_strategy}. "
-                f"Categorical columns: {len(categorical_columns)}."
-            ),
-        ),
-        _preprocessing_step(
-            "numeric_scaling",
-            params={
-                "standardize_numeric": bool(standardize_numeric),
-                "numeric_features": numeric_columns,
-            },
-            summary=(
-                f"Standardize {len(numeric_columns)} numeric columns."
-                if standardize_numeric
-                else "Numeric scaling disabled."
+                "AutoGluon feature generation enabled: "
+                f"{', '.join(_autogluon_enabled_feature_names(autogluon_params))}."
             ),
         ),
         _preprocessing_step(
@@ -1614,6 +1647,7 @@ def _build_preprocessing_plan(
         "global_params": {
             "test_size": float(test_size),
             "random_state": int(random_state),
+            "autogluon_presets": AUTOGLUON_DEFAULT_PRESETS,
         },
         "steps": steps,
         "applied_step_ids": [str(step["id"]) for step in steps],
@@ -1648,18 +1682,19 @@ def _preprocessing_summary_text(
     *,
     test_size: float,
     high_missing_threshold: float,
-    categorical_encoding_strategy: str,
-    standardize_numeric: bool,
+    autogluon_feature_generator_params: dict[str, bool],
     manual_cleaning_enabled: bool,
     feature_engineering_enabled: bool,
     draft_plan: Any,
     applied_plan: Any,
 ) -> str:
+    enabled_features = ", ".join(
+        _autogluon_enabled_feature_names(autogluon_feature_generator_params)
+    )
     parts = [
         f"{_t('Test size')} {test_size:.2f}",
         f"{_t('Drop feature when missing rate is above')} {high_missing_threshold:.2f}",
-        f"{_t('Categorical encoding strategy')} {_t(categorical_encoding_strategy)}",
-        f"{_t('Scaling enabled')} {_t('Yes') if standardize_numeric else _t('No')}",
+        f"{_t('AutoGluon feature generation')} {enabled_features}",
         f"{_t('Manual cleaning')} {_t('Yes') if manual_cleaning_enabled else _t('No')}",
         f"{_t('Feature engineering')} {_t('Yes') if feature_engineering_enabled else _t('No')}",
         _preprocessing_status_text(draft_plan, applied_plan),
@@ -3539,6 +3574,15 @@ def main() -> None:
     preprocessing_summary_standardize_numeric = bool(
         st.session_state.get("standardize_numeric", True)
     )
+    applied_autogluon_params = _preprocessing_step_params(
+        applied_preprocessing_plan, "autogluon_feature_generator"
+    )
+    preprocessing_summary_autogluon_params = _autogluon_feature_generator_params(
+        {
+            key: st.session_state.get(key, applied_autogluon_params.get(key, value))
+            for key, value in AUTOGLUON_FEATURE_GENERATOR_DEFAULTS.items()
+        }
+    )
     preprocessing_summary_excluded_columns = [
         column
         for column in st.session_state.get("excluded_columns", [])
@@ -3565,6 +3609,7 @@ def main() -> None:
         categorical_imputation_strategy=preprocessing_summary_categorical_imputation_strategy,
         categorical_encoding_strategy=preprocessing_summary_categorical_encoding_strategy,
         standardize_numeric=preprocessing_summary_standardize_numeric,
+        autogluon_feature_generator_params=preprocessing_summary_autogluon_params,
         manual_cleaning_plan=preprocessing_summary_manual_plan,
         feature_plan=preprocessing_summary_feature_plan,
     )
@@ -3579,8 +3624,7 @@ def main() -> None:
     preprocessing_summary = _preprocessing_summary_text(
         test_size=preprocessing_summary_test_size,
         high_missing_threshold=preprocessing_summary_high_missing_threshold,
-        categorical_encoding_strategy=preprocessing_summary_categorical_encoding_strategy,
-        standardize_numeric=preprocessing_summary_standardize_numeric,
+        autogluon_feature_generator_params=preprocessing_summary_autogluon_params,
         manual_cleaning_enabled=_enabled_manual_rule_count(
             preprocessing_summary_manual_plan
         )
@@ -3605,6 +3649,9 @@ def main() -> None:
         categorical_imputation_strategy = preprocessing_summary_categorical_imputation_strategy
         categorical_encoding_strategy = preprocessing_summary_categorical_encoding_strategy
         standardize_numeric = bool(preprocessing_summary_standardize_numeric)
+        autogluon_feature_generator_params = dict(
+            preprocessing_summary_autogluon_params
+        )
         preview_plan_data = None
         draft_feature_plan = st.session_state.get("_feature_engineering_applied_plan")
         draft_column_step = _preprocessing_step(
@@ -3612,7 +3659,7 @@ def main() -> None:
             params={"excluded_columns": list(draft_excluded_columns)},
             summary=f"Excluded columns: {len(draft_excluded_columns)}.",
         )
-        draft_encoding_plan = _build_preprocessing_plan(
+        draft_autogluon_plan = _build_preprocessing_plan(
             base_analysis_df=draft_base_analysis_df,
             target_columns=target_columns,
             excluded_columns=[],
@@ -3623,12 +3670,13 @@ def main() -> None:
             categorical_imputation_strategy=categorical_imputation_strategy,
             categorical_encoding_strategy=categorical_encoding_strategy,
             standardize_numeric=bool(standardize_numeric),
+            autogluon_feature_generator_params=autogluon_feature_generator_params,
             manual_cleaning_plan=st.session_state.get("_manual_cleaning_plan"),
             feature_plan=draft_feature_plan,
         )
-        draft_encoding_step = _preprocessing_step_payload(
-            draft_encoding_plan, "categorical_encoding"
-        ) or _preprocessing_step("categorical_encoding")
+        draft_autogluon_step = _preprocessing_step_payload(
+            draft_autogluon_plan, "autogluon_feature_generator"
+        ) or _preprocessing_step("autogluon_feature_generator")
     else:
         st.subheader(_t("3. Configure preprocessing"))
         with st.container(border=True):
@@ -3644,7 +3692,7 @@ def main() -> None:
             )
             st.caption(
                 _t(
-                    "Missing-value handling = how empty cells are filled. Categorical encoding = converting text labels into model-readable numbers. Numeric scaling = making numeric columns easier to compare across different ranges."
+                    "AutoGluon handles missing values, categorical encoding, datetime features, text features, model search, and ensembling during training."
                 )
             )
             st.caption(preprocessing_summary)
@@ -3966,17 +4014,16 @@ def main() -> None:
                         )
 
                 with st.container(border=True):
-                    st.write(_t("Step 3.2: Missing-value handling"))
-                    numeric_imputation_strategy = st.selectbox(
-                        _t("Numeric missing-value handling"),
-                        ["median", "mean", "most_frequent", "constant_zero"],
-                        key="numeric_imputation_strategy",
+                    st.write(_t("Step 3.2: Feature cleanup"))
+                    _section_caption(
+                        _t(
+                            "The platform only removes unusable columns before AutoGluon. Missing values, categorical encoding, datetime features, and text features are handled by AutoGluon during training."
+                        )
                     )
-                    categorical_imputation_strategy = st.selectbox(
-                        _t("Categorical missing-value handling"),
-                        ["most_frequent", "constant_missing"],
-                        key="categorical_imputation_strategy",
-                    )
+                    numeric_imputation_strategy = "median"
+                    categorical_imputation_strategy = "most_frequent"
+                    categorical_encoding_strategy = "autogluon"
+                    standardize_numeric = False
                     draft_missing_plan = _build_preprocessing_plan(
                         base_analysis_df=draft_base_analysis_df,
                         target_columns=target_columns,
@@ -3986,12 +4033,9 @@ def main() -> None:
                         high_missing_threshold=float(high_missing_threshold),
                         numeric_imputation_strategy=numeric_imputation_strategy,
                         categorical_imputation_strategy=categorical_imputation_strategy,
-                        categorical_encoding_strategy=str(
-                            st.session_state.get("categorical_encoding_strategy", "one_hot")
-                        ),
-                        standardize_numeric=bool(
-                            st.session_state.get("standardize_numeric", True)
-                        ),
+                        categorical_encoding_strategy=categorical_encoding_strategy,
+                        standardize_numeric=bool(standardize_numeric),
+                        autogluon_feature_generator_params=preprocessing_summary_autogluon_params,
                         manual_cleaning_plan=preview_plan_data
                         if preview_plan_data is not None
                         else st.session_state.get("_manual_cleaning_plan"),
@@ -4044,102 +4088,58 @@ def main() -> None:
                         )
 
                 with st.container(border=True):
-                    st.write(_t("Step 3.3: Categorical encoding"))
-                    categorical_encoding_labels = {
-                        "one_hot": _t("one_hot"),
-                        "ordinal": _t("ordinal"),
-                        "frequency": _t("frequency"),
-                    }
-                    current_categorical_encoding_strategy = str(
-                        st.session_state.get("categorical_encoding_strategy", "one_hot")
-                    )
-                    st.session_state["_categorical_encoding_strategy_label"] = (
-                        categorical_encoding_labels.get(
-                            current_categorical_encoding_strategy,
-                            categorical_encoding_labels["one_hot"],
+                    st.write(_t("Step 3.3: AutoGluon feature generation"))
+                    _section_caption(
+                        _t(
+                            "These options are passed to AutoGluon's AutoMLPipelineFeatureGenerator."
                         )
                     )
-                    categorical_encoding_label = st.selectbox(
-                        _t("Categorical encoding strategy"),
-                        list(categorical_encoding_labels.values()),
-                        key="_categorical_encoding_strategy_label",
-                    )
-                    categorical_encoding_strategy = next(
-                        value
-                        for value, label in categorical_encoding_labels.items()
-                        if label == str(categorical_encoding_label)
-                    )
-                    st.session_state["categorical_encoding_strategy"] = (
-                        categorical_encoding_strategy
-                    )
-                    draft_encoding_plan = _build_preprocessing_plan(
-                        base_analysis_df=draft_base_analysis_df,
-                        target_columns=target_columns,
-                        excluded_columns=[],
-                        test_size=float(test_size),
-                        random_state=int(random_state),
-                        high_missing_threshold=float(high_missing_threshold),
-                        numeric_imputation_strategy=numeric_imputation_strategy,
-                        categorical_imputation_strategy=categorical_imputation_strategy,
-                        categorical_encoding_strategy=categorical_encoding_strategy,
-                        standardize_numeric=bool(
-                            st.session_state.get("standardize_numeric", True)
-                        ),
-                        manual_cleaning_plan=preview_plan_data
-                        if preview_plan_data is not None
-                        else st.session_state.get("_manual_cleaning_plan"),
-                        feature_plan=st.session_state.get(
-                            "_feature_engineering_applied_plan"
-                        ),
-                    )
-                    draft_encoding_step = _preprocessing_step_payload(
-                        draft_encoding_plan, "categorical_encoding"
-                    ) or _preprocessing_step("categorical_encoding")
-                    draft_encoding_step["params"]["strategy"] = (
-                        categorical_encoding_strategy
-                    )
-                    draft_encoding_step["summary"] = (
-                        f"Categorical encoding strategy: {categorical_encoding_strategy}. "
-                        f"Categorical columns: {draft_encoding_step['params'].get('categorical_feature_count', 0)}."
-                    )
-                    _render_preprocessing_step_status(
-                        "Categorical encoding",
-                        draft_encoding_step,
-                        applied_preprocessing_plan,
-                    )
-                    encoding_cols = st.columns(3)
-                    with encoding_cols[0]:
-                        st.metric(_t("Strategy"), _t(categorical_encoding_strategy))
-                    with encoding_cols[1]:
-                        st.metric(
-                            _t("Categorical columns"),
-                            int(
-                                draft_encoding_step["params"].get(
-                                    "categorical_feature_count", 0
-                                )
-                            ),
+                    for key, value in AUTOGLUON_FEATURE_GENERATOR_DEFAULTS.items():
+                        st.session_state.setdefault(key, value)
+                    ag_cols = st.columns(3)
+                    with ag_cols[0]:
+                        enable_numeric_features = st.checkbox(
+                            _t("Enable numeric features"),
+                            key="enable_numeric_features",
                         )
-                    with encoding_cols[2]:
-                        st.metric(
-                            _t("Estimated encoded features"),
-                            int(
-                                draft_encoding_step["params"].get(
-                                    "estimated_encoded_features", 0
-                                )
-                            ),
+                        enable_categorical_features = st.checkbox(
+                            _t("Enable categorical features"),
+                            key="enable_categorical_features",
                         )
-                    if st.button(_t("Apply categorical encoding")):
-                        _update_applied_preprocessing_step(draft_encoding_step)
-                        st.rerun()
-
-                with st.container(border=True):
-                    st.write(_t("Step 3.4: Numeric scaling"))
-                    standardize_numeric = st.checkbox(
-                        _t("Standardize numeric features"),
-                        key="standardize_numeric",
-                        help=_t("Apply scaling after numeric imputation."),
+                        enable_datetime_features = st.checkbox(
+                            _t("Enable datetime features"),
+                            key="enable_datetime_features",
+                        )
+                    with ag_cols[1]:
+                        enable_text_special_features = st.checkbox(
+                            _t("Enable text special features"),
+                            key="enable_text_special_features",
+                        )
+                        enable_text_ngram_features = st.checkbox(
+                            _t("Enable text ngram features"),
+                            key="enable_text_ngram_features",
+                        )
+                    with ag_cols[2]:
+                        enable_raw_text_features = st.checkbox(
+                            _t("Enable raw text features"),
+                            key="enable_raw_text_features",
+                        )
+                        enable_vision_features = st.checkbox(
+                            _t("Enable vision features"),
+                            key="enable_vision_features",
+                        )
+                    autogluon_feature_generator_params = _autogluon_feature_generator_params(
+                        {
+                            "enable_numeric_features": enable_numeric_features,
+                            "enable_categorical_features": enable_categorical_features,
+                            "enable_datetime_features": enable_datetime_features,
+                            "enable_text_special_features": enable_text_special_features,
+                            "enable_text_ngram_features": enable_text_ngram_features,
+                            "enable_raw_text_features": enable_raw_text_features,
+                            "enable_vision_features": enable_vision_features,
+                        }
                     )
-                    draft_scaling_plan = _build_preprocessing_plan(
+                    draft_autogluon_plan = _build_preprocessing_plan(
                         base_analysis_df=draft_base_analysis_df,
                         target_columns=target_columns,
                         excluded_columns=[],
@@ -4150,6 +4150,7 @@ def main() -> None:
                         categorical_imputation_strategy=categorical_imputation_strategy,
                         categorical_encoding_strategy=categorical_encoding_strategy,
                         standardize_numeric=bool(standardize_numeric),
+                        autogluon_feature_generator_params=autogluon_feature_generator_params,
                         manual_cleaning_plan=preview_plan_data
                         if preview_plan_data is not None
                         else st.session_state.get("_manual_cleaning_plan"),
@@ -4157,33 +4158,41 @@ def main() -> None:
                             "_feature_engineering_applied_plan"
                         ),
                     )
-                    draft_scaling_step = _preprocessing_step_payload(
-                        draft_scaling_plan, "numeric_scaling"
-                    ) or _preprocessing_step("numeric_scaling")
+                    draft_autogluon_step = _preprocessing_step_payload(
+                        draft_autogluon_plan, "autogluon_feature_generator"
+                    ) or _preprocessing_step("autogluon_feature_generator")
                     _render_preprocessing_step_status(
-                        "Numeric scaling",
-                        draft_scaling_step,
+                        "AutoGluon feature generation",
+                        draft_autogluon_step,
                         applied_preprocessing_plan,
                     )
-                    scaling_cols = st.columns(3)
-                    with scaling_cols[0]:
+                    autogluon_metrics = st.columns(3)
+                    with autogluon_metrics[0]:
                         st.metric(
-                            _t("Scaling enabled"),
-                            _t("Yes") if standardize_numeric else _t("No"),
-                        )
-                    with scaling_cols[1]:
-                        st.metric(
-                            _t("Numeric columns"),
-                            len(
-                                draft_scaling_step.get("params", {}).get(
-                                    "numeric_features", []
+                            _t("Categorical columns"),
+                            int(
+                                draft_autogluon_step["params"].get(
+                                    "categorical_feature_count", 0
                                 )
                             ),
                         )
-                    with scaling_cols[2]:
-                        if st.button(_t("Apply numeric scaling")):
-                            _update_applied_preprocessing_step(draft_scaling_step)
-                            st.rerun()
+                    with autogluon_metrics[1]:
+                        st.metric(
+                            _t("Numeric columns"),
+                            int(
+                                draft_autogluon_step["params"].get(
+                                    "numeric_feature_count", 0
+                                )
+                            ),
+                        )
+                    with autogluon_metrics[2]:
+                        st.metric(
+                            _t("Enabled generators"),
+                            len(_autogluon_enabled_feature_names(autogluon_feature_generator_params)),
+                        )
+                    if st.button(_t("Apply AutoGluon feature generation")):
+                        _update_applied_preprocessing_step(draft_autogluon_step)
+                        st.rerun()
 
                 feature_plan = _preprocessing_feature_plan(applied_preprocessing_plan)
                 with st.container(border=True):
@@ -4284,6 +4293,7 @@ def main() -> None:
         categorical_imputation_strategy=categorical_imputation_strategy,
         categorical_encoding_strategy=categorical_encoding_strategy,
         standardize_numeric=bool(standardize_numeric),
+        autogluon_feature_generator_params=autogluon_feature_generator_params,
         manual_cleaning_plan=preview_plan_data
         if preview_plan_data is not None
         else st.session_state.get("_manual_cleaning_plan"),
@@ -4293,7 +4303,7 @@ def main() -> None:
         draft_preprocessing_plan, draft_column_step
     )
     draft_preprocessing_plan = _upsert_preprocessing_step(
-        draft_preprocessing_plan, draft_encoding_step
+        draft_preprocessing_plan, draft_autogluon_step
     )
     st.session_state["_preprocessing_plan_draft"] = draft_preprocessing_plan
     applied_preprocessing_plan = (
@@ -4756,11 +4766,45 @@ def main() -> None:
                     target_eda_summary = batch["target_eda_summary"]
                     cleaned = batch["cleaned"]
                     logger.info("Training target=%s task_type=%s", target, task_type)
+                    run = storage.create_run(
+                        config={
+                            "target": target,
+                            "target_columns": target_columns,
+                            "task_type": task_type,
+                            "task_type_choice": task_type_choice,
+                            "excluded_columns": applied_excluded_columns,
+                            "test_size": cleaned.config.test_size,
+                            "high_missing_threshold": cleaned.config.high_missing_threshold,
+                            "random_state": cleaned.config.random_state,
+                            "autogluon_presets": cleaned.config.autogluon_presets,
+                            "autogluon_feature_generator_params": dict(
+                                cleaned.config.autogluon_feature_generator_params or {}
+                            ),
+                            "time_budget": time_budget,
+                            "priority_metric": priority_metric,
+                            "trainer": "autogluon_tabular",
+                            "planner_name": plan_suggestion.planner_name,
+                            "feature_engineering_enabled": bool(feature_plan),
+                            "manual_cleaning_enabled": bool(
+                                manual_cleaning_plan
+                                and any(
+                                    rule.enabled for rule in manual_cleaning_plan.rules
+                                )
+                            ),
+                            "manual_cleaning_effect_stage": manual_cleaning_plan.effect_stage
+                            if manual_cleaning_plan
+                            else None,
+                            "dataset_fingerprint": current_dataset_fingerprint,
+                            "prepared_before_training": True,
+                        }
+                    )
                     trained = train_model(
                         cleaned,
                         time_budget=int(time_budget),
                         metric_preference=priority_metric,
                         tracker=tracker,
+                        output_path=run.path / "autogluon_predictor",
+                        presets=AUTOGLUON_DEFAULT_PRESETS,
                     )
                     metrics, prediction_sample = evaluate_model(
                         trained.model, cleaned, task_type=task_type, tracker=tracker
@@ -4828,40 +4872,6 @@ def main() -> None:
                             recommendations=recommendations,
                         )
 
-                    run = storage.create_run(
-                        config={
-                            "target": target,
-                            "target_columns": target_columns,
-                            "task_type": task_type,
-                            "task_type_choice": task_type_choice,
-                            "excluded_columns": applied_excluded_columns,
-                            "test_size": cleaned.config.test_size,
-                            "high_missing_threshold": cleaned.config.high_missing_threshold,
-                            "random_state": cleaned.config.random_state,
-                            "numeric_imputation_strategy": cleaned.config.numeric_imputation_strategy,
-                            "categorical_imputation_strategy": cleaned.config.categorical_imputation_strategy,
-                            "categorical_encoding_strategy": cleaned.config.categorical_encoding_strategy,
-                            "standardize_numeric": bool(
-                                cleaned.config.standardize_numeric
-                            ),
-                            "time_budget": time_budget,
-                            "priority_metric": priority_metric,
-                            "trainer": trained.trainer_name,
-                            "planner_name": plan_suggestion.planner_name,
-                            "feature_engineering_enabled": bool(feature_plan),
-                            "manual_cleaning_enabled": bool(
-                                manual_cleaning_plan
-                                and any(
-                                    rule.enabled for rule in manual_cleaning_plan.rules
-                                )
-                            ),
-                            "manual_cleaning_effect_stage": manual_cleaning_plan.effect_stage
-                            if manual_cleaning_plan
-                            else None,
-                            "dataset_fingerprint": current_dataset_fingerprint,
-                            "prepared_before_training": True,
-                        }
-                    )
                     storage.save_json(
                         run, "plan.json", artifact_to_dict(plan_suggestion)
                     )
@@ -4890,6 +4900,12 @@ def main() -> None:
                     storage.save_json(
                         run, "feature_importance.json", trained.feature_importance
                     )
+                    storage.save_json(run, "leaderboard.json", trained.leaderboard)
+                    if trained.leaderboard:
+                        pd.DataFrame(trained.leaderboard).to_csv(
+                            run.path / "leaderboard.csv", index=False
+                        )
+                    storage.save_json(run, "fit_summary.json", trained.fit_summary)
                     storage.save_json(
                         run,
                         "validation_pre.json",
@@ -4919,6 +4935,10 @@ def main() -> None:
                                 1 for rule in manual_cleaning_plan.rules if rule.enabled
                             ),
                             "prepared_before_training": True,
+                            "leaderboard_rows": len(trained.leaderboard),
+                            "model_path": str(trained.model_path)
+                            if trained.model_path
+                            else None,
                         },
                     )
                     report_path = storage.save_text(run, "report.md", report)

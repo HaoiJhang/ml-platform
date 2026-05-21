@@ -153,7 +153,7 @@ def test_distribution_tab_shows_default_feature_and_excludes_target(
     )
 
 
-def test_categorical_encoding_strategy_offers_three_options(monkeypatch, tmp_path) -> None:
+def test_autogluon_feature_generation_options_are_available(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("ML_PLATFORM_RUNS_DIR", str(tmp_path / "runs"))
 
     app = AppTest.from_file("app.py")
@@ -167,8 +167,11 @@ def test_categorical_encoding_strategy_offers_three_options(monkeypatch, tmp_pat
     app.run(timeout=120)
     _advance_to_check(app)
 
-    categorical_encoding = app.selectbox(key="_categorical_encoding_strategy_label")
-    assert categorical_encoding.options == ["one_hot", "ordinal", "frequency"]
+    assert app.checkbox(key="enable_numeric_features").value is True
+    assert app.checkbox(key="enable_categorical_features").value is True
+    assert app.checkbox(key="enable_datetime_features").value is True
+    assert app.checkbox(key="enable_text_ngram_features").value is True
+    assert app.checkbox(key="enable_vision_features").value is False
 
 
 def test_preprocessing_section_is_collapsed_by_default(monkeypatch, tmp_path) -> None:
@@ -189,7 +192,7 @@ def test_preprocessing_section_is_collapsed_by_default(monkeypatch, tmp_path) ->
         expander for expander in app.expander if expander.label == "Open preprocessing details"
     )
     assert preprocessing_expander.proto.expanded is False
-    assert any("Categorical encoding strategy" in caption.value for caption in app.caption)
+    assert any("AutoGluon feature generation" in caption.value for caption in app.caption)
 
 
 def test_chinese_ui_covers_preprocessing_and_results_labels(monkeypatch, tmp_path) -> None:
@@ -211,7 +214,7 @@ def test_chinese_ui_covers_preprocessing_and_results_labels(monkeypatch, tmp_pat
 
     assert any(subheader.value == "3. 配置数据预处理" for subheader in app.subheader)
     assert not any(subheader.value == "4. 准备数据" for subheader in app.subheader)
-    assert any("类别编码策略" in caption.value for caption in app.caption)
+    assert any("AutoGluon 特征生成" in caption.value for caption in app.caption)
     assert any("这些检查会解释为什么当前可以继续训练" in caption.value for caption in app.caption)
     assert any("这些检查项不会阻止训练" in alert.value for alert in app.info)
     _advance_to_prepare(app, "下一步：准备训练")
@@ -385,11 +388,13 @@ def test_applied_preprocessing_step_invalidates_prepared_data(monkeypatch, tmp_p
     assert run_training.disabled is False
 
     _click_button(app, "Done: Check data")
-    app.selectbox(key="numeric_imputation_strategy").set_value("mean")
+    app.checkbox(key="enable_text_ngram_features").set_value(False)
     app.run(timeout=120)
 
-    apply_missing_step = next(button for button in app.button if button.label == "Apply missing-value step")
-    apply_missing_step.click()
+    apply_autogluon_step = next(
+        button for button in app.button if button.label == "Apply AutoGluon feature generation"
+    )
+    apply_autogluon_step.click()
     app.run(timeout=120)
 
     _advance_to_prepare(app)
@@ -397,7 +402,7 @@ def test_applied_preprocessing_step_invalidates_prepared_data(monkeypatch, tmp_p
     _click_button(app, "Run training")
 
     run_config = _latest_run_config(tmp_path / "runs")
-    assert run_config["numeric_imputation_strategy"] == "mean"
+    assert run_config["autogluon_feature_generator_params"]["enable_text_ngram_features"] is False
 
 
 def test_blocking_preflight_explanation_is_shown_when_no_features_remain(monkeypatch, tmp_path) -> None:
@@ -457,7 +462,7 @@ def test_run_training_uses_applied_preprocessing_not_unapplied_draft(monkeypatch
     app.run(timeout=120)
     _advance_to_check(app)
 
-    app.selectbox(key="numeric_imputation_strategy").set_value("mean")
+    app.checkbox(key="enable_text_ngram_features").set_value(False)
     app.run(timeout=120)
     _advance_to_prepare(app)
 
@@ -465,4 +470,4 @@ def test_run_training_uses_applied_preprocessing_not_unapplied_draft(monkeypatch
     _click_button(app, "Run training")
 
     run_config = _latest_run_config(tmp_path / "runs")
-    assert run_config["numeric_imputation_strategy"] == "median"
+    assert run_config["autogluon_feature_generator_params"]["enable_text_ngram_features"] is True

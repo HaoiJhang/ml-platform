@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import shutil
 import sqlite3
 import uuid
 from dataclasses import dataclass
@@ -53,6 +54,18 @@ class RunStorage:
         return output
 
     def save_model(self, run: RunRecord, model: Any) -> Path:
+        autogluon_path = getattr(model, "path", None)
+        if autogluon_path is not None and Path(autogluon_path).exists():
+            source = Path(autogluon_path)
+            destination = run.path / "autogluon_predictor"
+            if source.resolve() != destination.resolve():
+                if destination.exists():
+                    shutil.rmtree(destination)
+                shutil.copytree(source, destination)
+            archive = Path(shutil.make_archive(str(destination), "zip", destination))
+            logger.info("AutoGluon model archived run_id=%s size_bytes=%d", run.run_id, archive.stat().st_size)
+            return archive
+
         output = run.path / "model.joblib"
         joblib.dump(model, output)
         logger.info("Model saved run_id=%s size_bytes=%d", run.run_id, output.stat().st_size)

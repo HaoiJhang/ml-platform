@@ -84,12 +84,13 @@ def test_end_to_end_classification_smoke(tmp_path: Path) -> None:
     storage.save_json(run, "recommendations.json", artifact_to_dict(recommendations))
     storage.save_text(run, "report.md", report)
     storage.save_predictions(run, predictions)
-    storage.save_model(run, trained.model)
+    model_path = storage.save_model(run, trained.model)
     storage.record_run(run, metrics, "completed")
 
     assert metrics["accuracy"] is not None
     assert metrics["train_accuracy"] is not None
-    assert (run.path / "model.joblib").exists()
+    assert model_path.name == "autogluon_predictor.zip"
+    assert (run.path / "autogluon_predictor").exists()
     assert (run.path / "plan.json").exists()
     assert (run.path / "data_flow.json").exists()
     assert (run.path / "validation_pre.json").exists()

@@ -1,4 +1,4 @@
-flaml[automl]>=2.3.0
+autogluon.tabular[all]>=1.5.0,<1.6.0
 joblib>=1.4.2
 numpy>=2.0.2
 openai>=2.0.0

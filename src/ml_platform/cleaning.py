@@ -34,6 +34,8 @@ class CleanConfig:
     categorical_encoding_strategy: str = "one_hot"
     standardize_numeric: bool = True
     feature_engineering_operations: list[FeatureEngineeringOperation] | None = None
+    autogluon_feature_generator_params: dict[str, Any] | None = None
+    autogluon_presets: str = "medium_quality"
 
 
 @dataclass
@@ -42,7 +44,7 @@ class CleanedData:
     X_test: pd.DataFrame
     y_train: pd.Series
     y_test: pd.Series
-    preprocessor: ColumnTransformer
+    preprocessor: Any | None
     feature_columns: list[str]
     numeric_features: list[str]
     categorical_features: list[str]
@@ -155,11 +157,13 @@ def preprocessing_plan_to_clean_config(
     encoding_step = resolved_steps.get("categorical_encoding", {})
     scaling_step = resolved_steps.get("numeric_scaling", {})
     feature_step = resolved_steps.get("feature_engineering", {})
+    autogluon_step = resolved_steps.get("autogluon_feature_generator", {})
 
     missing_params = missing_step.get("params", {}) if isinstance(missing_step, dict) else {}
     encoding_params = encoding_step.get("params", {}) if isinstance(encoding_step, dict) else {}
     scaling_params = scaling_step.get("params", {}) if isinstance(scaling_step, dict) else {}
     feature_params = feature_step.get("params", {}) if isinstance(feature_step, dict) else {}
+    autogluon_params = autogluon_step.get("params", {}) if isinstance(autogluon_step, dict) else {}
 
     feature_operations: list[FeatureEngineeringOperation] = []
     if bool(feature_params.get("enabled", True)):
@@ -195,6 +199,8 @@ def preprocessing_plan_to_clean_config(
         categorical_encoding_strategy=str(encoding_params.get("strategy", "one_hot")),
         standardize_numeric=bool(scaling_params.get("standardize_numeric", True)),
         feature_engineering_operations=feature_operations or None,
+        autogluon_feature_generator_params=_autogluon_feature_generator_params(autogluon_params),
+        autogluon_presets=str(global_params.get("autogluon_presets", "medium_quality")),
     )
 
 
@@ -203,12 +209,6 @@ def clean_and_split(df: pd.DataFrame, config: CleanConfig, tracker: DataFlowTrac
         raise ValueError(f"Target column not found: {config.target}")
     if config.task_type not in {"classification", "regression"}:
         raise ValueError("task_type must be 'classification' or 'regression'.")
-    if config.numeric_imputation_strategy not in {"median", "mean", "most_frequent", "constant_zero"}:
-        raise ValueError("Unsupported numeric_imputation_strategy.")
-    if config.categorical_imputation_strategy not in {"most_frequent", "constant_missing"}:
-        raise ValueError("Unsupported categorical_imputation_strategy.")
-    if config.categorical_encoding_strategy not in {"one_hot", "ordinal", "frequency"}:
-        raise ValueError("Unsupported categorical_encoding_strategy.")
 
     logger.info("Cleaning dataset rows=%d columns=%d target=%s task_type=%s", len(df), len(df.columns), config.target, config.task_type)
     working = df.copy()
@@ -298,33 +298,8 @@ def clean_and_split(df: pd.DataFrame, config: CleanConfig, tracker: DataFlowTrac
     numeric_features = X.select_dtypes(include=["number"]).columns.tolist()
     categorical_features = [column for column in X.columns if column not in numeric_features]
 
-    numeric_steps: list[tuple[str, Any]] = [("imputer", _numeric_imputer(config.numeric_imputation_strategy))]
-    if config.standardize_numeric:
-        numeric_steps.append(("scaler", StandardScaler()))
-    transformers: list[tuple[str, Any, Any]] = [
-        ("numeric", Pipeline(numeric_steps), make_column_selector(dtype_include="number")),
-        (
-            "categorical",
-            Pipeline(
-                [
-                    ("imputer", _categorical_imputer(config.categorical_imputation_strategy)),
-                    ("encoder", _categorical_encoder(config.categorical_encoding_strategy)),
-                ]
-            ),
-            make_column_selector(dtype_exclude="number"),
-        )
-    ]
-    column_preprocessor = ColumnTransformer(transformers=transformers, remainder="drop", verbose_feature_names_out=False)
     feature_operations = list(config.feature_engineering_operations or [])
-    if feature_operations:
-        preprocessor = Pipeline(
-            [
-                ("feature_engineering", FeatureEngineeringTransformer(feature_operations)),
-                ("columns", column_preprocessor),
-            ]
-        )
-    else:
-        preprocessor = column_preprocessor
+    preprocessor = FeatureEngineeringTransformer(feature_operations) if feature_operations else None
     stratify = None
     if config.task_type == "classification" and y.nunique(dropna=True) > 1:
         class_counts = y.value_counts()
@@ -354,11 +329,9 @@ def clean_and_split(df: pd.DataFrame, config: CleanConfig, tracker: DataFlowTrac
             "step": "build_preprocessor",
             "numeric_features": numeric_features,
             "categorical_features": categorical_features,
-            "numeric_imputation_strategy": config.numeric_imputation_strategy,
-            "categorical_imputation_strategy": config.categorical_imputation_strategy,
-            "categorical_encoding_strategy": config.categorical_encoding_strategy,
-            "standardize_numeric": config.standardize_numeric,
             "feature_engineering_operations": [operation.operation for operation in feature_operations],
+            "trainer_preprocessing": "autogluon",
+            "autogluon_feature_generator_params": dict(config.autogluon_feature_generator_params or {}),
         }
     )
     if tracker is not None:
@@ -385,11 +358,9 @@ def clean_and_split(df: pd.DataFrame, config: CleanConfig, tracker: DataFlowTrac
             metadata={
                 "numeric_features": numeric_features,
                 "categorical_features": categorical_features,
-                "numeric_imputation_strategy": config.numeric_imputation_strategy,
-                "categorical_imputation_strategy": config.categorical_imputation_strategy,
-                "categorical_encoding_strategy": config.categorical_encoding_strategy,
-                "standardize_numeric": config.standardize_numeric,
                 "feature_engineering_operations": [operation.operation for operation in feature_operations],
+                "trainer_preprocessing": "autogluon",
+                "autogluon_feature_generator_params": dict(config.autogluon_feature_generator_params or {}),
             },
         )
 
@@ -408,11 +379,15 @@ def clean_and_split(df: pd.DataFrame, config: CleanConfig, tracker: DataFlowTrac
 
 
 def prepare_for_training(cleaned: CleanedData, tracker: DataFlowTracker | None = None) -> CleanedData:
-    fitted_preprocessor = clone(cleaned.preprocessor)
-    X_train_prepared = fitted_preprocessor.fit_transform(cleaned.X_train)
-    X_test_prepared = fitted_preprocessor.transform(cleaned.X_test)
-    feature_names = _preprocessor_feature_names(fitted_preprocessor)
-    feature_count = len(feature_names) if feature_names is not None else X_train_prepared.shape[1]
+    fitted_preprocessor = clone(cleaned.preprocessor) if cleaned.preprocessor is not None else None
+    if fitted_preprocessor is not None:
+        X_train_prepared = fitted_preprocessor.fit_transform(cleaned.X_train)
+        X_test_prepared = fitted_preprocessor.transform(cleaned.X_test)
+    else:
+        X_train_prepared = cleaned.X_train.copy()
+        X_test_prepared = cleaned.X_test.copy()
+    feature_names = [str(column) for column in X_train_prepared.columns]
+    feature_count = len(feature_names)
     if feature_count == 0:
         raise ValueError("Preprocessor produced no features.")
 
@@ -421,30 +396,28 @@ def prepare_for_training(cleaned: CleanedData, tracker: DataFlowTracker | None =
         {
             "step": "prepare_training_data",
             "prepared_feature_count": feature_count,
-            "numeric_imputation_strategy": cleaned.config.numeric_imputation_strategy,
-            "categorical_imputation_strategy": cleaned.config.categorical_imputation_strategy,
-            "categorical_encoding_strategy": cleaned.config.categorical_encoding_strategy,
-            "standardize_numeric": cleaned.config.standardize_numeric,
+            "trainer_preprocessing": "autogluon",
+            "feature_engineering_operations": [
+                operation.operation for operation in cleaned.config.feature_engineering_operations or []
+            ],
         }
     )
 
     if tracker is not None:
-        tracker.snapshot_matrix(
-            "prepared_train_matrix",
-            "Prepared train matrix",
+        tracker.snapshot_dataframe(
+            "autogluon_train_data",
+            "AutoGluon train data",
             "preparation",
-            matrix=X_train_prepared,
+            X_train_prepared,
             partition="train",
-            column_names=feature_names,
             metadata={"feature_count": feature_count},
         )
-        tracker.snapshot_matrix(
-            "prepared_test_matrix",
-            "Prepared test matrix",
+        tracker.snapshot_dataframe(
+            "autogluon_test_data",
+            "AutoGluon test data",
             "preparation",
-            matrix=X_test_prepared,
+            X_test_prepared,
             partition="test",
-            column_names=feature_names,
             metadata={"feature_count": feature_count},
         )
 
@@ -468,3 +441,22 @@ def prepare_for_training(cleaned: CleanedData, tracker: DataFlowTracker | None =
 
 def _string_values(series: pd.Series) -> pd.Series:
     return series.astype("string").fillna(MISSING_TOKEN).astype(str)
+
+
+def _autogluon_feature_generator_params(raw_params: dict[str, Any]) -> dict[str, Any]:
+    defaults: dict[str, Any] = {
+        "enable_numeric_features": True,
+        "enable_categorical_features": True,
+        "enable_datetime_features": True,
+        "enable_text_special_features": True,
+        "enable_text_ngram_features": True,
+        "enable_raw_text_features": False,
+        "enable_vision_features": False,
+    }
+    if not isinstance(raw_params, dict):
+        return defaults
+    resolved = dict(defaults)
+    for key in defaults:
+        if key in raw_params:
+            resolved[key] = bool(raw_params[key])
+    return resolved
