@@ -555,6 +555,18 @@ def _load_hero_background() -> str:
     )
 
 
+def _load_rainbow_strip_background() -> str:
+    rainbow_path = PROJECT_ROOT / "彩虹.jpg"
+    if not rainbow_path.exists():
+        return "#F0EEEA"
+    encoded = base64.b64encode(rainbow_path.read_bytes()).decode("ascii")
+    return (
+        "linear-gradient(90deg, rgba(255, 255, 255, 0.86), "
+        "rgba(255, 255, 255, 0.74)), "
+        f'url("data:image/jpeg;base64,{encoded}")'
+    )
+
+
 def _apply_design_system() -> None:
     hero_background = _load_hero_background()
     st.markdown(
@@ -1001,6 +1013,7 @@ def _apply_design_system() -> None:
 
 def _apply_beamer_design() -> None:
     """Minimal beamer-like layer on top of the existing Streamlit app."""
+    rainbow_strip_background = _load_rainbow_strip_background()
     st.markdown(
         """
         <style>
@@ -1016,6 +1029,7 @@ def _apply_beamer_design() -> None:
                 --beamer-faint: #B8C0D4;
                 --beamer-line: #D8D3CC;
                 --beamer-burgundy: #7A0019;
+                --beamer-rainbow-strip: __RAINBOW_STRIP__;
                 --beamer-sans: __BEAMER_SANS__;
                 --beamer-mono: __BEAMER_MONO__;
                 --beamer-fs-body: 14px;
@@ -1229,6 +1243,12 @@ def _apply_beamer_design() -> None:
                 color: #333333;
                 font-size: var(--beamer-fs-meta);
                 line-height: 1.45;
+            }
+
+            .beamer-help-strip {
+                background: var(--beamer-rainbow-strip);
+                background-size: cover;
+                background-position: center 46%;
             }
 
             .beamer-frame-note-info {
@@ -1484,9 +1504,9 @@ def _apply_beamer_design() -> None:
                 }
             }
         </style>
-        """.replace("__BEAMER_SANS__", BEAMER_SANS_FONT_STACK).replace(
-            "__BEAMER_MONO__", BEAMER_MONO_FONT_STACK
-        ),
+        """.replace("__RAINBOW_STRIP__", rainbow_strip_background)
+        .replace("__BEAMER_SANS__", BEAMER_SANS_FONT_STACK)
+        .replace("__BEAMER_MONO__", BEAMER_MONO_FONT_STACK),
         unsafe_allow_html=True,
     )
 
