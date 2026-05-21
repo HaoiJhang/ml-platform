@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import sys
 from typing import Any
+from urllib.parse import urlencode
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 SRC_DIR = PROJECT_ROOT / "src"
@@ -101,8 +102,16 @@ DEFAULT_UI_LANGUAGE = "zh-CN"
 UI_LANGUAGE_OPTIONS = ("en", "zh-CN")
 UI_LANGUAGE_LABELS = {
     "en": "English",
-    "zh-CN": "中文",
+    "zh-CN": "简体中文",
 }
+BEAMER_SANS_FONT_STACK = (
+    '"Noto Sans SC", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", '
+    '"Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif'
+)
+BEAMER_MONO_FONT_STACK = (
+    '"SFMono-Regular", "SF Mono", "Cascadia Mono", "JetBrains Mono", Menlo, '
+    'Consolas, "Liberation Mono", monospace'
+)
 PREPROCESSING_STEP_IDS = {
     "column_selection": "column_selection",
     "manual_cleaning": "manual_cleaning",
@@ -129,26 +138,42 @@ WIZARD_STEP_LABELS = {
     "results": "Review results",
 }
 
+BEAMER_SECTION_LABELS = {
+    "dataset": "Dataset",
+    "task": "Task",
+    "preprocess": "Preprocess",
+    "training": "Training",
+    "results": "Results",
+}
+
 BEAMER_NAV_SECTIONS = {
-    "Dataset": ("Source", "Schema", "Profile"),
-    "Task": ("Target", "Metric", "Budget"),
-    "Preprocess": (
+    "dataset": ("Source", "Schema", "Profile"),
+    "task": ("Target", "Metric", "Budget"),
+    "preprocess": (
         "Field health",
         "Preprocessing details",
         "EDA profile",
         "Preflight validation",
     ),
-    "Training": ("Prepare batches", "Fit models", "Save artifacts"),
-    "Results": ("Summary", "Metrics", "Validation", "Importance", "Downloads"),
+    "training": ("Prepare batches", "Fit models", "Save artifacts"),
+    "results": ("Summary", "Metrics", "Validation", "Importance", "Downloads"),
 }
 
 BEAMER_STEP_TO_SECTION_FRAME = {
-    "upload": ("Dataset", 0),
-    "target": ("Task", 0),
-    "check": ("Preprocess", 0),
-    "prepare": ("Training", 0),
-    "train": ("Training", 1),
-    "results": ("Results", 0),
+    "upload": ("dataset", 0),
+    "target": ("task", 0),
+    "check": ("preprocess", 0),
+    "prepare": ("training", 0),
+    "train": ("training", 1),
+    "results": ("results", 0),
+}
+
+BEAMER_NAV_STEP_TARGETS = {
+    "dataset": ("upload", "upload", "upload"),
+    "task": ("target", "target", "target"),
+    "preprocess": ("check", "check", "check", "check"),
+    "training": ("prepare", "train", "train"),
+    "results": ("results", "results", "results", "results", "results"),
 }
 
 SLIDE_TITLES = {
@@ -181,12 +206,12 @@ def _t(text: str, **kwargs: Any) -> str:
 def _render_language_switcher() -> None:
     topbar_cols = st.columns([0.82, 0.18])
     with topbar_cols[1]:
-        st.caption(_t("Language / 语言"))
+        st.caption(_t("Interface language"))
         current_language = _ui_language()
         if current_language not in UI_LANGUAGE_OPTIONS:
             current_language = DEFAULT_UI_LANGUAGE
         st.selectbox(
-            _t("Language / 语言"),
+            _t("Interface language"),
             UI_LANGUAGE_OPTIONS,
             index=UI_LANGUAGE_OPTIONS.index(current_language),
             key="ui_language",
@@ -469,6 +494,34 @@ def _render_slide_title(step: str, title: str | None = None, subtitle: str | Non
 def _render_explanation_strip(text: str) -> None:
     st.markdown(
         '<div class="beamer-explanation-strip">' + _html_escape(_t(text)) + '</div>',
+        unsafe_allow_html=True,
+    )
+
+
+def _section_title(text: str) -> None:
+    st.markdown(
+        '<div class="beamer-section-title">' + _html_escape(str(text)) + "</div>",
+        unsafe_allow_html=True,
+    )
+
+
+def _panel_title(text: str) -> None:
+    st.markdown(
+        '<div class="beamer-panel-title">' + _html_escape(str(text)) + "</div>",
+        unsafe_allow_html=True,
+    )
+
+
+def _frame_note(text: str, *, tone: str = "info") -> None:
+    tone_class = {
+        "info": "beamer-frame-note-info",
+        "warning": "beamer-frame-note-warning",
+        "success": "beamer-frame-note-success",
+    }.get(tone, "beamer-frame-note-info")
+    st.markdown(
+        '<div class="beamer-frame-note ' + tone_class + '">'
+        + _html_escape(str(text))
+        + "</div>",
         unsafe_allow_html=True,
     )
 
@@ -939,7 +992,7 @@ def _apply_beamer_design() -> None:
     st.markdown(
         """
         <style>
-            @import url("https://fonts.googleapis.com/css2?family=LXGW+WenKai+Mono+TC&display=swap");
+            @import url("https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600;700&display=swap");
 
             :root {
                 --beamer-bg: #FAFAF8;
@@ -951,17 +1004,32 @@ def _apply_beamer_design() -> None:
                 --beamer-faint: #B8C0D4;
                 --beamer-line: #D8D3CC;
                 --beamer-burgundy: #7A0019;
+                --beamer-sans: __BEAMER_SANS__;
+                --beamer-mono: __BEAMER_MONO__;
+                --beamer-fs-body: 14px;
+                --beamer-fs-meta: 12px;
+                --beamer-fs-panel: 18px;
+                --beamer-fs-slide: 24px;
+                --beamer-fs-hero: 28px;
             }
 
             html, body, .stApp, .stApp *,
             button, input, textarea, select, option, label, p, span, div,
             h1, h2, h3, h4, h5, h6, code, pre, table, th, td,
             [data-testid], [data-baseweb], [data-baseweb="select"] > div {
-                font-family: "LXGW WenKai Mono", "LXGW WenKai Mono GB", "LXGW WenKai Mono TC", "LXGW WenKai Mono", "霞鹜文楷等宽", monospace !important;
+                font-family: var(--beamer-sans) !important;
+                letter-spacing: 0 !important;
             }
 
-            /* Streamlit icons are ligature text such as keyboard_arrow_down.
-               Keep icon spans on Material Symbols so internal icon names are not exposed. */
+            code,
+            pre,
+            kbd,
+            samp,
+            [data-testid="stMetricValue"],
+            [data-testid="stCodeBlock"] * {
+                font-family: var(--beamer-mono) !important;
+            }
+
             .material-symbols-rounded,
             .material-symbols-outlined,
             .material-icons,
@@ -1017,34 +1085,44 @@ def _apply_beamer_design() -> None:
                 color: var(--beamer-ink) !important;
             }
 
+            p,
+            li,
+            label,
+            .stMarkdown,
+            [data-testid="stCaptionContainer"] {
+                color: var(--beamer-ink) !important;
+                font-size: var(--beamer-fs-body) !important;
+                line-height: 1.6 !important;
+            }
+
             .beamer-app-headline {
                 display: flex;
                 justify-content: space-between;
-                align-items: flex-end;
+                align-items: flex-start;
                 gap: 1rem;
-                margin: 0 0 0.5rem;
-                padding: 0.15rem 0 0.45rem;
+                margin: 0 0 0.75rem;
+                padding: 0.2rem 0 0.55rem;
             }
 
             .beamer-app-title {
                 color: var(--beamer-blue);
-                font-size: 1.4rem;
+                font-size: clamp(1.6rem, 2vw, 1.75rem);
+                line-height: 1.25;
                 font-weight: 700;
-                letter-spacing: 0.01em;
             }
 
             .beamer-app-subtitle {
                 color: var(--beamer-muted);
-                font-size: 0.78rem;
-                margin-top: 0.15rem;
+                font-size: var(--beamer-fs-meta);
+                line-height: 1.45;
+                margin-top: 0.2rem;
             }
 
             .beamer-nav {
                 width: 100%;
-                min-height: 44px;
                 display: grid;
                 grid-template-columns: repeat(5, 1fr);
-                align-items: center;
+                align-items: stretch;
                 border: 2px solid #111111;
                 background: var(--beamer-paper);
                 margin: 0.25rem 0 0;
@@ -1052,18 +1130,23 @@ def _apply_beamer_design() -> None:
             }
 
             .beamer-nav-section {
-                padding: 5px 15px 4px;
+                padding: 0.5rem 0.8rem;
                 min-width: 0;
+                border-right: 1px solid var(--beamer-line);
+            }
+
+            .beamer-nav-section:last-child {
+                border-right: 0;
             }
 
             .beamer-nav-title {
                 color: #9DA7BF;
-                font-size: 0.72rem;
-                line-height: 1.05;
-                white-space: nowrap;
-                overflow: hidden;
-                text-overflow: ellipsis;
-                margin-bottom: 3px;
+                font-size: var(--beamer-fs-meta);
+                line-height: 1.45;
+                white-space: normal;
+                overflow: visible;
+                text-overflow: clip;
+                margin-bottom: 0.2rem;
             }
 
             .beamer-nav-title.active {
@@ -1075,7 +1158,8 @@ def _apply_beamer_design() -> None:
                 display: flex;
                 align-items: center;
                 gap: 4px;
-                height: 8px;
+                min-height: 10px;
+                flex-wrap: wrap;
             }
 
             .beamer-dot {
@@ -1085,6 +1169,12 @@ def _apply_beamer_design() -> None:
                 border: 1px solid #A9B3CA;
                 background: transparent;
                 box-sizing: border-box;
+            }
+
+            .beamer-dot-link {
+                display: inline-block;
+                text-decoration: none !important;
+                cursor: pointer;
             }
 
             .beamer-dot.done {
@@ -1099,49 +1189,125 @@ def _apply_beamer_design() -> None:
             .beamer-slide-titlebar {
                 background: var(--beamer-titlebar);
                 border-left: 6px solid var(--beamer-blue);
-                padding: 0.82rem 1.05rem 0.78rem;
-                margin: 0 0 2rem;
+                padding: 0.9rem 1.05rem 0.85rem;
+                margin: 0 0 1.35rem;
             }
 
             .beamer-slide-title {
                 color: var(--beamer-blue);
-                font-size: clamp(1.45rem, 2.5vw, 2.05rem);
-                line-height: 1.12;
+                font-size: var(--beamer-fs-slide);
+                line-height: 1.25;
                 font-weight: 700;
             }
 
             .beamer-slide-subtitle {
                 color: var(--beamer-muted);
-                font-size: 0.86rem;
-                margin-top: 0.25rem;
+                font-size: var(--beamer-fs-meta);
+                line-height: 1.45;
+                margin-top: 0.3rem;
             }
 
             .beamer-help-strip,
-            .beamer-explanation-strip {
-                margin: 0.85rem 0 1.15rem;
+            .beamer-explanation-strip,
+            .beamer-frame-note {
+                margin: 0.8rem 0 1rem;
                 border-left: 5px solid var(--beamer-burgundy);
                 background: #F0EEEA;
                 padding: 0.8rem 1rem;
                 color: #333333;
-                font-size: 0.88rem;
-                line-height: 1.55;
+                font-size: var(--beamer-fs-meta);
+                line-height: 1.45;
+            }
+
+            .beamer-frame-note-info {
+                border-left-color: var(--beamer-blue);
+                background: #F4F7FD;
+            }
+
+            .beamer-frame-note-warning {
+                border-left-color: #A24C26;
+                background: #FAF2EC;
+            }
+
+            .beamer-frame-note-success {
+                border-left-color: #25684A;
+                background: #EEF7F2;
             }
 
             .beamer-jump-caption {
                 color: var(--beamer-muted);
-                font-size: 0.74rem;
+                font-size: var(--beamer-fs-meta);
+                line-height: 1.45;
                 margin: 0.45rem 0 0.35rem;
+            }
+
+            .beamer-section-title,
+            .beamer-panel-title {
+                margin: 0 0 0.45rem;
+                color: var(--beamer-ink);
+                font-size: var(--beamer-fs-panel);
+                line-height: 1.25;
+                font-weight: 700;
+            }
+
+            .beamer-section-caption {
+                margin: 0 0 0.8rem;
+                color: var(--beamer-muted);
+                font-size: var(--beamer-fs-meta);
+                line-height: 1.45;
+            }
+
+            .beamer-frame-selector-title,
+            .beamer-frame-progress {
+                color: var(--beamer-muted);
+                font-size: var(--beamer-fs-meta);
+                line-height: 1.45;
+            }
+
+            .beamer-frame-selector-title {
+                margin: 0 0 0.55rem;
+                color: var(--beamer-blue);
+                font-weight: 600;
+            }
+
+            .beamer-frame-progress {
+                text-align: center;
+                padding-top: 0.45rem;
+            }
+
+            .beamer-empty {
+                padding: 1rem 1.05rem;
+                border: 1px dashed var(--beamer-line);
+                background: #FFFFFF;
+                color: var(--beamer-muted);
+                border-radius: 6px;
+                font-size: var(--beamer-fs-body);
+                line-height: 1.6;
             }
 
             [data-testid="stMetric"],
             [data-testid="stDataFrame"],
             [data-testid="stJson"],
             [data-testid="stExpander"],
-            [data-testid="stFileUploader"] section,
+            [data-testid="stFileUploader"] section {
+                border: 1px solid var(--beamer-line) !important;
+                background: var(--beamer-paper) !important;
+                border-radius: 6px !important;
+                box-shadow: none !important;
+            }
+
             div[data-testid="stVerticalBlockBorderWrapper"] {
                 border: 1px solid var(--beamer-line) !important;
                 background: var(--beamer-paper) !important;
-                border-radius: 4px !important;
+                border-radius: 6px !important;
+                padding: 0.18rem 0.32rem !important;
+                box-shadow: none !important;
+            }
+
+            div[data-testid="stVerticalBlockBorderWrapper"] div[data-testid="stVerticalBlockBorderWrapper"] {
+                border: 0 !important;
+                background: transparent !important;
+                padding: 0 !important;
                 box-shadow: none !important;
             }
 
@@ -1151,9 +1317,10 @@ def _apply_beamer_design() -> None:
             }
 
             [data-testid="stMetricLabel"],
-            [data-testid="stCaptionContainer"],
-            p, li, label, .stMarkdown {
+            [data-testid="stCaptionContainer"] {
                 color: var(--beamer-muted);
+                font-size: var(--beamer-fs-meta) !important;
+                line-height: 1.45 !important;
             }
 
             button[kind="primary"],
@@ -1161,9 +1328,11 @@ def _apply_beamer_design() -> None:
                 background: var(--beamer-blue) !important;
                 border-color: var(--beamer-blue) !important;
                 color: #FFFFFF !important;
-                border-radius: 3px !important;
+                border-radius: 4px !important;
                 box-shadow: none !important;
                 transform: none !important;
+                min-height: 2.25rem !important;
+                font-size: var(--beamer-fs-body) !important;
             }
 
             div[data-testid="stDownloadButton"] button,
@@ -1178,8 +1347,10 @@ def _apply_beamer_design() -> None:
                 color: var(--beamer-blue) !important;
                 background: #FFFFFF !important;
                 border: 1px solid #D4D9E8 !important;
-                border-radius: 3px !important;
+                border-radius: 4px !important;
                 box-shadow: none !important;
+                min-height: 2.25rem !important;
+                font-size: var(--beamer-fs-body) !important;
             }
 
             button[kind="primary"] *,
@@ -1188,25 +1359,22 @@ def _apply_beamer_design() -> None:
             }
 
             input, textarea, [data-baseweb="select"] > div {
-                border-radius: 3px !important;
+                border-radius: 4px !important;
                 border-color: #CCD2E0 !important;
                 background: #FFFFFF !important;
+                font-size: var(--beamer-fs-body) !important;
             }
 
             .stTabs [data-baseweb="tab-list"] {
                 border-bottom: 1px solid var(--beamer-line) !important;
-                gap: 0.25rem !important;
+                gap: 0.4rem !important;
             }
 
             .stTabs [data-baseweb="tab"] {
-                border-radius: 3px 3px 0 0 !important;
+                border-radius: 4px 4px 0 0 !important;
                 box-shadow: none !important;
-            }
-
-            .lab-empty {
-                border-radius: 4px !important;
-                border-color: var(--beamer-line) !important;
-                background: #FFFFFF !important;
+                font-size: var(--beamer-fs-body) !important;
+                line-height: 1.45 !important;
             }
 
             .beamer-bottom-shell {
@@ -1218,16 +1386,16 @@ def _apply_beamer_design() -> None:
             .beamer-bottom-caption {
                 text-align: center;
                 color: var(--beamer-muted);
-                font-size: 0.78rem;
+                font-size: var(--beamer-fs-meta);
                 line-height: 1.45;
                 padding-top: 0.35rem;
             }
 
             .beamer-roadmap {
                 display: grid;
-                grid-template-columns: repeat(6, minmax(0, 1fr));
+                grid-template-columns: repeat(5, minmax(0, 1fr));
                 gap: 0.55rem;
-                margin: -0.9rem 0 1.25rem;
+                margin: -0.35rem 0 1.25rem;
             }
 
             .beamer-roadmap-card {
@@ -1235,7 +1403,7 @@ def _apply_beamer_design() -> None:
                 border: 1px solid var(--beamer-line);
                 padding: 0.65rem 0.72rem;
                 min-height: 72px;
-                border-radius: 4px;
+                border-radius: 6px;
             }
 
             .beamer-roadmap-index {
@@ -1246,35 +1414,45 @@ def _apply_beamer_design() -> None:
                 height: 1.15rem;
                 background: var(--beamer-blue);
                 color: #FFFFFF;
-                font-size: 0.68rem;
+                font-size: var(--beamer-fs-meta);
                 margin-bottom: 0.35rem;
             }
 
             .beamer-roadmap-title {
                 color: var(--beamer-ink);
                 font-weight: 700;
-                font-size: 0.78rem;
-                line-height: 1.25;
+                font-size: var(--beamer-fs-meta);
+                line-height: 1.45;
             }
 
             .beamer-roadmap-note {
                 color: var(--beamer-muted);
-                font-size: 0.68rem;
-                line-height: 1.35;
+                font-size: var(--beamer-fs-meta);
+                line-height: 1.45;
                 margin-top: 0.25rem;
             }
 
             @media (max-width: 860px) {
                 .beamer-nav {
-                    grid-template-columns: repeat(3, 1fr);
+                    grid-template-columns: repeat(2, minmax(0, 1fr));
                 }
                 .beamer-app-headline {
-                    align-items: flex-start;
                     flex-direction: column;
+                }
+                .beamer-roadmap {
+                    grid-template-columns: repeat(2, minmax(0, 1fr));
+                }
+            }
+
+            @media (max-width: 560px) {
+                .beamer-nav {
+                    grid-template-columns: 1fr;
                 }
             }
         </style>
-        """,
+        """.replace("__BEAMER_SANS__", BEAMER_SANS_FONT_STACK).replace(
+            "__BEAMER_MONO__", BEAMER_MONO_FONT_STACK
+        ),
         unsafe_allow_html=True,
     )
 
@@ -1286,7 +1464,7 @@ def _render_hero() -> None:
         '<section class="beamer-app-headline">'
         + '<div><div class="beamer-app-title">ML Platform</div>'
         + '<div class="beamer-app-subtitle">' + _html_escape(hero_description) + '</div></div>'
-        + '<div class="beamer-app-subtitle">AutoML · Streamlit · Minimal workflow</div>'
+        + '<div class="beamer-app-subtitle">' + _html_escape(_t("Guided AutoML workflow")) + '</div>'
         + '</section>',
         unsafe_allow_html=True,
     )
@@ -1303,7 +1481,10 @@ def _render_help_center() -> None:
 
 
 def _section_caption(text: str) -> None:
-    st.markdown(f'<p class="lab-caption">{text}</p>', unsafe_allow_html=True)
+    st.markdown(
+        '<p class="beamer-section-caption">' + _html_escape(str(text)) + "</p>",
+        unsafe_allow_html=True,
+    )
 
 
 def _render_step_status(
@@ -1322,6 +1503,47 @@ def _render_step_status(
         st.info(message)
 
 
+def _query_param_value(name: str) -> str | None:
+    value = st.query_params.get(name)
+    if isinstance(value, list):
+        return str(value[0]) if value else None
+    if value is None:
+        return None
+    return str(value)
+
+
+def _write_navigation_query_params(step: str, frame_index: int | None = None) -> None:
+    current_step = _query_param_value("step")
+    if current_step != step:
+        st.query_params["step"] = step
+    if step == "check" and frame_index is not None:
+        frame_value = str(frame_index)
+        if _query_param_value("frame") != frame_value:
+            st.query_params["frame"] = frame_value
+    elif "frame" in st.query_params:
+        del st.query_params["frame"]
+
+
+def _sync_navigation_state_from_query_params() -> None:
+    query_step = _query_param_value("step")
+    if query_step in WIZARD_STEPS:
+        st.session_state["active_step"] = query_step
+        if query_step == "check":
+            query_frame = _query_param_value("frame")
+            try:
+                frame_index = int(query_frame) if query_frame is not None else 0
+            except ValueError:
+                frame_index = 0
+            st.session_state["preprocess_frame_idx"] = frame_index
+        else:
+            st.session_state["preprocess_frame_idx"] = 0
+        return
+    _write_navigation_query_params(
+        _active_step(),
+        _preprocess_frame_index() if _active_step() == "check" else None,
+    )
+
+
 def _wizard_step_index(step: str) -> int:
     return WIZARD_STEPS.index(step) if step in WIZARD_STEPS else 0
 
@@ -1331,6 +1553,10 @@ def _set_active_step(step: str) -> None:
         st.session_state["active_step"] = step
         if step != "check":
             st.session_state["preprocess_frame_idx"] = 0
+        _write_navigation_query_params(
+            step,
+            _preprocess_frame_index() if step == "check" else None,
+        )
 
 
 def _active_step() -> str:
@@ -1340,7 +1566,7 @@ def _active_step() -> str:
 
 def _preprocess_frame_index() -> int:
     """Current beamer mini-frame inside the data preprocessing section."""
-    frame_count = len(BEAMER_NAV_SECTIONS["Preprocess"])
+    frame_count = len(BEAMER_NAV_SECTIONS["preprocess"])
     try:
         frame_index = int(st.session_state.get("preprocess_frame_idx", 0))
     except (TypeError, ValueError):
@@ -1349,13 +1575,16 @@ def _preprocess_frame_index() -> int:
 
 
 def _set_preprocess_frame_index(frame_index: int) -> None:
-    frame_count = len(BEAMER_NAV_SECTIONS["Preprocess"])
-    st.session_state["preprocess_frame_idx"] = max(0, min(int(frame_index), frame_count - 1))
+    frame_count = len(BEAMER_NAV_SECTIONS["preprocess"])
+    resolved_index = max(0, min(int(frame_index), frame_count - 1))
+    st.session_state["preprocess_frame_idx"] = resolved_index
+    if _active_step() == "check":
+        _write_navigation_query_params("check", resolved_index)
 
 
 def _render_preprocessing_roadmap() -> None:
     """Render local controls for the separated preprocessing mini-frames."""
-    frames = list(BEAMER_NAV_SECTIONS["Preprocess"])
+    frames = list(BEAMER_NAV_SECTIONS["preprocess"])
     current_idx = _preprocess_frame_index()
 
     st.markdown(
@@ -1413,6 +1642,25 @@ def _render_preprocessing_roadmap() -> None:
             st.rerun()
 
 
+def _nav_target_for(section_name: str, frame_index: int) -> tuple[str, int | None]:
+    steps = BEAMER_NAV_STEP_TARGETS.get(section_name, ())
+    if not steps:
+        return "upload", None
+    safe_index = max(0, min(frame_index, len(steps) - 1))
+    step = steps[safe_index]
+    if step == "check":
+        return step, safe_index
+    return step, None
+
+
+def _nav_href_for(section_name: str, frame_index: int) -> str:
+    step, query_frame = _nav_target_for(section_name, frame_index)
+    params: dict[str, str] = {"step": step}
+    if query_frame is not None:
+        params["frame"] = str(query_frame)
+    return "?" + urlencode(params)
+
+
 def _render_wizard_nav(
     *,
     dataset_loaded: bool,
@@ -1423,18 +1671,25 @@ def _render_wizard_nav(
 ) -> None:
     active_step = _active_step()
     active_section, active_frame_index = BEAMER_STEP_TO_SECTION_FRAME.get(
-        active_step, ("Dataset", 0)
+        active_step, ("dataset", 0)
     )
     if active_step == "check":
         active_frame_index = _preprocess_frame_index()
     section_names = list(BEAMER_NAV_SECTIONS)
     active_section_index = section_names.index(active_section)
     completed_sections = {
-        "Dataset": dataset_loaded,
-        "Task": target_selected,
-        "Preprocess": bool(checks_passed or prepared_ready),
-        "Training": bool(training_finished),
-        "Results": bool(training_finished),
+        "dataset": dataset_loaded,
+        "task": target_selected,
+        "preprocess": bool(checks_passed or prepared_ready),
+        "training": bool(training_finished),
+        "results": bool(training_finished),
+    }
+    enabled_sections = {
+        "dataset": True,
+        "task": dataset_loaded,
+        "preprocess": dataset_loaded and target_selected,
+        "training": dataset_loaded and target_selected,
+        "results": training_finished,
     }
 
     html = ['<nav class="beamer-nav" aria-label="AutoML workflow navigation">']
@@ -1443,24 +1698,33 @@ def _render_wizard_nav(
         section_finished = bool(completed_sections.get(section_name)) or (
             section_index < active_section_index
         )
+        section_enabled = bool(enabled_sections.get(section_name))
         title_class = "beamer-nav-title active" if section_active else "beamer-nav-title"
         html.append('<div class="beamer-nav-section">')
-        html.append(f'<div class="{title_class}">{_html_escape(_t(section_name))}</div>')
+        html.append(
+            f'<div class="{title_class}">{_html_escape(_t(BEAMER_SECTION_LABELS[section_name]))}</div>'
+        )
         html.append('<div class="beamer-dots">')
-        for frame_index, _ in enumerate(frames):
+        for frame_index, frame_name in enumerate(frames):
             if section_active and frame_index == active_frame_index:
                 dot_class = "beamer-dot current"
             elif section_finished or (section_active and frame_index < active_frame_index):
                 dot_class = "beamer-dot done"
             else:
                 dot_class = "beamer-dot"
-            html.append(f'<span class="{dot_class}"></span>')
+            if section_enabled:
+                dot_href = _nav_href_for(section_name, frame_index)
+                dot_label = _html_escape(
+                    f"{_t(BEAMER_SECTION_LABELS[section_name])} · {_t(frame_name)}"
+                )
+                html.append(
+                    f'<a class="{dot_class} beamer-dot-link" href="{dot_href}" target="_self" aria-label="{dot_label}" title="{dot_label}"></a>'
+                )
+            else:
+                html.append(f'<span class="{dot_class}"></span>')
         html.append('</div></div>')
     html.append('</nav>')
     st.markdown("".join(html), unsafe_allow_html=True)
-
-    # The top miniframes headline is the only global workflow navigation.
-    # Step changes are triggered by contextual actions inside each frame.
 
 
 def _render_bottom_workflow_nav() -> None:
@@ -1476,6 +1740,48 @@ def _cache_current_dataset(df: pd.DataFrame, *, source_label: str) -> None:
 def _cached_current_dataset() -> pd.DataFrame | None:
     cached = st.session_state.get("_current_df")
     return cached.copy() if isinstance(cached, pd.DataFrame) else None
+
+
+def _clear_upload_revisit_guard() -> None:
+    st.session_state.pop("_suppress_upload_auto_advance", None)
+    st.session_state.pop("_upload_revisit_signature", None)
+
+
+def _request_upload_revisit() -> None:
+    cached = _cached_current_dataset()
+    if cached is not None:
+        st.session_state["_suppress_upload_auto_advance"] = True
+        st.session_state["_upload_revisit_signature"] = _dataset_fingerprint(cached)
+    _set_active_step("upload")
+
+
+def _handle_loaded_upload_dataset(
+    df: pd.DataFrame,
+    *,
+    source_label: str,
+    status_text: str,
+    continue_key: str,
+) -> None:
+    dataset_signature = _dataset_fingerprint(df)
+    revisit_same_dataset = (
+        bool(st.session_state.get("_suppress_upload_auto_advance"))
+        and st.session_state.get("_upload_revisit_signature") == dataset_signature
+    )
+    _cache_current_dataset(df, source_label=source_label)
+    _render_step_status(
+        status_text,
+        _t("Choose the column you want to predict."),
+        level="success",
+    )
+    if revisit_same_dataset:
+        if st.button(_t("Next: choose target"), key=continue_key):
+            _clear_upload_revisit_guard()
+            _set_active_step("target")
+            st.rerun()
+        return
+    _clear_upload_revisit_guard()
+    _set_active_step("target")
+    st.rerun()
 
 
 def _render_message(level: str, text: str) -> None:
@@ -1685,6 +1991,7 @@ def _render_run_outputs(results: list[dict[str, object]]) -> None:
     )
 
     with summary_tab:
+        _panel_title(_t("Run summary"))
         summary_cols = st.columns(3)
         with summary_cols[0]:
             st.metric(_t("Completed runs"), len(results))
@@ -1713,7 +2020,6 @@ def _render_run_outputs(results: list[dict[str, object]]) -> None:
                 "trainer": _t("Trainer"),
             }
         )
-        st.write(_t("Run summary"))
         st.dataframe(summary_frame, hide_index=True, use_container_width=True)
         _render_explanation_strip(
             "Summary is the first frame: it tells you which targets were trained and which metric each run optimized."
@@ -1722,14 +2028,14 @@ def _render_run_outputs(results: list[dict[str, object]]) -> None:
     with metrics_tab:
         for result in results:
             with st.container(border=True):
-                st.write(_t("{target} metrics", target=result["target"]))
+                _panel_title(_t("{target} metrics", target=result["target"]))
                 result_level, result_summary = _result_translation_summary(result)
                 _render_message(result_level, result_summary)
                 _render_metrics(
                     result["metrics"], priority_metric=result["priority_metric"]
                 )
                 if result["trained"].leaderboard:
-                    st.write(_t("AutoGluon leaderboard"))
+                    _section_title(_t("AutoGluon leaderboard"))
                     st.dataframe(
                         pd.DataFrame(result["trained"].leaderboard),
                         use_container_width=True,
@@ -1741,14 +2047,14 @@ def _render_run_outputs(results: list[dict[str, object]]) -> None:
     with validation_tab:
         for result in results:
             with st.container(border=True):
-                st.write(_t("{target} validation", target=result["target"]))
+                _panel_title(_t("{target} validation", target=result["target"]))
                 _render_validation_summary(
                     preflight=artifact_to_dict(result["preflight_validation"]),
                     postrun=artifact_to_dict(result["postrun_validation"]),
                     recommendations=artifact_to_dict(result["recommendations"]),
                     priority_metric=result["priority_metric"],
                 )
-                st.write(_t("Data flow"))
+                _section_title(_t("Data flow"))
                 _render_data_flow(result["data_flow"])
         _render_explanation_strip(
             "Validation is separated from score comparison because it answers a different question: whether this run is safe to trust."
@@ -1757,7 +2063,7 @@ def _render_run_outputs(results: list[dict[str, object]]) -> None:
     with importance_tab:
         for result in results:
             with st.container(border=True):
-                st.write(_t("{target} feature importance", target=result["target"]))
+                _panel_title(_t("{target} feature importance", target=result["target"]))
                 importance_frame = pd.DataFrame(result["trained"].feature_importance)
                 if importance_frame.empty:
                     st.caption(_t("No feature importance was returned for this run."))
@@ -1768,12 +2074,12 @@ def _render_run_outputs(results: list[dict[str, object]]) -> None:
         )
 
     with downloads_tab:
-        st.write(_t("Download files"))
+        _panel_title(_t("Download files"))
         for result_index, result in enumerate(results):
             run = result["run"]
             label = f"{result['target']} ({_t(str(result['task_type']))})"
             with st.container(border=True):
-                st.write(label)
+                _section_title(label)
                 download_cols = st.columns(3)
                 with download_cols[0]:
                     model_path = Path(result["model_path"])
@@ -1875,7 +2181,7 @@ def _consume_pending_plan_suggestion(columns: list[str]) -> None:
 
 
 def _render_text_items(title: str, items: list[object], empty_text: str) -> None:
-    st.write(_t(title))
+    _section_title(_t(title))
     normalized_items = items if isinstance(items, list) else [items]
     clean_items = [str(item) for item in normalized_items if str(item).strip()]
     if not clean_items:
@@ -2456,7 +2762,7 @@ def _render_field_health_table(
     preflight_by_target: dict[str, object],
     high_missing_threshold: float,
 ) -> None:
-    st.write(_t("Field health"))
+    _panel_title(_t("Field health"))
     _section_caption(
         _t(
             "Review the column type, missing rate, and risk flags before training. The app keeps safe defaults unless you change advanced settings."
@@ -2932,7 +3238,7 @@ def _render_target_profile(target_data: dict[str, object]) -> None:
 
     top_values = target_data.get("top_values", {})
     if isinstance(top_values, dict) and top_values:
-        st.write(_t("Top target values"))
+        _section_title(_t("Top target values"))
         st.dataframe(
             pd.DataFrame(
                 [
@@ -3011,15 +3317,15 @@ def _render_target_relationships(relationships: dict[str, object]) -> None:
     )
 
     if not numeric_correlations.empty:
-        st.write(_t("Numeric feature relationships"))
+        _section_title(_t("Numeric feature relationships"))
         st.dataframe(numeric_correlations, hide_index=True, use_container_width=True)
 
     if not numeric_groups.empty:
-        st.write(_t("Numeric feature distribution by target"))
+        _section_title(_t("Numeric feature distribution by target"))
         st.dataframe(numeric_groups, hide_index=True, use_container_width=True)
 
     if not categorical_distribution.empty:
-        st.write(_t("Categorical feature target distribution"))
+        _section_title(_t("Categorical feature target distribution"))
         st.dataframe(
             categorical_distribution, hide_index=True, use_container_width=True
         )
@@ -3166,8 +3472,8 @@ def _render_distribution_explorer(
     target_columns: list[str],
     primary_target: str,
 ) -> None:
-    st.write(_t("Distribution explorer"))
-    st.caption(
+    _panel_title(_t("Distribution explorer"))
+    _section_caption(
         _t(
             "Use this view to scan feature distributions and compare them against the selected target."
         )
@@ -3218,7 +3524,7 @@ def _render_distribution_explorer(
             "unique_count": _t("Unique values"),
         }
     )
-    st.write(_t("Distribution overview"))
+    _section_title(_t("Distribution overview"))
     st.dataframe(overview_display, hide_index=True, use_container_width=True)
 
     plot_spec = build_distribution_plot_data(
@@ -3278,7 +3584,7 @@ def _render_metrics(
 
     metric_cols = st.columns(2)
     with metric_cols[0]:
-        st.write(_t("Test metrics"))
+        _section_title(_t("Test metrics"))
         if test_rows:
             st.dataframe(
                 pd.DataFrame(test_rows), hide_index=True, use_container_width=True
@@ -3286,7 +3592,7 @@ def _render_metrics(
         else:
             st.caption(_t("No test metrics."))
     with metric_cols[1]:
-        st.write(_t("Train metrics"))
+        _section_title(_t("Train metrics"))
         if train_rows:
             st.dataframe(
                 pd.DataFrame(train_rows), hide_index=True, use_container_width=True
@@ -3416,7 +3722,7 @@ def _render_data_flow(trace_data: dict[str, object]) -> None:
 
     metadata = selected_snapshot.get("metadata", {})
     if isinstance(metadata, dict) and metadata:
-        st.write(_t("Metadata"))
+        _section_title(_t("Metadata"))
         st.json(metadata, expanded=True)
 
     detail_cols = st.columns(2)
@@ -3437,7 +3743,7 @@ def _render_data_flow(trace_data: dict[str, object]) -> None:
 
     preview = selected_snapshot.get("preview")
     if isinstance(preview, dict):
-        st.write(_t("Preview"))
+        _section_title(_t("Preview"))
         preview_frame = _preview_to_frame(preview)
         st.dataframe(preview_frame, use_container_width=True)
         if preview.get("truncated"):
@@ -3477,12 +3783,12 @@ def _render_validation_summary(
         gap_rows = [
             {"metric": key, "value": value} for key, value in generalization_gap.items()
         ]
-        st.write(_t("Generalization gap"))
+        _section_title(_t("Generalization gap"))
         st.dataframe(pd.DataFrame(gap_rows), hide_index=True, use_container_width=True)
 
     class_balance = preflight.get("class_balance", {})
     if isinstance(class_balance, dict) and class_balance:
-        st.write(_t("Class balance"))
+        _section_title(_t("Class balance"))
         st.dataframe(
             pd.DataFrame(
                 [{"class": key, "share": value} for key, value in class_balance.items()]
@@ -3509,10 +3815,10 @@ def _render_validation_summary(
 
     issue_cols = st.columns(2)
     with issue_cols[0]:
-        st.write(_t("Preflight issues"))
+        _section_title(_t("Preflight issues"))
         _render_issue_table(list(preflight.get("issues", [])))
     with issue_cols[1]:
-        st.write(_t("Postrun issues"))
+        _section_title(_t("Postrun issues"))
         _render_issue_table(list(postrun.get("issues", [])))
 
     recommendation_cols = st.columns(2)
@@ -3730,7 +4036,7 @@ def _materialize_prepared_batches(
 
 
 def main() -> None:
-    _apply_design_system()
+    _sync_navigation_state_from_query_params()
     _apply_beamer_design()
     _render_language_switcher()
     _render_hero()
@@ -3787,25 +4093,45 @@ def main() -> None:
                 demo_name = demo_label_to_name[data_source]
                 demo_path = PROJECT_ROOT / "data" / demo_name
                 df = read_csv(demo_path)
-                _cache_current_dataset(df, source_label=demo_name)
-                _render_step_status(
-                    _t(
+                _handle_loaded_upload_dataset(
+                    df,
+                    source_label=demo_name,
+                    status_text=_t(
                         "Loaded demo dataset `{demo_name}` with {rows} rows and {columns} columns.",
                         demo_name=demo_name,
                         rows=len(df),
                         columns=len(df.columns),
                     ),
-                    _t("Choose the column you want to predict."),
-                    level="success",
+                    continue_key="next_after_demo_upload_revisit",
                 )
-                if st.button(_t("Next: choose target"), key="next_after_demo_upload"):
-                    _set_active_step("target")
-                    st.rerun()
             else:
                 uploaded_file = st.file_uploader(
                     _t("Upload CSV"), type=["csv"], label_visibility="collapsed"
                 )
                 if uploaded_file is None:
+                    if df is not None:
+                        source_label = str(
+                            st.session_state.get("_current_source_label", "dataset.csv")
+                        )
+                        _render_step_status(
+                            _t(
+                                "Loaded `{file_name}` with {rows} rows and {columns} columns.",
+                                file_name=source_label,
+                                rows=len(df),
+                                columns=len(df.columns),
+                            ),
+                            _t("Choose the column you want to predict."),
+                            level="success",
+                        )
+                        if st.button(
+                            _t("Next: choose target"),
+                            key="next_after_cached_upload_revisit",
+                        ):
+                            _clear_upload_revisit_guard()
+                            _set_active_step("target")
+                            st.rerun()
+                        _render_bottom_workflow_nav()
+                        return
                     _render_step_status(
                         _t("No dataset has been loaded yet."),
                         _t(
@@ -3814,7 +4140,7 @@ def main() -> None:
                     )
                     st.markdown(
                         f"""
-                        <div class="lab-empty">
+                        <div class="beamer-empty">
                             {_t("Drop a CSV here to unlock schema inspection, missingness checks, training controls, and exportable run artifacts.")}
                         </div>
                         """,
@@ -3823,20 +4149,17 @@ def main() -> None:
                     _render_bottom_workflow_nav()
                     return
                 df = read_csv(uploaded_file)
-                _cache_current_dataset(df, source_label=uploaded_file.name)
-                _render_step_status(
-                    _t(
+                _handle_loaded_upload_dataset(
+                    df,
+                    source_label=uploaded_file.name,
+                    status_text=_t(
                         "Loaded `{file_name}` with {rows} rows and {columns} columns.",
                         file_name=uploaded_file.name,
                         rows=len(df),
                         columns=len(df.columns),
                     ),
-                    _t("Choose the column you want to predict."),
-                    level="success",
+                    continue_key="next_after_file_upload_revisit",
                 )
-                if st.button(_t("Next: choose target"), key="next_after_file_upload"):
-                    _set_active_step("target")
-                    st.rerun()
         _render_bottom_workflow_nav()
         return
     current_dataset_fingerprint = _dataset_fingerprint(df)
@@ -3865,6 +4188,9 @@ def main() -> None:
     if active_step == "target":
         _render_slide_title("target", "Task Definition", "Choose target variables, task type, metric, and first-run budget.")
         with st.container(border=True):
+            if st.button(_t("Back: upload data"), key="back_to_upload_from_target"):
+                _request_upload_revisit()
+                st.rerun()
             _section_caption(
                 _t(
                     "Pick the column you want the app to predict. The app can infer the task type automatically."
@@ -4221,8 +4547,12 @@ def main() -> None:
         ) or _preprocessing_step("autogluon_feature_generator")
     else:
         preprocess_frame_idx = _preprocess_frame_index()
-        preprocess_frame_label = BEAMER_NAV_SECTIONS["Preprocess"][preprocess_frame_idx]
-        _render_slide_title("check", "Data Preprocessing", f"Preprocess frame: {preprocess_frame_label}.")
+        preprocess_frame_label = BEAMER_NAV_SECTIONS["preprocess"][preprocess_frame_idx]
+        _render_slide_title(
+            "check",
+            "Data Preprocessing",
+            _t("Preprocess frame: {frame}.", frame=_t(preprocess_frame_label)),
+        )
         _render_preprocessing_roadmap()
         draft_excluded_columns = list(preprocessing_summary_excluded_columns)
         draft_analysis_columns = [
@@ -4972,11 +5302,10 @@ def main() -> None:
                 )
 
         if preprocess_frame_idx == 0:
-            st.markdown(
-                '<div class="beamer-preprocess-frame-note">'
-                + _html_escape(_t("Field health is separated from preprocessing controls. Use this frame to inspect schema, missingness, ID-like columns, and leakage warnings."))
-                + '</div>',
-                unsafe_allow_html=True,
+            _frame_note(
+                _t(
+                    "Field health is separated from preprocessing controls. Use this frame to inspect schema, missingness, ID-like columns, and leakage warnings."
+                )
             )
             _render_field_health_table(
                 analysis_df,
@@ -4988,22 +5317,20 @@ def main() -> None:
             )
 
         elif preprocess_frame_idx == 1:
-            st.markdown(
-                '<div class="beamer-preprocess-frame-note">'
-                + _html_escape(_t("This frame contains preprocessing controls only. Field health, EDA profile, and preflight validation are intentionally separated into different frames."))
-                + '</div>',
-                unsafe_allow_html=True,
+            _frame_note(
+                _t(
+                    "This frame contains preprocessing controls only. Field health, EDA profile, and preflight validation are intentionally separated into different frames."
+                )
             )
 
         elif preprocess_frame_idx == 2:
-            st.markdown(
-                '<div class="beamer-preprocess-frame-note">'
-                + _html_escape(_t("This frame contains data preview and EDA diagnostics. It does not contain preprocessing controls or final preflight checks."))
-                + '</div>',
-                unsafe_allow_html=True,
+            _frame_note(
+                _t(
+                    "This frame contains data preview and EDA diagnostics. It does not contain preprocessing controls or final preflight checks."
+                )
             )
             with st.container(border=True):
-                st.write(_t("Data preview"))
+                _panel_title(_t("Data preview"))
                 _section_caption(
                     _t("First 50 rows are shown for a quick sanity check before training.")
                 )
@@ -5020,7 +5347,7 @@ def main() -> None:
                 st.dataframe(analysis_df.head(50), use_container_width=True)
 
             with st.container(border=True):
-                st.write(_t("EDA summary"))
+                _panel_title(_t("EDA summary"))
                 _section_caption(
                     _t(
                         "EDA means a quick health check for the dataset: shape, duplicates, missing values, correlations, and target behavior."
@@ -5039,7 +5366,7 @@ def main() -> None:
                         eda_summary["missingness"]["rows_with_any_missing"],
                     )
 
-                st.write(_t("Column profile"))
+                _section_title(_t("Column profile"))
                 st.dataframe(pd.DataFrame(eda_summary["columns"]).T, use_container_width=True)
 
                 if primary_target in analysis_df.columns and eda_summary.get("target"):
@@ -5048,10 +5375,10 @@ def main() -> None:
                         if len(target_columns) > 1
                         else _t("Target profile")
                     )
-                    st.write(label)
+                    _section_title(label)
                     _render_target_profile(eda_summary["target"])
                 if len(target_columns) > 1:
-                    st.write(_t("Target task types"))
+                    _section_title(_t("Target task types"))
                     st.dataframe(
                         pd.DataFrame(
                             [
@@ -5088,16 +5415,16 @@ def main() -> None:
                         )
                     correlated_missing = eda_summary["missingness"]["correlated_missing_pairs"]
                     if correlated_missing:
-                        st.write(_t("Correlated missingness pairs"))
+                        _section_title(_t("Correlated missingness pairs"))
                         st.dataframe(pd.DataFrame(correlated_missing), use_container_width=True)
                 with eda_tabs[1]:
                     top_pairs = eda_summary["correlations"]["top_numeric_pairs"]
                     target_corr = eda_summary["correlations"]["target_numeric_correlations"]
                     if target_corr:
-                        st.write(_t("Numeric correlations with target"))
+                        _section_title(_t("Numeric correlations with target"))
                         st.dataframe(pd.DataFrame(target_corr), use_container_width=True)
                     if top_pairs:
-                        st.write(_t("Strong numeric feature correlations"))
+                        _section_title(_t("Strong numeric feature correlations"))
                         st.dataframe(pd.DataFrame(top_pairs), use_container_width=True)
                 with eda_tabs[2]:
                     _render_target_relationships(eda_summary.get("target_relationships", {}))
@@ -5113,14 +5440,13 @@ def main() -> None:
                         st.warning(warning)
 
         else:
-            st.markdown(
-                '<div class="beamer-preprocess-frame-note">'
-                + _html_escape(_t("Preflight validation is the final gate before materializing train/test batches."))
-                + '</div>',
-                unsafe_allow_html=True,
+            _frame_note(
+                _t(
+                    "Preflight validation is the final gate before materializing train/test batches."
+                )
             )
             with st.container(border=True):
-                st.write(_t("Preflight validation"))
+                _panel_title(_t("Preflight validation"))
                 _section_caption(
                     _t(
                         "This check looks for blocking issues before training, such as missing target values or no usable feature columns."
@@ -5133,7 +5459,7 @@ def main() -> None:
                 )
                 for target in target_columns:
                     validation = artifact_to_dict(preflight_by_target[target])
-                    st.write(f"{target} ({_t(task_types[target])})")
+                    _section_title(f"{target} ({_t(task_types[target])})")
                     st.caption(
                         _t(
                             "Resolved priority metric: {priority_metric}",
@@ -5172,118 +5498,132 @@ def main() -> None:
     if prepared_ready:
         prepared_batches = list(st.session_state.get("_latest_prepared_batches", []))
 
-    _render_slide_title("prepare", "Training Preparation", "Apply the current preprocessing plan and materialize train/test batches.")
-    with st.container(border=True):
-        _section_caption(
-            _t(
-                "Apply the selected cleaning and preprocessing methods first, then train models as a separate step."
-            )
+    if _active_step() == "prepare":
+        _render_slide_title(
+            "prepare",
+            "Training Preparation",
+            "Apply the current preprocessing plan and materialize train/test batches.",
         )
-        if failing_targets:
-            _render_step_status(
-                "Data preparation is blocked by validation issues.",
-                f"Resolve the flagged issues for: {', '.join(failing_targets)} before preparing data.",
-                level="warning",
+        with st.container(border=True):
+            _section_caption(
+                _t(
+                    "Apply the selected cleaning and preprocessing methods first, then train models as a separate step."
+                )
             )
-        elif prepared_ready:
-            _render_step_status(
-                "Data preparation is complete for the current setup.",
-                "Review the prepared train/test summary below, then continue to model training.",
-                level="success",
-            )
-        else:
-            _render_step_status(
-                "Prepared data is not cached yet.",
-                "Prepare data to preview the train/test batches, or start training directly and let the app prepare them automatically.",
-                level="info",
-            )
+            if failing_targets:
+                _render_step_status(
+                    "Data preparation is blocked by validation issues.",
+                    f"Resolve the flagged issues for: {', '.join(failing_targets)} before preparing data.",
+                    level="warning",
+                )
+            elif prepared_ready:
+                _render_step_status(
+                    "Data preparation is complete for the current setup.",
+                    "Review the prepared train/test summary below, then continue to model training.",
+                    level="success",
+                )
+            else:
+                _render_step_status(
+                    "Prepared data is not cached yet.",
+                    "Prepare data to preview the train/test batches, or start training directly and let the app prepare them automatically.",
+                    level="info",
+                )
 
-        prepare_cols = st.columns([0.8, 1.2])
-        with prepare_cols[0]:
-            prepare_clicked = st.button(
-                _t("Prepare data"), type="primary", disabled=bool(failing_targets)
-            )
-        with prepare_cols[1]:
-            if prepared_ready:
-                st.caption(
+            prepare_cols = st.columns([0.8, 1.2])
+            with prepare_cols[0]:
+                prepare_clicked = st.button(
+                    _t("Prepare data"), type="primary", disabled=bool(failing_targets)
+                )
+            with prepare_cols[1]:
+                if prepared_ready:
+                    st.caption(
+                        _t(
+                            "Prepared targets: {prepared_targets}",
+                            prepared_targets=", ".join(
+                                str(batch["target"]) for batch in prepared_batches
+                            ),
+                        )
+                    )
+            if prepare_clicked:
+                try:
+                    prepared_batches = _materialize_prepared_batches(
+                        current_experiment_signature=current_experiment_signature,
+                        df=df,
+                        base_analysis_df=base_analysis_df,
+                        analysis_df=analysis_df,
+                        analysis_manual_cleaning_log=analysis_manual_cleaning_log,
+                        analysis_manual_cleaning_impact=analysis_manual_cleaning_impact,
+                        candidate_feature_columns=candidate_feature_columns,
+                        excluded_columns=applied_excluded_columns,
+                        target_columns=target_columns,
+                        task_types=task_types,
+                        priority_metrics=priority_metrics,
+                        preflight_by_target=preflight_by_target,
+                        preprocessing_plan=applied_preprocessing_plan,
+                        manual_cleaning_plan=manual_cleaning_plan,
+                    )
+                except ValueError as exc:
+                    st.error(str(exc))
+                    _render_bottom_workflow_nav()
+                    return
+
+                prepared_ready = True
+                _set_active_step("train")
+                st.session_state["_latest_prepared_signature"] = current_experiment_signature
+                st.session_state["_latest_prepared_batches"] = list(prepared_batches)
+                st.success(
                     _t(
-                        "Prepared targets: {prepared_targets}",
+                        "Data preparation completed: {prepared_targets}",
                         prepared_targets=", ".join(
                             str(batch["target"]) for batch in prepared_batches
                         ),
                     )
                 )
-        if prepare_clicked:
-            try:
-                prepared_batches = _materialize_prepared_batches(
-                    current_experiment_signature=current_experiment_signature,
-                    df=df,
-                    base_analysis_df=base_analysis_df,
-                    analysis_df=analysis_df,
-                    analysis_manual_cleaning_log=analysis_manual_cleaning_log,
-                    analysis_manual_cleaning_impact=analysis_manual_cleaning_impact,
-                    candidate_feature_columns=candidate_feature_columns,
-                    excluded_columns=applied_excluded_columns,
-                    target_columns=target_columns,
-                    task_types=task_types,
-                    priority_metrics=priority_metrics,
-                    preflight_by_target=preflight_by_target,
-                    preprocessing_plan=applied_preprocessing_plan,
-                    manual_cleaning_plan=manual_cleaning_plan,
-                )
-            except ValueError as exc:
-                st.error(str(exc))
-                _render_bottom_workflow_nav()
-                return
-
-            prepared_ready = True
-            _set_active_step("train")
-            st.session_state["_latest_prepared_signature"] = current_experiment_signature
-            st.session_state["_latest_prepared_batches"] = list(prepared_batches)
-            st.success(
-                _t(
-                    "Data preparation completed: {prepared_targets}",
-                    prepared_targets=", ".join(
-                        str(batch["target"]) for batch in prepared_batches
-                    ),
-                )
-            )
-            st.rerun()
-
-        if prepared_ready and prepared_batches:
-            st.dataframe(
-                pd.DataFrame(
-                    [
-                        {
-                            _t("prepared target"): str(batch["target"]),
-                            _t("prepared task type"): str(batch["task_type"]),
-                            _t("prepared train rows"): len(batch["cleaned"].X_train),
-                            _t("prepared test rows"): len(batch["cleaned"].X_test),
-                            _t("prepared features"): len(
-                                batch["cleaned"].prepared_feature_names or []
-                            ),
-                        }
-                        for batch in prepared_batches
-                    ]
-                ),
-                hide_index=True,
-                use_container_width=True,
-            )
-            if st.button(_t("Next: start training"), key="next_after_prepare"):
-                _set_active_step("train")
                 st.rerun()
 
-    if _wizard_step_index(_active_step()) <= _wizard_step_index("prepare"):
+            if prepared_ready and prepared_batches:
+                st.dataframe(
+                    pd.DataFrame(
+                        [
+                            {
+                                _t("prepared target"): str(batch["target"]),
+                                _t("prepared task type"): str(batch["task_type"]),
+                                _t("prepared train rows"): len(batch["cleaned"].X_train),
+                                _t("prepared test rows"): len(batch["cleaned"].X_test),
+                                _t("prepared features"): len(
+                                    batch["cleaned"].prepared_feature_names or []
+                                ),
+                            }
+                            for batch in prepared_batches
+                        ]
+                    ),
+                    hide_index=True,
+                    use_container_width=True,
+                )
+                if st.button(_t("Next: start training"), key="next_after_prepare"):
+                    _set_active_step("train")
+                    st.rerun()
+
         _render_bottom_workflow_nav()
         return
 
-    _render_slide_title("train", "Model Training", "Run AutoML training and write reproducible artifacts to storage.")
     results: list[dict[str, object]] = []
     if (
         st.session_state.get("_latest_results_signature")
         == current_experiment_signature
     ):
         results = list(st.session_state.get("_latest_results", []))
+
+    if _active_step() == "results":
+        _render_run_outputs(results)
+        _render_bottom_workflow_nav()
+        return
+
+    _render_slide_title(
+        "train",
+        "Model Training",
+        "Run AutoML training and write reproducible artifacts to storage.",
+    )
 
     with st.container(border=True):
         _section_caption(
@@ -5638,8 +5978,6 @@ def main() -> None:
             )
             st.rerun()
 
-    if results:
-        _render_run_outputs(results)
     _render_bottom_workflow_nav()
 
 
