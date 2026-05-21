@@ -1124,22 +1124,27 @@ def _apply_beamer_design() -> None:
             .beamer-app-headline {
                 display: flex;
                 justify-content: space-between;
-                align-items: flex-start;
+                align-items: center;
                 gap: 1rem;
-                margin: 0 0 0.75rem;
-                padding: 0.2rem 0 0.55rem;
+                min-height: 168px;
+                margin: 0 0 1.15rem;
+                padding: 1.35rem 1.5rem;
+                border-radius: 6px;
+                background: var(--beamer-rainbow-strip);
+                background-size: cover;
+                background-position: center 46%;
             }
 
             .beamer-app-title {
                 color: var(--beamer-blue);
-                font-size: clamp(1.6rem, 2vw, 1.75rem);
+                font-size: clamp(1.9rem, 3vw, 2.65rem);
                 line-height: 1.25;
                 font-weight: 700;
             }
 
             .beamer-app-subtitle {
                 color: var(--beamer-muted);
-                font-size: var(--beamer-fs-meta);
+                font-size: var(--beamer-fs-body);
                 line-height: 1.45;
                 margin-top: 0.2rem;
             }
@@ -1496,6 +1501,8 @@ def _apply_beamer_design() -> None:
                 }
                 .beamer-app-headline {
                     flex-direction: column;
+                    align-items: flex-start;
+                    min-height: 156px;
                 }
                 .beamer-roadmap {
                     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1529,10 +1536,7 @@ def _render_hero() -> None:
 
 
 def _render_help_center() -> None:
-    st.markdown(
-        '<div class="beamer-help-strip" aria-hidden="true"></div>',
-        unsafe_allow_html=True,
-    )
+    return
 
 
 
