@@ -1201,54 +1201,6 @@ def _apply_beamer_design() -> None:
                 box-sizing: border-box;
             }
 
-            .beamer-dot-link {
-                display: inline-block;
-                text-decoration: none !important;
-                cursor: pointer;
-            }
-
-            div[data-testid="stVerticalBlockBorderWrapper"]:has(.beamer-native-nav-marker) {
-                border: 2px solid #111111 !important;
-                border-radius: 0 !important;
-                background: var(--beamer-paper) !important;
-                padding: 0.65rem 0.8rem 0.75rem !important;
-            }
-
-            div[data-testid="stVerticalBlockBorderWrapper"]:has(.beamer-native-nav-marker) button {
-                width: 20px !important;
-                min-width: 20px !important;
-                max-width: 20px !important;
-                height: 20px !important;
-                min-height: 20px !important;
-                padding: 0 !important;
-                border-radius: 999px !important;
-                box-shadow: none !important;
-                display: inline-flex !important;
-                align-items: center !important;
-                justify-content: center !important;
-                font-size: 16px !important;
-                line-height: 1 !important;
-            }
-
-            div[data-testid="stVerticalBlockBorderWrapper"]:has(.beamer-native-nav-marker) button[kind="primary"] {
-                background: var(--beamer-blue) !important;
-                border-color: var(--beamer-blue) !important;
-                color: #FFFFFF !important;
-            }
-
-            div[data-testid="stVerticalBlockBorderWrapper"]:has(.beamer-native-nav-marker) button[kind="secondary"] {
-                background: transparent !important;
-                border-color: transparent !important;
-                color: #222222 !important;
-            }
-
-            div[data-testid="stVerticalBlockBorderWrapper"]:has(.beamer-native-nav-marker) button:disabled {
-                opacity: 0.34 !important;
-                background: transparent !important;
-                border-color: transparent !important;
-                color: #222222 !important;
-            }
-
             .beamer-dot.done {
                 background: #A9B3CA;
             }
@@ -1811,16 +1763,6 @@ def _nav_target_for(section_name: str, frame_index: int) -> tuple[str, int | Non
     return step, None
 
 
-def _navigate_to_nav_target(section_name: str, frame_index: int) -> None:
-    step, query_frame = _nav_target_for(section_name, frame_index)
-    if step == "check":
-        _set_preprocess_frame_index(query_frame or 0)
-    elif step == "results":
-        _set_result_frame_index(query_frame or 0)
-    _set_active_step(step)
-    st.rerun()
-
-
 def _render_wizard_nav(
     *,
     dataset_loaded: bool,
@@ -1854,56 +1796,34 @@ def _render_wizard_nav(
         "results": training_finished,
     }
 
-    with st.container(border=True):
-        st.markdown(
-            '<div class="beamer-native-nav-marker"></div>'
-            + '<div class="beamer-frame-selector-title">'
-            + _html_escape(_t("Guided workflow"))
-            + '</div>',
-            unsafe_allow_html=True,
+    html = ['<nav class="beamer-nav" aria-label="AutoML workflow progress">']
+    for section_index, (section_name, frames) in enumerate(BEAMER_NAV_SECTIONS.items()):
+        section_active = section_name == active_section
+        section_finished = bool(completed_sections.get(section_name)) or (
+            section_index < active_section_index
         )
-        section_cols = st.columns(len(BEAMER_NAV_SECTIONS))
-        for section_index, (section_name, frames) in enumerate(
-            BEAMER_NAV_SECTIONS.items()
-        ):
-            section_active = section_name == active_section
-            section_finished = bool(completed_sections.get(section_name)) or (
-                section_index < active_section_index
+        title_class = "beamer-nav-title active" if section_active else "beamer-nav-title"
+        html.append('<div class="beamer-nav-section">')
+        html.append(
+            f'<div class="{title_class}">{_html_escape(_t(BEAMER_SECTION_LABELS[section_name]))}</div>'
+        )
+        html.append('<div class="beamer-dots">')
+        for frame_index, frame_name in enumerate(frames):
+            if section_active and frame_index == active_frame_index:
+                dot_class = "beamer-dot current"
+            elif section_finished or (section_active and frame_index < active_frame_index):
+                dot_class = "beamer-dot done"
+            else:
+                dot_class = "beamer-dot"
+            dot_label = _html_escape(
+                f"{_t(BEAMER_SECTION_LABELS[section_name])} · {_t(frame_name)}"
             )
-            section_enabled = bool(enabled_sections.get(section_name))
-            title_class = (
-                "beamer-nav-title active" if section_active else "beamer-nav-title"
+            html.append(
+                f'<span class="{dot_class}" aria-label="{dot_label}" title="{dot_label}"></span>'
             )
-            with section_cols[section_index]:
-                st.markdown(
-                    f'<div class="{title_class}">{_html_escape(_t(BEAMER_SECTION_LABELS[section_name]))}</div>',
-                    unsafe_allow_html=True,
-                )
-                dot_cols = st.columns([1, *([0.18] * len(frames)), 1])
-                for frame_index, frame_name in enumerate(frames):
-                    if section_active and frame_index == active_frame_index:
-                        dot_label = "●"
-                        button_type = "primary"
-                    elif section_finished or (
-                        section_active and frame_index < active_frame_index
-                    ):
-                        dot_label = "●"
-                        button_type = "secondary"
-                    else:
-                        dot_label = "○"
-                        button_type = "secondary"
-                    help_label = (
-                        f"{_t(BEAMER_SECTION_LABELS[section_name])} · {_t(frame_name)}"
-                    )
-                    with dot_cols[frame_index + 1]:
-                        if st.button(
-                            dot_label,
-                            key=f"wizard_nav_{section_name}_{frame_index}",
-                            help=help_label,
-                            disabled=not section_enabled,
-                            type=button_type,
-                        ):
-                            _navigate_to_nav_target(section_name, frame_index)
+        html.append('</div></div>')
+    html.append('</nav>')
+    st.markdown("".join(html), unsafe_allow_html=True)
 
 
 def _render_bottom_workflow_nav() -> None:
