@@ -71,11 +71,11 @@ logger = logging.getLogger("ml_platform")
 st.set_page_config(page_title="ML Platform", layout="wide")
 
 HERO_IMAGE_CANDIDATES = (
+    PROJECT_ROOT / "彩虹.jpg",
     PROJECT_ROOT / "data" / "hero.jpg",
     PROJECT_ROOT / "assets" / "hero.jpg",
     PROJECT_ROOT / "assets" / "hero.jpeg",
     PROJECT_ROOT / "assets" / "hero.png",
-    PROJECT_ROOT / "彩虹.jpg",
 )
 LOCAL_LLM_CONFIG_PATH = PROJECT_ROOT / ".ml_platform.local.json"
 _LEGACY_PROVIDER_TOKEN = "open" + "ai"
@@ -105,8 +105,8 @@ UI_LANGUAGE_LABELS = {
     "zh-CN": "简体中文",
 }
 BEAMER_SANS_FONT_STACK = (
-    '"Noto Sans SC", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", '
-    '"Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif'
+    '"LXGW WenKai", "LXGW WenKai GB", "LXGW WenKai Screen", '
+    '"Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif'
 )
 BEAMER_MONO_FONT_STACK = (
     '"SFMono-Regular", "SF Mono", "Cascadia Mono", "JetBrains Mono", Menlo, '
@@ -1004,7 +1004,7 @@ def _apply_beamer_design() -> None:
     st.markdown(
         """
         <style>
-            @import url("https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600;700&display=swap");
+            @import url("https://fonts.googleapis.com/css2?family=LXGW+WenKai&family=Noto+Sans+SC:wght@400;500;600;700&display=swap");
 
             :root {
                 --beamer-bg: #FAFAF8;
