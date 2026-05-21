@@ -123,25 +123,38 @@ WIZARD_STEPS = (
 WIZARD_STEP_LABELS = {
     "upload": "Upload data",
     "target": "Choose target",
-    "check": "Check data",
+    "check": "Data preprocessing",
     "prepare": "Prepare training",
     "train": "Start training",
     "results": "Review results",
 }
 
 BEAMER_NAV_SECTIONS = {
-    "Dataset": ("upload",),
-    "Task": ("target",),
-    "Check": ("check",),
-    "Prepare": ("prepare",),
-    "Training": ("train",),
-    "Results": ("results",),
+    "Dataset": ("Source", "Schema", "Profile"),
+    "Task": ("Target", "Metric", "Budget"),
+    "Preprocess": (
+        "Field health",
+        "Preprocessing details",
+        "EDA profile",
+        "Preflight validation",
+    ),
+    "Training": ("Prepare batches", "Fit models", "Save artifacts"),
+    "Results": ("Summary", "Metrics", "Validation", "Importance", "Downloads"),
+}
+
+BEAMER_STEP_TO_SECTION_FRAME = {
+    "upload": ("Dataset", 0),
+    "target": ("Task", 0),
+    "check": ("Preprocess", 0),
+    "prepare": ("Training", 0),
+    "train": ("Training", 1),
+    "results": ("Results", 0),
 }
 
 SLIDE_TITLES = {
     "upload": "Dataset Upload",
     "target": "Task Definition",
-    "check": "Data Check",
+    "check": "Data Preprocessing",
     "prepare": "Training Preparation",
     "train": "Model Training",
     "results": "Evaluation & Export",
@@ -150,7 +163,7 @@ SLIDE_TITLES = {
 SLIDE_SUBTITLES = {
     "upload": "Load a dataset and unlock schema inspection.",
     "target": "Choose the outcome, task type, metric, and first-run budget.",
-    "check": "Inspect field health, leakage risk, missingness, and validation notes.",
+    "check": "Move through field health, preprocessing details, and preflight validation as separate frames.",
     "prepare": "Materialize the applied preprocessing plan before model fitting.",
     "train": "Run AutoML training and collect artifacts in a reproducible run folder.",
     "results": "Compare metrics, inspect validation notes, and download artifacts.",
@@ -433,6 +446,11 @@ def _html_escape(value: object) -> str:
     )
 
 
+def _safe_widget_key(*parts: object) -> str:
+    raw = "_".join(str(part) for part in parts if str(part).strip())
+    return "w_" + hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
+
+
 def _render_slide_title(step: str, title: str | None = None, subtitle: str | None = None) -> None:
     resolved_title = _t(title or SLIDE_TITLES.get(step, WIZARD_STEP_LABELS.get(step, step)))
     resolved_subtitle = _t(subtitle or SLIDE_SUBTITLES.get(step, ""))
@@ -477,7 +495,7 @@ def _apply_design_system() -> None:
     st.markdown(
         """
         <style>
-            @import url("https://fonts.googleapis.com/css2?family=Exo:wght@400;500;600;700;800;900&display=swap");
+            @import url("https://fonts.googleapis.com/css2?family=LXGW+WenKai+Mono+TC&display=swap");
 
             :root {
                 --lab-ink: #171717;
@@ -496,7 +514,7 @@ def _apply_design_system() -> None:
             html,
             body,
             .stApp {
-                font-family: Exo, "Helvetica Neue", Helvetica, Arial, sans-serif !important;
+                font-family: "LXGW WenKai Mono", "LXGW WenKai Mono GB", "LXGW WenKai Mono TC", "霞鹜文楷等宽", monospace !important;
             }
 
             button,
@@ -504,7 +522,7 @@ def _apply_design_system() -> None:
             textarea,
             select,
             [data-baseweb="select"] > div {
-                font-family: Exo, "Helvetica Neue", Helvetica, Arial, sans-serif !important;
+                font-family: "LXGW WenKai Mono", "LXGW WenKai Mono GB", "LXGW WenKai Mono TC", "霞鹜文楷等宽", monospace !important;
             }
 
             .stApp {
@@ -512,7 +530,7 @@ def _apply_design_system() -> None:
                 background:
                     linear-gradient(180deg, #ffffff 0, #f7f8fb 34rem, var(--lab-bg) 100%),
                     var(--lab-bg);
-                font-family: Exo, "Helvetica Neue", Helvetica, Arial, sans-serif;
+                font-family: "LXGW WenKai Mono", "LXGW WenKai Mono GB", "LXGW WenKai Mono TC", "霞鹜文楷等宽", monospace;
             }
 
             .stApp::before {
@@ -552,14 +570,14 @@ def _apply_design_system() -> None:
             [data-testid="stSidebar"] h2,
             [data-testid="stSidebar"] h3 {
                 color: var(--lab-ink);
-                font-family: Exo, "Helvetica Neue", Helvetica, Arial, sans-serif;
+                font-family: "LXGW WenKai Mono", "LXGW WenKai Mono GB", "LXGW WenKai Mono TC", "霞鹜文楷等宽", monospace;
                 font-weight: 800;
                 letter-spacing: 0;
             }
 
             h1, h2, h3 {
                 color: var(--lab-ink);
-                font-family: Exo, "Helvetica Neue", Helvetica, Arial, sans-serif;
+                font-family: "LXGW WenKai Mono", "LXGW WenKai Mono GB", "LXGW WenKai Mono TC", "霞鹜文楷等宽", monospace;
                 font-weight: 800;
                 letter-spacing: 0;
             }
@@ -582,7 +600,7 @@ def _apply_design_system() -> None:
 
             p, li, label, .stMarkdown, [data-testid="stCaptionContainer"] {
                 color: var(--lab-muted);
-                font-family: Exo, "Helvetica Neue", Helvetica, Arial, sans-serif;
+                font-family: "LXGW WenKai Mono", "LXGW WenKai Mono GB", "LXGW WenKai Mono TC", "霞鹜文楷等宽", monospace;
             }
 
             .lab-hero {
@@ -624,7 +642,7 @@ def _apply_design_system() -> None:
                 font-weight: 800;
                 letter-spacing: 0.02em;
                 text-transform: none;
-                font-family: Exo, "Helvetica Neue", Helvetica, Arial, sans-serif;
+                font-family: "LXGW WenKai Mono", "LXGW WenKai Mono GB", "LXGW WenKai Mono TC", "霞鹜文楷等宽", monospace;
             }
 
             .lab-kicker::before {
@@ -666,7 +684,7 @@ def _apply_design_system() -> None:
                 border-radius: 7px;
                 padding: 0.5rem 0.75rem;
                 font-size: 0.76rem;
-                font-family: Exo, "Helvetica Neue", Helvetica, Arial, sans-serif;
+                font-family: "LXGW WenKai Mono", "LXGW WenKai Mono GB", "LXGW WenKai Mono TC", "霞鹜文楷等宽", monospace;
                 text-transform: none;
                 letter-spacing: 0;
                 font-weight: 700;
@@ -679,7 +697,7 @@ def _apply_design_system() -> None:
                 background: #ffffff;
                 color: #4d5562;
                 border-radius: 9px;
-                font-family: Exo, "Helvetica Neue", Helvetica, Arial, sans-serif;
+                font-family: "LXGW WenKai Mono", "LXGW WenKai Mono GB", "LXGW WenKai Mono TC", "霞鹜文楷等宽", monospace;
             }
 
             .lab-caption {
@@ -697,12 +715,12 @@ def _apply_design_system() -> None:
 
             [data-testid="stMetricLabel"] {
                 color: var(--lab-muted);
-                font-family: Exo, "Helvetica Neue", Helvetica, Arial, sans-serif;
+                font-family: "LXGW WenKai Mono", "LXGW WenKai Mono GB", "LXGW WenKai Mono TC", "霞鹜文楷等宽", monospace;
             }
 
             [data-testid="stMetricValue"] {
                 color: var(--lab-accent);
-                font-family: Exo, "Helvetica Neue", Helvetica, Arial, sans-serif;
+                font-family: "LXGW WenKai Mono", "LXGW WenKai Mono GB", "LXGW WenKai Mono TC", "霞鹜文楷等宽", monospace;
                 font-weight: 800;
             }
 
@@ -878,6 +896,22 @@ def _apply_design_system() -> None:
                 to { opacity: 1; transform: translateY(0); }
             }
 
+
+
+            .beamer-training-progress {
+                margin: 0.8rem 0 1rem;
+                padding: 0.9rem 1rem;
+                border: 1px solid var(--beamer-line);
+                background: var(--beamer-paper);
+                border-radius: 7px;
+            }
+
+            .beamer-preprocess-frame-note {
+                margin: 0.4rem 0 1rem;
+                color: var(--beamer-muted);
+                font-size: 0.9rem;
+            }
+
             @media (max-width: 720px) {
                 .block-container {
                     padding-left: 1rem;
@@ -905,7 +939,7 @@ def _apply_beamer_design() -> None:
     st.markdown(
         """
         <style>
-            @import url("https://fonts.googleapis.com/css2?family=Exo+2:wght@400;500;600;700&display=swap");
+            @import url("https://fonts.googleapis.com/css2?family=LXGW+WenKai+Mono+TC&display=swap");
 
             :root {
                 --beamer-bg: #FAFAF8;
@@ -919,10 +953,33 @@ def _apply_beamer_design() -> None:
                 --beamer-burgundy: #7A0019;
             }
 
-            html, body, .stApp,
-            button, input, textarea, select,
-            [data-baseweb="select"] > div {
-                font-family: "Exo 2", "Helvetica Neue", Helvetica, Arial, sans-serif !important;
+            html, body, .stApp, .stApp *,
+            button, input, textarea, select, option, label, p, span, div,
+            h1, h2, h3, h4, h5, h6, code, pre, table, th, td,
+            [data-testid], [data-baseweb], [data-baseweb="select"] > div {
+                font-family: "LXGW WenKai Mono", "LXGW WenKai Mono GB", "LXGW WenKai Mono TC", "LXGW WenKai Mono", "霞鹜文楷等宽", monospace !important;
+            }
+
+            /* Streamlit icons are ligature text such as keyboard_arrow_down.
+               Keep icon spans on Material Symbols so internal icon names are not exposed. */
+            .material-symbols-rounded,
+            .material-symbols-outlined,
+            .material-icons,
+            span[class*="material-symbols"],
+            span[class*="material-icons"],
+            [data-testid="stIconMaterial"],
+            [data-testid="stIconMaterial"] * {
+                font-family: "Material Symbols Rounded", "Material Symbols Outlined", "Material Icons" !important;
+                font-weight: normal !important;
+                font-style: normal !important;
+                line-height: 1 !important;
+                letter-spacing: normal !important;
+                text-transform: none !important;
+                white-space: nowrap !important;
+                word-wrap: normal !important;
+                direction: ltr !important;
+                -webkit-font-feature-settings: "liga" !important;
+                -webkit-font-smoothing: antialiased !important;
             }
 
             .stApp {
@@ -986,7 +1043,7 @@ def _apply_beamer_design() -> None:
                 width: 100%;
                 min-height: 44px;
                 display: grid;
-                grid-template-columns: repeat(6, 1fr);
+                grid-template-columns: repeat(5, 1fr);
                 align-items: center;
                 border: 2px solid #111111;
                 background: var(--beamer-paper);
@@ -1109,6 +1166,14 @@ def _apply_beamer_design() -> None:
                 transform: none !important;
             }
 
+            div[data-testid="stDownloadButton"] button,
+            div[data-testid="stDownloadButton"] button * {
+                background: var(--beamer-blue) !important;
+                border-color: var(--beamer-blue) !important;
+                color: #FFFFFF !important;
+                opacity: 1 !important;
+            }
+
             button[kind="secondary"] {
                 color: var(--beamer-blue) !important;
                 background: #FFFFFF !important;
@@ -1142,6 +1207,61 @@ def _apply_beamer_design() -> None:
                 border-radius: 4px !important;
                 border-color: var(--beamer-line) !important;
                 background: #FFFFFF !important;
+            }
+
+            .beamer-bottom-shell {
+                margin-top: 2.2rem;
+                padding: 0.75rem 0 0.15rem;
+                border-top: 1px solid var(--beamer-line);
+            }
+
+            .beamer-bottom-caption {
+                text-align: center;
+                color: var(--beamer-muted);
+                font-size: 0.78rem;
+                line-height: 1.45;
+                padding-top: 0.35rem;
+            }
+
+            .beamer-roadmap {
+                display: grid;
+                grid-template-columns: repeat(6, minmax(0, 1fr));
+                gap: 0.55rem;
+                margin: -0.9rem 0 1.25rem;
+            }
+
+            .beamer-roadmap-card {
+                background: #FFFFFF;
+                border: 1px solid var(--beamer-line);
+                padding: 0.65rem 0.72rem;
+                min-height: 72px;
+                border-radius: 4px;
+            }
+
+            .beamer-roadmap-index {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                width: 1.15rem;
+                height: 1.15rem;
+                background: var(--beamer-blue);
+                color: #FFFFFF;
+                font-size: 0.68rem;
+                margin-bottom: 0.35rem;
+            }
+
+            .beamer-roadmap-title {
+                color: var(--beamer-ink);
+                font-weight: 700;
+                font-size: 0.78rem;
+                line-height: 1.25;
+            }
+
+            .beamer-roadmap-note {
+                color: var(--beamer-muted);
+                font-size: 0.68rem;
+                line-height: 1.35;
+                margin-top: 0.25rem;
             }
 
             @media (max-width: 860px) {
@@ -1209,11 +1329,88 @@ def _wizard_step_index(step: str) -> int:
 def _set_active_step(step: str) -> None:
     if step in WIZARD_STEPS:
         st.session_state["active_step"] = step
+        if step != "check":
+            st.session_state["preprocess_frame_idx"] = 0
 
 
 def _active_step() -> str:
     step = str(st.session_state.get("active_step", "upload"))
     return step if step in WIZARD_STEPS else "upload"
+
+
+def _preprocess_frame_index() -> int:
+    """Current beamer mini-frame inside the data preprocessing section."""
+    frame_count = len(BEAMER_NAV_SECTIONS["Preprocess"])
+    try:
+        frame_index = int(st.session_state.get("preprocess_frame_idx", 0))
+    except (TypeError, ValueError):
+        frame_index = 0
+    return max(0, min(frame_index, frame_count - 1))
+
+
+def _set_preprocess_frame_index(frame_index: int) -> None:
+    frame_count = len(BEAMER_NAV_SECTIONS["Preprocess"])
+    st.session_state["preprocess_frame_idx"] = max(0, min(int(frame_index), frame_count - 1))
+
+
+def _render_preprocessing_roadmap() -> None:
+    """Render local controls for the separated preprocessing mini-frames."""
+    frames = list(BEAMER_NAV_SECTIONS["Preprocess"])
+    current_idx = _preprocess_frame_index()
+
+    st.markdown(
+        '<div class="beamer-frame-selector-title">'
+        + _html_escape(_t("Preprocessing frames"))
+        + '</div>',
+        unsafe_allow_html=True,
+    )
+
+    cols = st.columns(len(frames))
+    for idx, frame_name in enumerate(frames):
+        with cols[idx]:
+            button_type = "primary" if idx == current_idx else "secondary"
+            if st.button(
+                _t(frame_name),
+                key=f"preprocess_frame_select_{idx}",
+                use_container_width=True,
+                type=button_type,
+            ):
+                _set_preprocess_frame_index(idx)
+                st.rerun()
+
+    nav_left, nav_mid, nav_right = st.columns([1, 3, 1])
+    with nav_left:
+        if st.button(
+            _t("← Previous frame"),
+            key="preprocess_frame_prev",
+            use_container_width=True,
+            disabled=current_idx <= 0,
+        ):
+            _set_preprocess_frame_index(current_idx - 1)
+            st.rerun()
+    with nav_mid:
+        st.markdown(
+            '<div class="beamer-frame-progress">'
+            + _html_escape(
+                _t(
+                    "Frame {current} / {total}: {frame}",
+                    current=current_idx + 1,
+                    total=len(frames),
+                    frame=_t(frames[current_idx]),
+                )
+            )
+            + '</div>',
+            unsafe_allow_html=True,
+        )
+    with nav_right:
+        if st.button(
+            _t("Next frame →"),
+            key="preprocess_frame_next",
+            use_container_width=True,
+            disabled=current_idx >= len(frames) - 1,
+        ):
+            _set_preprocess_frame_index(current_idx + 1)
+            st.rerun()
 
 
 def _render_wizard_nav(
@@ -1225,35 +1422,35 @@ def _render_wizard_nav(
     training_finished: bool,
 ) -> None:
     active_step = _active_step()
-    active_step_index = _wizard_step_index(active_step)
-    unlocked = {
-        "upload": True,
-        "target": dataset_loaded,
-        "check": target_selected,
-        "prepare": checks_passed,
-        "train": checks_passed,
-        "results": training_finished,
-    }
-    completed = {
-        "upload": dataset_loaded,
-        "target": target_selected,
-        "check": checks_passed,
-        "prepare": prepared_ready,
-        "train": training_finished,
-        "results": training_finished,
+    active_section, active_frame_index = BEAMER_STEP_TO_SECTION_FRAME.get(
+        active_step, ("Dataset", 0)
+    )
+    if active_step == "check":
+        active_frame_index = _preprocess_frame_index()
+    section_names = list(BEAMER_NAV_SECTIONS)
+    active_section_index = section_names.index(active_section)
+    completed_sections = {
+        "Dataset": dataset_loaded,
+        "Task": target_selected,
+        "Preprocess": bool(checks_passed or prepared_ready),
+        "Training": bool(training_finished),
+        "Results": bool(training_finished),
     }
 
     html = ['<nav class="beamer-nav" aria-label="AutoML workflow navigation">']
-    for section_name, section_steps in BEAMER_NAV_SECTIONS.items():
-        section_active = active_step in section_steps
+    for section_index, (section_name, frames) in enumerate(BEAMER_NAV_SECTIONS.items()):
+        section_active = section_name == active_section
+        section_finished = bool(completed_sections.get(section_name)) or (
+            section_index < active_section_index
+        )
         title_class = "beamer-nav-title active" if section_active else "beamer-nav-title"
         html.append('<div class="beamer-nav-section">')
         html.append(f'<div class="{title_class}">{_html_escape(_t(section_name))}</div>')
         html.append('<div class="beamer-dots">')
-        for step in section_steps:
-            if step == active_step:
+        for frame_index, _ in enumerate(frames):
+            if section_active and frame_index == active_frame_index:
                 dot_class = "beamer-dot current"
-            elif completed.get(step) or _wizard_step_index(step) < active_step_index:
+            elif section_finished or (section_active and frame_index < active_frame_index):
                 dot_class = "beamer-dot done"
             else:
                 dot_class = "beamer-dot"
@@ -1262,25 +1459,13 @@ def _render_wizard_nav(
     html.append('</nav>')
     st.markdown("".join(html), unsafe_allow_html=True)
 
-    st.markdown(
-        '<div class="beamer-jump-caption">' + _html_escape(_t("Section navigation")) + '</div>',
-        unsafe_allow_html=True,
-    )
-    cols = st.columns(len(WIZARD_STEPS))
-    for index, step in enumerate(WIZARD_STEPS):
-        label = _t(WIZARD_STEP_LABELS[step])
-        prefix = _t("Current") if step == active_step else _t("Done") if completed[step] else str(index + 1)
-        with cols[index]:
-            if st.button(
-                f"{prefix}: {label}",
-                key=f"wizard_step_{step}",
-                disabled=not unlocked[step],
-                use_container_width=True,
-                type="primary" if step == active_step else "secondary",
-            ):
-                _set_active_step(step)
-                st.rerun()
+    # The top miniframes headline is the only global workflow navigation.
+    # Step changes are triggered by contextual actions inside each frame.
 
+
+def _render_bottom_workflow_nav() -> None:
+    """No-op: global navigation is kept only in the beamer-style headline."""
+    return
 
 
 def _cache_current_dataset(df: pd.DataFrame, *, source_label: str) -> None:
@@ -1470,122 +1655,160 @@ def _initialize_experiment_state(dataset_signature: str, columns: list[str]) -> 
 
 
 def _render_run_outputs(results: list[dict[str, object]]) -> None:
-    _render_slide_title("results", "Evaluation & Export", "Training has finished. Start with validation notes, metrics, and downloadable artifacts.")
-    _section_caption(
-        _t(
-            "Training has finished. Start with the short summary below, then open details or download files."
-        )
+    _render_slide_title(
+        "results",
+        "Evaluation & Export",
+        "Results are separated into summary, metrics, validation, importance, and downloads.",
     )
-    st.caption(_t("How to read the results"))
-    st.info(
-        _t(
-            "Start with the run summary and validation notes. They tell you whether this run looks safe to trust before you focus on detailed metrics or downloads."
-        )
-    )
+    if not results:
+        st.info(_t("No completed training results are available yet."))
+        return
+
     completed_targets = ", ".join(str(result["target"]) for result in results)
     _render_step_status(
         _t(
             "Training finished for: {completed_targets}.",
             completed_targets=completed_targets,
         ),
-        _t(
-            "Check the validation notes first, then download the report, model, or prediction sample you need."
-        ),
+        _t("Review summary first, then open the detailed result frames."),
         level="success",
     )
-    summary_cols = st.columns(3)
-    with summary_cols[0]:
-        st.metric(_t("Completed runs"), len(results))
-    with summary_cols[1]:
-        st.metric(
-            _t("Targets trained"), len({str(result["target"]) for result in results})
-        )
-    with summary_cols[2]:
-        st.metric(_t("Result files per run"), 3)
-    summary_rows = [
-        {
-            "target": str(result["target"]),
-            "task_type": _t(str(result["task_type"])),
-            "priority_metric": str(result["priority_metric"]),
-            "trainer": str(result["trained"].trainer_name),
-        }
-        for result in results
-    ]
-    summary_frame = pd.DataFrame(summary_rows).rename(
-        columns={
-            "target": _t("Target"),
-            "task_type": _t("Task type"),
-            "priority_metric": _t("Priority metric"),
-            "trainer": _t("Trainer"),
-        }
-    )
-    st.write(_t("Run summary"))
-    st.dataframe(summary_frame, hide_index=True, use_container_width=True)
-    st.write(_t("Download files"))
-    for result in results:
-        run = result["run"]
-        label = f"{result['target']} ({_t(str(result['task_type']))})"
-        with st.expander(label, expanded=len(results) == 1):
-            download_cols = st.columns(3)
-            with download_cols[0]:
-                model_path = Path(result["model_path"])
-                st.download_button(
-                    _t("Download model"),
-                    data=model_path.read_bytes(),
-                    file_name=f"{run.run_id}_{result['target']}_{model_path.name}",
-                    mime="application/octet-stream",
-                )
-            with download_cols[1]:
-                st.download_button(
-                    _t("Download report"),
-                    data=result["report_path"].read_text(encoding="utf-8"),
-                    file_name=f"{run.run_id}_{result['target']}_report.md",
-                    mime="text/markdown",
-                )
-            with download_cols[2]:
-                st.download_button(
-                    _t("Download predictions"),
-                    data=result["prediction_path"].read_text(encoding="utf-8"),
-                    file_name=f"{run.run_id}_{result['target']}_prediction_sample.csv",
-                    mime="text/csv",
-                )
 
-    st.write(_t("Detailed results"))
-    for result in results:
-        run = result["run"]
-        with st.expander(
-            _t("{target} results", target=result["target"]), expanded=len(results) == 1
-        ):
-            st.caption(_t("Result translation"))
-            result_level, result_summary = _result_translation_summary(result)
-            _render_message(result_level, result_summary)
-            st.write(_t("Metrics"))
-            _render_metrics(
-                result["metrics"], priority_metric=result["priority_metric"]
+    summary_tab, metrics_tab, validation_tab, importance_tab, downloads_tab = st.tabs(
+        [
+            _t("Summary"),
+            _t("Metrics"),
+            _t("Validation"),
+            _t("Feature importance"),
+            _t("Downloads"),
+        ]
+    )
+
+    with summary_tab:
+        summary_cols = st.columns(3)
+        with summary_cols[0]:
+            st.metric(_t("Completed runs"), len(results))
+        with summary_cols[1]:
+            st.metric(
+                _t("Targets trained"),
+                len({str(result["target"]) for result in results}),
             )
-            st.write(_t("Validation checks"))
-            _render_validation_summary(
-                preflight=artifact_to_dict(result["preflight_validation"]),
-                postrun=artifact_to_dict(result["postrun_validation"]),
-                recommendations=artifact_to_dict(result["recommendations"]),
-                priority_metric=result["priority_metric"],
-            )
-            st.write(_t("Data flow"))
-            _render_data_flow(result["data_flow"])
-            st.write(_t("Feature importance"))
-            st.dataframe(
-                pd.DataFrame(result["trained"].feature_importance),
-                use_container_width=True,
-            )
-            if result["trained"].leaderboard:
-                st.write(_t("AutoGluon leaderboard"))
-                st.dataframe(
-                    pd.DataFrame(result["trained"].leaderboard),
-                    use_container_width=True,
+        with summary_cols[2]:
+            st.metric(_t("Result files per run"), 3)
+
+        summary_rows = [
+            {
+                "target": str(result["target"]),
+                "task_type": _t(str(result["task_type"])),
+                "priority_metric": str(result["priority_metric"]),
+                "trainer": str(result["trained"].trainer_name),
+            }
+            for result in results
+        ]
+        summary_frame = pd.DataFrame(summary_rows).rename(
+            columns={
+                "target": _t("Target"),
+                "task_type": _t("Task type"),
+                "priority_metric": _t("Priority metric"),
+                "trainer": _t("Trainer"),
+            }
+        )
+        st.write(_t("Run summary"))
+        st.dataframe(summary_frame, hide_index=True, use_container_width=True)
+        _render_explanation_strip(
+            "Summary is the first frame: it tells you which targets were trained and which metric each run optimized."
+        )
+
+    with metrics_tab:
+        for result in results:
+            with st.container(border=True):
+                st.write(_t("{target} metrics", target=result["target"]))
+                result_level, result_summary = _result_translation_summary(result)
+                _render_message(result_level, result_summary)
+                _render_metrics(
+                    result["metrics"], priority_metric=result["priority_metric"]
                 )
-            st.write(_t("Analysis report"))
-            st.markdown(result["report"])
-            st.caption(_t("Artifacts saved to {path}", path=Path(run.path).resolve()))
+                if result["trained"].leaderboard:
+                    st.write(_t("AutoGluon leaderboard"))
+                    st.dataframe(
+                        pd.DataFrame(result["trained"].leaderboard),
+                        use_container_width=True,
+                    )
+        _render_explanation_strip(
+            "Metrics are isolated from downloads and reports so the result page does not become a single dense block."
+        )
+
+    with validation_tab:
+        for result in results:
+            with st.container(border=True):
+                st.write(_t("{target} validation", target=result["target"]))
+                _render_validation_summary(
+                    preflight=artifact_to_dict(result["preflight_validation"]),
+                    postrun=artifact_to_dict(result["postrun_validation"]),
+                    recommendations=artifact_to_dict(result["recommendations"]),
+                    priority_metric=result["priority_metric"],
+                )
+                st.write(_t("Data flow"))
+                _render_data_flow(result["data_flow"])
+        _render_explanation_strip(
+            "Validation is separated from score comparison because it answers a different question: whether this run is safe to trust."
+        )
+
+    with importance_tab:
+        for result in results:
+            with st.container(border=True):
+                st.write(_t("{target} feature importance", target=result["target"]))
+                importance_frame = pd.DataFrame(result["trained"].feature_importance)
+                if importance_frame.empty:
+                    st.caption(_t("No feature importance was returned for this run."))
+                else:
+                    st.dataframe(importance_frame, use_container_width=True)
+        _render_explanation_strip(
+            "Feature importance is kept in its own frame so model explanation does not compete with model comparison."
+        )
+
+    with downloads_tab:
+        st.write(_t("Download files"))
+        for result_index, result in enumerate(results):
+            run = result["run"]
+            label = f"{result['target']} ({_t(str(result['task_type']))})"
+            with st.container(border=True):
+                st.write(label)
+                download_cols = st.columns(3)
+                with download_cols[0]:
+                    model_path = Path(result["model_path"])
+                    st.download_button(
+                        label=_t("Download model"),
+                        data=model_path.read_bytes(),
+                        file_name=f"{run.run_id}_{result['target']}_{model_path.name}",
+                        mime="application/octet-stream",
+                        key=_safe_widget_key("download", "model", run.run_id, result_index),
+                        use_container_width=True,
+                    )
+                with download_cols[1]:
+                    st.download_button(
+                        label=_t("Download report"),
+                        data=result["report_path"].read_text(encoding="utf-8"),
+                        file_name=f"{run.run_id}_{result['target']}_report.md",
+                        mime="text/markdown",
+                        key=_safe_widget_key("download", "report", run.run_id, result_index),
+                        use_container_width=True,
+                    )
+                with download_cols[2]:
+                    st.download_button(
+                        label=_t("Download predictions"),
+                        data=result["prediction_path"].read_text(encoding="utf-8"),
+                        file_name=f"{run.run_id}_{result['target']}_prediction_sample.csv",
+                        mime="text/csv",
+                        key=_safe_widget_key("download", "prediction", run.run_id, result_index),
+                        use_container_width=True,
+                    )
+                with st.expander(_t("Analysis report"), expanded=False):
+                    st.markdown(result["report"])
+                st.caption(_t("Artifacts saved to {path}", path=Path(run.path).resolve()))
+        _render_explanation_strip(
+            "Downloads are the final frame: model, report, and prediction sample are grouped by target."
+        )
 
 
 def _queue_plan_suggestion(
@@ -3597,6 +3820,7 @@ def main() -> None:
                         """,
                         unsafe_allow_html=True,
                     )
+                    _render_bottom_workflow_nav()
                     return
                 df = read_csv(uploaded_file)
                 _cache_current_dataset(df, source_label=uploaded_file.name)
@@ -3613,6 +3837,7 @@ def main() -> None:
                 if st.button(_t("Next: choose target"), key="next_after_file_upload"):
                     _set_active_step("target")
                     st.rerun()
+        _render_bottom_workflow_nav()
         return
     current_dataset_fingerprint = _dataset_fingerprint(df)
     columns = list(df.columns)
@@ -3680,6 +3905,7 @@ def main() -> None:
                     ),
                     level="warning",
                 )
+                _render_bottom_workflow_nav()
                 return
 
             selected_targets = ", ".join(str(target) for target in target_columns)
@@ -3705,23 +3931,16 @@ def main() -> None:
                         use_container_width=True,
                     )
                 st.caption(_t("Manual task type override"))
-                st.session_state["_task_type_choice_label"] = task_type_labels.get(
-                    task_type_choice, task_type_labels["auto"]
-                )
-                task_type_label = st.radio(
+                task_type_choice = st.radio(
                     _t("Task type"),
-                    list(task_type_labels.values()),
+                    list(task_type_labels.keys()),
                     horizontal=True,
-                    key="_task_type_choice_label",
+                    key="task_type_choice",
+                    format_func=lambda value: task_type_labels.get(str(value), str(value)),
+                    help=_t("Use auto for inference, or force classification/regression manually."),
                 )
-                task_type_choice = next(
-                    value
-                    for value, label in task_type_labels.items()
-                    if label == str(task_type_label)
-                )
-                st.session_state["task_type_choice"] = task_type_choice
                 selection_task_types = _target_task_types(
-                    df, target_columns, task_type_choice
+                    df, target_columns, str(task_type_choice)
                 )
 
             with st.expander(_t("Advanced experiment settings"), expanded=False):
@@ -3774,9 +3993,10 @@ def main() -> None:
             )
             _render_message(target_explanation_level, target_explanation)
 
-            if st.button(_t("Next: check data"), key="next_after_target"):
+            if st.button(_t("Next: data preprocessing"), key="next_after_target"):
                 _set_active_step("check")
                 st.rerun()
+            _render_bottom_workflow_nav()
             return
 
     if not target_columns:
@@ -4000,634 +4220,676 @@ def main() -> None:
             draft_autogluon_plan, "autogluon_feature_generator"
         ) or _preprocessing_step("autogluon_feature_generator")
     else:
-        _render_slide_title("check", "Data Check", "Review field health, leakage warnings, and preprocessing choices.")
-        with st.container(border=True):
-            _section_caption(
-                _t(
-                    "Default preprocessing is ready for a first pass. Expand this section only if you want to fine-tune data preparation."
+        preprocess_frame_idx = _preprocess_frame_index()
+        preprocess_frame_label = BEAMER_NAV_SECTIONS["Preprocess"][preprocess_frame_idx]
+        _render_slide_title("check", "Data Preprocessing", f"Preprocess frame: {preprocess_frame_label}.")
+        _render_preprocessing_roadmap()
+        draft_excluded_columns = list(preprocessing_summary_excluded_columns)
+        draft_analysis_columns = [
+            column for column in columns if column not in draft_excluded_columns
+        ]
+        draft_base_analysis_df = df[draft_analysis_columns].copy()
+        test_size = float(preprocessing_summary_test_size)
+        high_missing_threshold = float(preprocessing_summary_high_missing_threshold)
+        random_state = int(preprocessing_summary_random_state)
+        numeric_imputation_strategy = preprocessing_summary_numeric_imputation_strategy
+        categorical_imputation_strategy = preprocessing_summary_categorical_imputation_strategy
+        categorical_encoding_strategy = preprocessing_summary_categorical_encoding_strategy
+        standardize_numeric = bool(preprocessing_summary_standardize_numeric)
+        autogluon_feature_generator_params = dict(preprocessing_summary_autogluon_params)
+        preview_plan_data = None
+        draft_feature_plan = st.session_state.get("_feature_engineering_applied_plan")
+        draft_column_step = _preprocessing_step(
+            "column_selection",
+            params={"excluded_columns": list(draft_excluded_columns)},
+            summary=f"Excluded columns: {len(draft_excluded_columns)}.",
+        )
+        draft_autogluon_plan = _build_preprocessing_plan(
+            base_analysis_df=draft_base_analysis_df,
+            target_columns=target_columns,
+            excluded_columns=[],
+            test_size=float(test_size),
+            random_state=int(random_state),
+            high_missing_threshold=float(high_missing_threshold),
+            numeric_imputation_strategy=numeric_imputation_strategy,
+            categorical_imputation_strategy=categorical_imputation_strategy,
+            categorical_encoding_strategy=categorical_encoding_strategy,
+            standardize_numeric=bool(standardize_numeric),
+            autogluon_feature_generator_params=autogluon_feature_generator_params,
+            manual_cleaning_plan=st.session_state.get("_manual_cleaning_plan"),
+            feature_plan=draft_feature_plan,
+        )
+        draft_autogluon_step = _preprocessing_step_payload(
+            draft_autogluon_plan, "autogluon_feature_generator"
+        ) or _preprocessing_step("autogluon_feature_generator")
+        if preprocess_frame_idx == 1:
+            with st.container(border=True):
+                _section_caption(
+                    _t(
+                        "Default preprocessing is ready for a first pass. Expand this section only if you want to fine-tune data preparation."
+                    )
                 )
-            )
-            st.success(
-                _t(
-                    "Recommended preprocessing is already selected. You can continue without opening advanced settings."
+                st.success(
+                    _t(
+                        "Recommended preprocessing is already selected. You can continue without opening advanced settings."
+                    )
                 )
-            )
-            st.caption(
-                _t(
-                    "AutoGluon handles missing values, categorical encoding, datetime features, text features, model search, and ensembling during training."
+                st.caption(
+                    _t(
+                        "AutoGluon handles missing values, categorical encoding, datetime features, text features, model search, and ensembling during training."
+                    )
                 )
-            )
-            st.caption(preprocessing_summary)
-            with st.expander(_t("Open preprocessing details"), expanded=False):
-                with st.container(border=True):
-                    st.write(_t("Planning help"))
-                    _section_caption(
-                        _t(
-                            "This optional brief lets you describe your goal in plain language so the app can suggest a sensible first setup."
-                        )
-                    )
-                    planner_brief = st.text_area(
-                        _t("Planning brief"),
-                        key="planner_brief",
-                        placeholder=_t(
-                            "Example: predict churn, treat customer_id as reference only, and keep this as a quick first pass."
-                        ),
-                        help=_t(
-                            "Optional natural-language brief used to suggest targets, task type, exclusions, and a priority metric."
-                        ),
-                    )
-                    plan_data = artifact_to_dict(plan_suggestion)
-                    with st.expander(
-                        _t("Planner suggestion"), expanded=bool(planner_brief.strip())
-                    ):
-                        _render_planner_suggestion(plan_data)
-                        if st.button(_t("Apply planner suggestions")):
-                            _queue_plan_suggestion(plan_data, columns)
-                            st.rerun()
-
-                    draft_excluded_columns = st.multiselect(
-                        _t("Exclude columns from EDA and training features"),
-                        exclude_options,
-                        key="excluded_columns",
-                        help=_t(
-                            "Excluded columns are removed before EDA and are not used as model features."
-                        ),
-                    )
-                    draft_analysis_columns = [
-                        column for column in columns if column not in draft_excluded_columns
-                    ]
-                    draft_base_analysis_df = df[draft_analysis_columns].copy()
-
-                split_box = st.container(border=True)
-                with split_box:
-                    st.write(_t("Split settings"))
-                    split_cols = st.columns(3)
-                    with split_cols[0]:
-                        test_size = st.slider(
-                            _t("Test size"),
-                            min_value=0.1,
-                            max_value=0.5,
-                            step=0.01,
-                            format="%.2f",
-                            key="test_size",
-                        )
-                    with split_cols[1]:
-                        high_missing_threshold = st.slider(
-                            _t("Drop feature when missing rate is above"),
-                            min_value=0.5,
-                            max_value=1.0,
-                            step=0.01,
-                            format="%.2f",
-                            key="high_missing_threshold",
-                        )
-                    with split_cols[2]:
-                        random_state = _render_integer_input(
-                            _t("Random state"), "random_state"
-                        )
-                    if float(applied_global_params.get("test_size", 0.2)) == float(
-                        test_size
-                    ) and int(
-                        applied_global_params.get("random_state", 42)
-                    ) == int(random_state):
-                        _render_step_status(
-                            "Split settings",
-                            "Current settings are applied.",
-                            level="success",
-                        )
-                    else:
-                        _render_step_status(
-                            "Split settings",
-                            "Draft changes are not applied yet.",
-                            level="info",
-                        )
-                    if st.button(_t("Apply split settings")):
-                        _set_applied_preprocessing_global_params(
-                            test_size=float(test_size), random_state=int(random_state)
-                        )
-                        st.rerun()
-
-                with st.container(border=True):
-                    st.write(_t("Step 3.1: Column selection and manual cleaning"))
-                    draft_column_step = _preprocessing_step(
-                        "column_selection",
-                        params={"excluded_columns": list(draft_excluded_columns)},
-                        summary=f"Excluded columns: {len(draft_excluded_columns)}.",
-                    )
-                    _render_preprocessing_step_status(
-                        "Column selection", draft_column_step, applied_preprocessing_plan
-                    )
-                    column_cols = st.columns(3)
-                    with column_cols[0]:
-                        st.metric(_t("Excluded columns"), len(draft_excluded_columns))
-                    with column_cols[1]:
-                        st.metric(_t("Columns after exclusion"), len(draft_analysis_columns))
-                    with column_cols[2]:
-                        if st.button(_t("Apply column selection")):
-                            _update_applied_preprocessing_step(draft_column_step)
-                            st.rerun()
-
-                    st.write(_t("Manual cleaning rules"))
-                    _section_caption(
-                        _t(
-                            "If you already know some rows or columns should be filtered out, draft the rules here before training."
-                        )
-                    )
-                    manual_cleaning_brief = st.text_area(
-                        _t("Cleaning rules brief"),
-                        key="manual_cleaning_brief",
-                        placeholder=_t(
-                            "Example: drop customer_id and keep rows where monthly_spend > 20 and churn equals 1."
-                        ),
-                        help=_t(
-                            "Natural-language rules are converted into a structured draft. Nothing is applied until you confirm."
-                        ),
-                    )
-                    manual_rule_controls = st.columns(3)
-                    with manual_rule_controls[0]:
-                        if st.button(_t("Generate cleaning rules")):
-                            suggested_manual_plan = _get_manual_cleaning_plan(
-                                df=draft_base_analysis_df,
-                                target=primary_target,
-                                settings=settings,
-                                user_brief=manual_cleaning_brief,
+                st.caption(preprocessing_summary)
+                with st.expander(_t("Open preprocessing details"), expanded=False):
+                    with st.container(border=True):
+                        st.write(_t("Planning help"))
+                        _section_caption(
+                            _t(
+                                "This optional brief lets you describe your goal in plain language so the app can suggest a sensible first setup."
                             )
-                            st.session_state["_manual_cleaning_override_plan"] = (
-                                _clone_json_data(suggested_manual_plan)
-                            )
-                            st.rerun()
-                    with manual_rule_controls[1]:
-                        if st.button(_t("Start with blank rule")):
-                            st.session_state["_manual_cleaning_override_plan"] = (
-                                _blank_manual_cleaning_plan(manual_cleaning_brief)
-                            )
-                            st.rerun()
-                    with manual_rule_controls[2]:
-                        if st.session_state.get("_manual_cleaning_plan") and st.button(
-                            _t("Clear applied manual rules")
+                        )
+                        planner_brief = st.text_area(
+                            _t("Planning brief"),
+                            key="planner_brief",
+                            placeholder=_t(
+                                "Example: predict churn, treat customer_id as reference only, and keep this as a quick first pass."
+                            ),
+                            help=_t(
+                                "Optional natural-language brief used to suggest targets, task type, exclusions, and a priority metric."
+                            ),
+                        )
+                        plan_data = artifact_to_dict(plan_suggestion)
+                        with st.expander(
+                            _t("Planner suggestion"), expanded=bool(planner_brief.strip())
                         ):
-                            st.session_state["_manual_cleaning_plan"] = None
-                            st.session_state["_manual_cleaning_override_plan"] = None
-                            _update_applied_preprocessing_step(
-                                _preprocessing_step(
-                                    "manual_cleaning",
-                                    enabled=False,
-                                    params={"plan": None},
-                                    summary="No manual cleaning rules applied.",
-                                )
+                            _render_planner_suggestion(plan_data)
+                            if st.button(_t("Apply planner suggestions")):
+                                _queue_plan_suggestion(plan_data, columns)
+                                st.rerun()
+
+                        draft_excluded_columns = st.multiselect(
+                            _t("Exclude columns from EDA and training features"),
+                            exclude_options,
+                            key="excluded_columns",
+                            help=_t(
+                                "Excluded columns are removed before EDA and are not used as model features."
+                            ),
+                        )
+                        draft_analysis_columns = [
+                            column for column in columns if column not in draft_excluded_columns
+                        ]
+                        draft_base_analysis_df = df[draft_analysis_columns].copy()
+
+                    split_box = st.container(border=True)
+                    with split_box:
+                        st.write(_t("Split settings"))
+                        split_cols = st.columns(3)
+                        with split_cols[0]:
+                            test_size = st.slider(
+                                _t("Test size"),
+                                min_value=0.1,
+                                max_value=0.5,
+                                step=0.01,
+                                format="%.2f",
+                                key="test_size",
+                            )
+                        with split_cols[1]:
+                            high_missing_threshold = st.slider(
+                                _t("Drop feature when missing rate is above"),
+                                min_value=0.5,
+                                max_value=1.0,
+                                step=0.01,
+                                format="%.2f",
+                                key="high_missing_threshold",
+                            )
+                        with split_cols[2]:
+                            random_state = _render_integer_input(
+                                _t("Random state"), "random_state"
+                            )
+                        if float(applied_global_params.get("test_size", 0.2)) == float(
+                            test_size
+                        ) and int(
+                            applied_global_params.get("random_state", 42)
+                        ) == int(random_state):
+                            _render_step_status(
+                                "Split settings",
+                                "Current settings are applied.",
+                                level="success",
+                            )
+                        else:
+                            _render_step_status(
+                                "Split settings",
+                                "Draft changes are not applied yet.",
+                                level="info",
+                            )
+                        if st.button(_t("Apply split settings")):
+                            _set_applied_preprocessing_global_params(
+                                test_size=float(test_size), random_state=int(random_state)
                             )
                             st.rerun()
 
-                    if (
-                        st.session_state.get("_manual_cleaning_override_plan") is None
-                        and manual_cleaning_plan is not None
-                    ):
-                        st.session_state["_manual_cleaning_override_plan"] = (
-                            _clone_json_data(manual_cleaning_plan)
-                        )
-
-                    validated_manual_preview = None
-                    preview_plan_data = None
-                    if isinstance(st.session_state.get("_manual_cleaning_override_plan"), dict):
-                        draft_manual_plan = st.session_state["_manual_cleaning_override_plan"]
-                        draft_manual_plan["user_brief"] = manual_cleaning_brief
-                        edited_manual_plan = _render_manual_cleaning_editor(
-                            draft_manual_plan,
-                            available_columns=list(draft_base_analysis_df.columns),
-                        )
-                        validated_manual_preview = validate_manual_cleaning_plan(
-                            edited_manual_plan,
-                            draft_base_analysis_df,
-                            primary_target,
-                            protected_columns=target_columns,
-                        )
-                        preview_df, preview_log, preview_impact = apply_manual_cleaning_plan(
-                            draft_base_analysis_df,
-                            validated_manual_preview,
-                            primary_target,
-                            protected_columns=target_columns,
-                        )
-                        preview_plan_data = artifact_to_dict(validated_manual_preview)
-                        draft_manual_step = _preprocessing_step(
-                            "manual_cleaning",
-                            enabled=_enabled_manual_rule_count(preview_plan_data) > 0,
-                            params={"plan": preview_plan_data},
-                            summary="No manual cleaning rules applied."
-                            if _enabled_manual_rule_count(preview_plan_data) == 0
-                            else f"Manual cleaning rules enabled: {_enabled_manual_rule_count(preview_plan_data)}.",
+                    with st.container(border=True):
+                        st.write(_t("Step 3.1: Column selection and manual cleaning"))
+                        draft_column_step = _preprocessing_step(
+                            "column_selection",
+                            params={"excluded_columns": list(draft_excluded_columns)},
+                            summary=f"Excluded columns: {len(draft_excluded_columns)}.",
                         )
                         _render_preprocessing_step_status(
-                            "Manual cleaning",
-                            draft_manual_step,
+                            "Column selection", draft_column_step, applied_preprocessing_plan
+                        )
+                        column_cols = st.columns(3)
+                        with column_cols[0]:
+                            st.metric(_t("Excluded columns"), len(draft_excluded_columns))
+                        with column_cols[1]:
+                            st.metric(_t("Columns after exclusion"), len(draft_analysis_columns))
+                        with column_cols[2]:
+                            if st.button(_t("Apply column selection")):
+                                _update_applied_preprocessing_step(draft_column_step)
+                                st.rerun()
+
+                        st.write(_t("Manual cleaning rules"))
+                        _section_caption(
+                            _t(
+                                "If you already know some rows or columns should be filtered out, draft the rules here before training."
+                            )
+                        )
+                        manual_cleaning_brief = st.text_area(
+                            _t("Cleaning rules brief"),
+                            key="manual_cleaning_brief",
+                            placeholder=_t(
+                                "Example: drop customer_id and keep rows where monthly_spend > 20 and churn equals 1."
+                            ),
+                            help=_t(
+                                "Natural-language rules are converted into a structured draft. Nothing is applied until you confirm."
+                            ),
+                        )
+                        manual_rule_controls = st.columns(3)
+                        with manual_rule_controls[0]:
+                            if st.button(_t("Generate cleaning rules")):
+                                suggested_manual_plan = _get_manual_cleaning_plan(
+                                    df=draft_base_analysis_df,
+                                    target=primary_target,
+                                    settings=settings,
+                                    user_brief=manual_cleaning_brief,
+                                )
+                                st.session_state["_manual_cleaning_override_plan"] = (
+                                    _clone_json_data(suggested_manual_plan)
+                                )
+                                st.rerun()
+                        with manual_rule_controls[1]:
+                            if st.button(_t("Start with blank rule")):
+                                st.session_state["_manual_cleaning_override_plan"] = (
+                                    _blank_manual_cleaning_plan(manual_cleaning_brief)
+                                )
+                                st.rerun()
+                        with manual_rule_controls[2]:
+                            if st.session_state.get("_manual_cleaning_plan") and st.button(
+                                _t("Clear applied manual rules")
+                            ):
+                                st.session_state["_manual_cleaning_plan"] = None
+                                st.session_state["_manual_cleaning_override_plan"] = None
+                                _update_applied_preprocessing_step(
+                                    _preprocessing_step(
+                                        "manual_cleaning",
+                                        enabled=False,
+                                        params={"plan": None},
+                                        summary="No manual cleaning rules applied.",
+                                    )
+                                )
+                                st.rerun()
+
+                        if (
+                            st.session_state.get("_manual_cleaning_override_plan") is None
+                            and manual_cleaning_plan is not None
+                        ):
+                            st.session_state["_manual_cleaning_override_plan"] = (
+                                _clone_json_data(manual_cleaning_plan)
+                            )
+
+                        validated_manual_preview = None
+                        preview_plan_data = None
+                        if isinstance(st.session_state.get("_manual_cleaning_override_plan"), dict):
+                            draft_manual_plan = st.session_state["_manual_cleaning_override_plan"]
+                            draft_manual_plan["user_brief"] = manual_cleaning_brief
+                            edited_manual_plan = _render_manual_cleaning_editor(
+                                draft_manual_plan,
+                                available_columns=list(draft_base_analysis_df.columns),
+                            )
+                            validated_manual_preview = validate_manual_cleaning_plan(
+                                edited_manual_plan,
+                                draft_base_analysis_df,
+                                primary_target,
+                                protected_columns=target_columns,
+                            )
+                            preview_df, preview_log, preview_impact = apply_manual_cleaning_plan(
+                                draft_base_analysis_df,
+                                validated_manual_preview,
+                                primary_target,
+                                protected_columns=target_columns,
+                            )
+                            preview_plan_data = artifact_to_dict(validated_manual_preview)
+                            draft_manual_step = _preprocessing_step(
+                                "manual_cleaning",
+                                enabled=_enabled_manual_rule_count(preview_plan_data) > 0,
+                                params={"plan": preview_plan_data},
+                                summary="No manual cleaning rules applied."
+                                if _enabled_manual_rule_count(preview_plan_data) == 0
+                                else f"Manual cleaning rules enabled: {_enabled_manual_rule_count(preview_plan_data)}.",
+                            )
+                            _render_preprocessing_step_status(
+                                "Manual cleaning",
+                                draft_manual_step,
+                                applied_preprocessing_plan,
+                            )
+
+                            summary_cols = st.columns(5)
+                            with summary_cols[0]:
+                                st.metric(
+                                    _t("Planner"),
+                                    str(preview_plan_data.get("planner_name") or "manual"),
+                                )
+                            with summary_cols[1]:
+                                st.metric(
+                                    _t("Effect stage"),
+                                    _manual_cleaning_effect_stage_label(
+                                        validated_manual_preview.effect_stage
+                                    ),
+                                )
+                            with summary_cols[2]:
+                                st.metric(
+                                    _t("Accepted rules"),
+                                    len(preview_plan_data.get("rules", [])),
+                                )
+                            with summary_cols[3]:
+                                st.metric(
+                                    _t("Rejected rules"),
+                                    len(preview_plan_data.get("rejected_rules", [])),
+                                )
+                            with summary_cols[4]:
+                                st.metric(
+                                    _t("Rows removed"),
+                                    int(preview_impact.get("rows_removed") or 0),
+                                )
+
+                            rule_rows = _manual_cleaning_rule_rows(preview_plan_data)
+                            if rule_rows:
+                                st.dataframe(
+                                    pd.DataFrame(rule_rows),
+                                    hide_index=True,
+                                    use_container_width=True,
+                                )
+                            else:
+                                st.caption(
+                                    _t("No manual cleaning rules are in the current draft.")
+                                )
+
+                            impact_cols = st.columns(3)
+                            with impact_cols[0]:
+                                st.metric(
+                                    _t("Columns removed"),
+                                    len(preview_impact.get("columns_removed", [])),
+                                )
+                            with impact_cols[1]:
+                                st.metric(
+                                    _t("Rows after"),
+                                    int(
+                                        preview_impact.get("rows_after")
+                                        or len(draft_base_analysis_df)
+                                    ),
+                                )
+                            with impact_cols[2]:
+                                st.metric(
+                                    _t("Columns after"),
+                                    int(
+                                        preview_impact.get("columns_after")
+                                        or len(draft_base_analysis_df.columns)
+                                    ),
+                                )
+
+                            detail_cols = st.columns(2)
+                            with detail_cols[0]:
+                                _render_text_items(
+                                    "Notes", preview_plan_data.get("notes", []), "No notes."
+                                )
+                            with detail_cols[1]:
+                                _render_text_items(
+                                    "Rejected rules",
+                                    preview_plan_data.get("rejected_rules", []),
+                                    "No rejected rules.",
+                                )
+
+                            with st.expander(
+                                _t("Manual cleaning preview impact"), expanded=False
+                            ):
+                                st.json(preview_impact, expanded=True)
+                                st.dataframe(
+                                    preview_df.head(20), use_container_width=True
+                                )
+                                if preview_log:
+                                    st.write(_t("Planned cleaning log"))
+                                    st.json(preview_log, expanded=True)
+
+                            apply_cols = st.columns(2)
+                            with apply_cols[0]:
+                                if st.button(
+                                    _t("Apply manual cleaning rules"), type="primary"
+                                ):
+                                    st.session_state["_manual_cleaning_plan"] = (
+                                        preview_plan_data
+                                    )
+                                    st.session_state["_manual_cleaning_override_plan"] = (
+                                        _clone_json_data(preview_plan_data)
+                                    )
+                                    _update_applied_preprocessing_step(draft_manual_step)
+                                    st.rerun()
+                            with apply_cols[1]:
+                                if st.session_state.get("_manual_cleaning_plan"):
+                                    st.caption(
+                                        _t(
+                                            "Applied rules remain active until you clear them or apply a different draft."
+                                        )
+                                    )
+                        else:
+                            st.caption(
+                                _t(
+                                    "Generate rules from a brief or start with a blank rule to configure manual cleaning."
+                                )
+                            )
+
+                    with st.container(border=True):
+                        st.write(_t("Step 3.2: Feature cleanup"))
+                        _section_caption(
+                            _t(
+                                "The platform only removes unusable columns before AutoGluon. Missing values, categorical encoding, datetime features, and text features are handled by AutoGluon during training."
+                            )
+                        )
+                        numeric_imputation_strategy = "median"
+                        categorical_imputation_strategy = "most_frequent"
+                        categorical_encoding_strategy = "autogluon"
+                        standardize_numeric = False
+                        draft_missing_plan = _build_preprocessing_plan(
+                            base_analysis_df=draft_base_analysis_df,
+                            target_columns=target_columns,
+                            excluded_columns=[],
+                            test_size=float(test_size),
+                            random_state=int(random_state),
+                            high_missing_threshold=float(high_missing_threshold),
+                            numeric_imputation_strategy=numeric_imputation_strategy,
+                            categorical_imputation_strategy=categorical_imputation_strategy,
+                            categorical_encoding_strategy=categorical_encoding_strategy,
+                            standardize_numeric=bool(standardize_numeric),
+                            autogluon_feature_generator_params=preprocessing_summary_autogluon_params,
+                            manual_cleaning_plan=preview_plan_data
+                            if preview_plan_data is not None
+                            else st.session_state.get("_manual_cleaning_plan"),
+                            feature_plan=st.session_state.get(
+                                "_feature_engineering_applied_plan"
+                            ),
+                        )
+                        draft_missing_step = _preprocessing_step_payload(
+                            draft_missing_plan, "missing_value"
+                        ) or _preprocessing_step("missing_value")
+                        _render_preprocessing_step_status(
+                            "Missing-value handling",
+                            draft_missing_step,
                             applied_preprocessing_plan,
                         )
-
-                        summary_cols = st.columns(5)
-                        with summary_cols[0]:
+                        missing_params = draft_missing_step.get("params", {})
+                        missing_cols = st.columns(3)
+                        with missing_cols[0]:
                             st.metric(
-                                _t("Planner"),
-                                str(preview_plan_data.get("planner_name") or "manual"),
-                            )
-                        with summary_cols[1]:
-                            st.metric(
-                                _t("Effect stage"),
-                                _manual_cleaning_effect_stage_label(
-                                    validated_manual_preview.effect_stage
+                                _t("Feature columns"),
+                                len(
+                                    [
+                                        column
+                                        for column in draft_base_analysis_df.columns
+                                        if column not in target_columns
+                                    ]
                                 ),
                             )
-                        with summary_cols[2]:
+                        with missing_cols[1]:
                             st.metric(
-                                _t("Accepted rules"),
-                                len(preview_plan_data.get("rules", [])),
+                                _t("High-missing columns"),
+                                len(missing_params.get("high_missing_columns", [])),
                             )
-                        with summary_cols[3]:
-                            st.metric(
-                                _t("Rejected rules"),
-                                len(preview_plan_data.get("rejected_rules", [])),
-                            )
-                        with summary_cols[4]:
-                            st.metric(
-                                _t("Rows removed"),
-                                int(preview_impact.get("rows_removed") or 0),
-                            )
-
-                        rule_rows = _manual_cleaning_rule_rows(preview_plan_data)
-                        if rule_rows:
+                        with missing_cols[2]:
+                            if st.button(_t("Apply missing-value step")):
+                                _update_applied_preprocessing_step(draft_missing_step)
+                                st.rerun()
+                        high_missing_preview = missing_params.get("high_missing_columns", [])
+                        if high_missing_preview:
                             st.dataframe(
-                                pd.DataFrame(rule_rows),
+                                pd.DataFrame({"column": list(high_missing_preview)}),
                                 hide_index=True,
                                 use_container_width=True,
                             )
                         else:
                             st.caption(
-                                _t("No manual cleaning rules are in the current draft.")
-                            )
-
-                        impact_cols = st.columns(3)
-                        with impact_cols[0]:
-                            st.metric(
-                                _t("Columns removed"),
-                                len(preview_impact.get("columns_removed", [])),
-                            )
-                        with impact_cols[1]:
-                            st.metric(
-                                _t("Rows after"),
-                                int(
-                                    preview_impact.get("rows_after")
-                                    or len(draft_base_analysis_df)
-                                ),
-                            )
-                        with impact_cols[2]:
-                            st.metric(
-                                _t("Columns after"),
-                                int(
-                                    preview_impact.get("columns_after")
-                                    or len(draft_base_analysis_df.columns)
-                                ),
-                            )
-
-                        detail_cols = st.columns(2)
-                        with detail_cols[0]:
-                            _render_text_items(
-                                "Notes", preview_plan_data.get("notes", []), "No notes."
-                            )
-                        with detail_cols[1]:
-                            _render_text_items(
-                                "Rejected rules",
-                                preview_plan_data.get("rejected_rules", []),
-                                "No rejected rules.",
-                            )
-
-                        with st.expander(
-                            _t("Manual cleaning preview impact"), expanded=False
-                        ):
-                            st.json(preview_impact, expanded=True)
-                            st.dataframe(
-                                preview_df.head(20), use_container_width=True
-                            )
-                            if preview_log:
-                                st.write(_t("Planned cleaning log"))
-                                st.json(preview_log, expanded=True)
-
-                        apply_cols = st.columns(2)
-                        with apply_cols[0]:
-                            if st.button(
-                                _t("Apply manual cleaning rules"), type="primary"
-                            ):
-                                st.session_state["_manual_cleaning_plan"] = (
-                                    preview_plan_data
+                                _t(
+                                    "No feature columns will be auto-dropped by the current high-missing threshold."
                                 )
-                                st.session_state["_manual_cleaning_override_plan"] = (
-                                    _clone_json_data(preview_plan_data)
-                                )
-                                _update_applied_preprocessing_step(draft_manual_step)
-                                st.rerun()
-                        with apply_cols[1]:
-                            if st.session_state.get("_manual_cleaning_plan"):
-                                st.caption(
-                                    _t(
-                                        "Applied rules remain active until you clear them or apply a different draft."
-                                    )
-                                )
-                    else:
-                        st.caption(
+                            )
+
+                    with st.container(border=True):
+                        st.write(_t("Step 3.3: AutoGluon feature generation"))
+                        _section_caption(
                             _t(
-                                "Generate rules from a brief or start with a blank rule to configure manual cleaning."
+                                "These options are passed to AutoGluon's AutoMLPipelineFeatureGenerator."
                             )
                         )
-
-                with st.container(border=True):
-                    st.write(_t("Step 3.2: Feature cleanup"))
-                    _section_caption(
-                        _t(
-                            "The platform only removes unusable columns before AutoGluon. Missing values, categorical encoding, datetime features, and text features are handled by AutoGluon during training."
+                        for key, value in AUTOGLUON_FEATURE_GENERATOR_DEFAULTS.items():
+                            st.session_state.setdefault(key, value)
+                        ag_cols = st.columns(3)
+                        with ag_cols[0]:
+                            enable_numeric_features = st.checkbox(
+                                _t("Enable numeric features"),
+                                key="enable_numeric_features",
+                            )
+                            enable_categorical_features = st.checkbox(
+                                _t("Enable categorical features"),
+                                key="enable_categorical_features",
+                            )
+                            enable_datetime_features = st.checkbox(
+                                _t("Enable datetime features"),
+                                key="enable_datetime_features",
+                            )
+                        with ag_cols[1]:
+                            enable_text_special_features = st.checkbox(
+                                _t("Enable text special features"),
+                                key="enable_text_special_features",
+                            )
+                            enable_text_ngram_features = st.checkbox(
+                                _t("Enable text ngram features"),
+                                key="enable_text_ngram_features",
+                            )
+                        with ag_cols[2]:
+                            enable_raw_text_features = st.checkbox(
+                                _t("Enable raw text features"),
+                                key="enable_raw_text_features",
+                            )
+                            enable_vision_features = st.checkbox(
+                                _t("Enable vision features"),
+                                key="enable_vision_features",
+                            )
+                        autogluon_feature_generator_params = _autogluon_feature_generator_params(
+                            {
+                                "enable_numeric_features": enable_numeric_features,
+                                "enable_categorical_features": enable_categorical_features,
+                                "enable_datetime_features": enable_datetime_features,
+                                "enable_text_special_features": enable_text_special_features,
+                                "enable_text_ngram_features": enable_text_ngram_features,
+                                "enable_raw_text_features": enable_raw_text_features,
+                                "enable_vision_features": enable_vision_features,
+                            }
                         )
-                    )
-                    numeric_imputation_strategy = "median"
-                    categorical_imputation_strategy = "most_frequent"
-                    categorical_encoding_strategy = "autogluon"
-                    standardize_numeric = False
-                    draft_missing_plan = _build_preprocessing_plan(
-                        base_analysis_df=draft_base_analysis_df,
-                        target_columns=target_columns,
-                        excluded_columns=[],
-                        test_size=float(test_size),
-                        random_state=int(random_state),
-                        high_missing_threshold=float(high_missing_threshold),
-                        numeric_imputation_strategy=numeric_imputation_strategy,
-                        categorical_imputation_strategy=categorical_imputation_strategy,
-                        categorical_encoding_strategy=categorical_encoding_strategy,
-                        standardize_numeric=bool(standardize_numeric),
-                        autogluon_feature_generator_params=preprocessing_summary_autogluon_params,
-                        manual_cleaning_plan=preview_plan_data
-                        if preview_plan_data is not None
-                        else st.session_state.get("_manual_cleaning_plan"),
-                        feature_plan=st.session_state.get(
-                            "_feature_engineering_applied_plan"
-                        ),
-                    )
-                    draft_missing_step = _preprocessing_step_payload(
-                        draft_missing_plan, "missing_value"
-                    ) or _preprocessing_step("missing_value")
-                    _render_preprocessing_step_status(
-                        "Missing-value handling",
-                        draft_missing_step,
-                        applied_preprocessing_plan,
-                    )
-                    missing_params = draft_missing_step.get("params", {})
-                    missing_cols = st.columns(3)
-                    with missing_cols[0]:
-                        st.metric(
-                            _t("Feature columns"),
-                            len(
-                                [
+                        draft_autogluon_plan = _build_preprocessing_plan(
+                            base_analysis_df=draft_base_analysis_df,
+                            target_columns=target_columns,
+                            excluded_columns=[],
+                            test_size=float(test_size),
+                            random_state=int(random_state),
+                            high_missing_threshold=float(high_missing_threshold),
+                            numeric_imputation_strategy=numeric_imputation_strategy,
+                            categorical_imputation_strategy=categorical_imputation_strategy,
+                            categorical_encoding_strategy=categorical_encoding_strategy,
+                            standardize_numeric=bool(standardize_numeric),
+                            autogluon_feature_generator_params=autogluon_feature_generator_params,
+                            manual_cleaning_plan=preview_plan_data
+                            if preview_plan_data is not None
+                            else st.session_state.get("_manual_cleaning_plan"),
+                            feature_plan=st.session_state.get(
+                                "_feature_engineering_applied_plan"
+                            ),
+                        )
+                        draft_autogluon_step = _preprocessing_step_payload(
+                            draft_autogluon_plan, "autogluon_feature_generator"
+                        ) or _preprocessing_step("autogluon_feature_generator")
+                        _render_preprocessing_step_status(
+                            "AutoGluon feature generation",
+                            draft_autogluon_step,
+                            applied_preprocessing_plan,
+                        )
+                        autogluon_metrics = st.columns(3)
+                        with autogluon_metrics[0]:
+                            st.metric(
+                                _t("Categorical columns"),
+                                int(
+                                    draft_autogluon_step["params"].get(
+                                        "categorical_feature_count", 0
+                                    )
+                                ),
+                            )
+                        with autogluon_metrics[1]:
+                            st.metric(
+                                _t("Numeric columns"),
+                                int(
+                                    draft_autogluon_step["params"].get(
+                                        "numeric_feature_count", 0
+                                    )
+                                ),
+                            )
+                        with autogluon_metrics[2]:
+                            st.metric(
+                                _t("Enabled generators"),
+                                len(_autogluon_enabled_feature_names(autogluon_feature_generator_params)),
+                            )
+                        if st.button(_t("Apply AutoGluon feature generation")):
+                            _update_applied_preprocessing_step(draft_autogluon_step)
+                            st.rerun()
+
+                    feature_plan = _preprocessing_feature_plan(applied_preprocessing_plan)
+                    with st.container(border=True):
+                        st.write(_t("Step 3.5: Feature engineering"))
+                        apply_feature_engineering = st.checkbox(
+                            _t("Apply local whitelist feature engineering"),
+                            key="apply_feature_engineering",
+                            help=_t(
+                                "LLM can propose a structured plan, but only local whitelisted transformations are executed inside the training pipeline."
+                            ),
+                        )
+                        draft_feature_plan = None
+                        if apply_feature_engineering:
+                            feature_plan_override = st.session_state.get(
+                                "_feature_engineering_override_plan"
+                            )
+                            if isinstance(feature_plan_override, dict) and feature_plan_override.get(
+                                "operations"
+                            ):
+                                draft_feature_plan = feature_plan_override
+                            else:
+                                feature_source_columns = [
                                     column
                                     for column in draft_base_analysis_df.columns
                                     if column not in target_columns
                                 ]
-                            ),
-                        )
-                    with missing_cols[1]:
-                        st.metric(
-                            _t("High-missing columns"),
-                            len(missing_params.get("high_missing_columns", [])),
-                        )
-                    with missing_cols[2]:
-                        if st.button(_t("Apply missing-value step")):
-                            _update_applied_preprocessing_step(draft_missing_step)
-                            st.rerun()
-                    high_missing_preview = missing_params.get("high_missing_columns", [])
-                    if high_missing_preview:
-                        st.dataframe(
-                            pd.DataFrame({"column": list(high_missing_preview)}),
-                            hide_index=True,
-                            use_container_width=True,
-                        )
-                    else:
-                        st.caption(
-                            _t(
-                                "No feature columns will be auto-dropped by the current high-missing threshold."
-                            )
-                        )
-
-                with st.container(border=True):
-                    st.write(_t("Step 3.3: AutoGluon feature generation"))
-                    _section_caption(
-                        _t(
-                            "These options are passed to AutoGluon's AutoMLPipelineFeatureGenerator."
-                        )
-                    )
-                    for key, value in AUTOGLUON_FEATURE_GENERATOR_DEFAULTS.items():
-                        st.session_state.setdefault(key, value)
-                    ag_cols = st.columns(3)
-                    with ag_cols[0]:
-                        enable_numeric_features = st.checkbox(
-                            _t("Enable numeric features"),
-                            key="enable_numeric_features",
-                        )
-                        enable_categorical_features = st.checkbox(
-                            _t("Enable categorical features"),
-                            key="enable_categorical_features",
-                        )
-                        enable_datetime_features = st.checkbox(
-                            _t("Enable datetime features"),
-                            key="enable_datetime_features",
-                        )
-                    with ag_cols[1]:
-                        enable_text_special_features = st.checkbox(
-                            _t("Enable text special features"),
-                            key="enable_text_special_features",
-                        )
-                        enable_text_ngram_features = st.checkbox(
-                            _t("Enable text ngram features"),
-                            key="enable_text_ngram_features",
-                        )
-                    with ag_cols[2]:
-                        enable_raw_text_features = st.checkbox(
-                            _t("Enable raw text features"),
-                            key="enable_raw_text_features",
-                        )
-                        enable_vision_features = st.checkbox(
-                            _t("Enable vision features"),
-                            key="enable_vision_features",
-                        )
-                    autogluon_feature_generator_params = _autogluon_feature_generator_params(
-                        {
-                            "enable_numeric_features": enable_numeric_features,
-                            "enable_categorical_features": enable_categorical_features,
-                            "enable_datetime_features": enable_datetime_features,
-                            "enable_text_special_features": enable_text_special_features,
-                            "enable_text_ngram_features": enable_text_ngram_features,
-                            "enable_raw_text_features": enable_raw_text_features,
-                            "enable_vision_features": enable_vision_features,
-                        }
-                    )
-                    draft_autogluon_plan = _build_preprocessing_plan(
-                        base_analysis_df=draft_base_analysis_df,
-                        target_columns=target_columns,
-                        excluded_columns=[],
-                        test_size=float(test_size),
-                        random_state=int(random_state),
-                        high_missing_threshold=float(high_missing_threshold),
-                        numeric_imputation_strategy=numeric_imputation_strategy,
-                        categorical_imputation_strategy=categorical_imputation_strategy,
-                        categorical_encoding_strategy=categorical_encoding_strategy,
-                        standardize_numeric=bool(standardize_numeric),
-                        autogluon_feature_generator_params=autogluon_feature_generator_params,
-                        manual_cleaning_plan=preview_plan_data
-                        if preview_plan_data is not None
-                        else st.session_state.get("_manual_cleaning_plan"),
-                        feature_plan=st.session_state.get(
-                            "_feature_engineering_applied_plan"
-                        ),
-                    )
-                    draft_autogluon_step = _preprocessing_step_payload(
-                        draft_autogluon_plan, "autogluon_feature_generator"
-                    ) or _preprocessing_step("autogluon_feature_generator")
-                    _render_preprocessing_step_status(
-                        "AutoGluon feature generation",
-                        draft_autogluon_step,
-                        applied_preprocessing_plan,
-                    )
-                    autogluon_metrics = st.columns(3)
-                    with autogluon_metrics[0]:
-                        st.metric(
-                            _t("Categorical columns"),
-                            int(
-                                draft_autogluon_step["params"].get(
-                                    "categorical_feature_count", 0
+                                feature_plan_df = draft_base_analysis_df[
+                                    feature_source_columns + [primary_target]
+                                ].copy()
+                                draft_feature_plan = artifact_to_dict(
+                                    _get_feature_engineering_plan(
+                                        df=feature_plan_df,
+                                        target=primary_target,
+                                        settings=settings,
+                                        user_brief=planner_brief,
+                                    )
                                 )
-                            ),
-                        )
-                    with autogluon_metrics[1]:
-                        st.metric(
-                            _t("Numeric columns"),
-                            int(
-                                draft_autogluon_step["params"].get(
-                                    "numeric_feature_count", 0
-                                )
-                            ),
-                        )
-                    with autogluon_metrics[2]:
-                        st.metric(
-                            _t("Enabled generators"),
-                            len(_autogluon_enabled_feature_names(autogluon_feature_generator_params)),
-                        )
-                    if st.button(_t("Apply AutoGluon feature generation")):
-                        _update_applied_preprocessing_step(draft_autogluon_step)
-                        st.rerun()
-
-                feature_plan = _preprocessing_feature_plan(applied_preprocessing_plan)
-                with st.container(border=True):
-                    st.write(_t("Step 3.5: Feature engineering"))
-                    apply_feature_engineering = st.checkbox(
-                        _t("Apply local whitelist feature engineering"),
-                        key="apply_feature_engineering",
-                        help=_t(
-                            "LLM can propose a structured plan, but only local whitelisted transformations are executed inside the training pipeline."
-                        ),
-                    )
-                    draft_feature_plan = None
-                    if apply_feature_engineering:
-                        feature_plan_override = st.session_state.get(
-                            "_feature_engineering_override_plan"
-                        )
-                        if isinstance(feature_plan_override, dict) and feature_plan_override.get(
-                            "operations"
-                        ):
-                            draft_feature_plan = feature_plan_override
-                        else:
-                            feature_source_columns = [
-                                column
-                                for column in draft_base_analysis_df.columns
-                                if column not in target_columns
-                            ]
-                            feature_plan_df = draft_base_analysis_df[
-                                feature_source_columns + [primary_target]
-                            ].copy()
-                            draft_feature_plan = artifact_to_dict(
-                                _get_feature_engineering_plan(
-                                    df=feature_plan_df,
-                                    target=primary_target,
-                                    settings=settings,
-                                    user_brief=planner_brief,
-                                )
-                            )
-                    draft_feature_step = _preprocessing_step(
-                        "feature_engineering",
-                        enabled=bool(
-                            draft_feature_plan
-                            and _feature_plan_operations(draft_feature_plan)
-                        ),
-                        params={
-                            "planner_name": str(
-                                (draft_feature_plan or {}).get("planner_name")
-                                or "local_whitelist"
-                            ),
-                            "operations": _feature_plan_operations(draft_feature_plan)
-                            if draft_feature_plan
-                            else [],
-                            "rejected_operations": list(
-                                (draft_feature_plan or {}).get("rejected_operations", [])
-                            ),
-                            "notes": list((draft_feature_plan or {}).get("notes", [])),
-                        },
-                        summary=(
-                            "Feature engineering is disabled."
-                            if not draft_feature_plan
-                            or not _feature_plan_operations(draft_feature_plan)
-                            else f"Feature engineering operations: {len(_feature_plan_operations(draft_feature_plan))}."
-                        ),
-                    )
-                    _render_preprocessing_step_status(
-                        "Feature engineering",
-                        draft_feature_step,
-                        applied_preprocessing_plan,
-                    )
-                    if draft_feature_plan:
-                        with st.expander(_t("Feature engineering plan"), expanded=True):
-                            _render_feature_engineering_plan(draft_feature_plan)
-                    else:
-                        st.caption(_t("Feature engineering is currently disabled."))
-                    feature_cols = st.columns(2)
-                    with feature_cols[0]:
-                        if st.button(_t("Apply feature engineering step")):
-                            st.session_state["_feature_engineering_applied_plan"] = (
+                        draft_feature_step = _preprocessing_step(
+                            "feature_engineering",
+                            enabled=bool(
                                 draft_feature_plan
-                            )
-                            _update_applied_preprocessing_step(draft_feature_step)
-                            st.rerun()
-                    with feature_cols[1]:
-                        if feature_plan:
-                            st.caption(
-                                _t(
-                                    "Applied feature engineering remains active until you apply a different draft."
+                                and _feature_plan_operations(draft_feature_plan)
+                            ),
+                            params={
+                                "planner_name": str(
+                                    (draft_feature_plan or {}).get("planner_name")
+                                    or "local_whitelist"
+                                ),
+                                "operations": _feature_plan_operations(draft_feature_plan)
+                                if draft_feature_plan
+                                else [],
+                                "rejected_operations": list(
+                                    (draft_feature_plan or {}).get("rejected_operations", [])
+                                ),
+                                "notes": list((draft_feature_plan or {}).get("notes", [])),
+                            },
+                            summary=(
+                                "Feature engineering is disabled."
+                                if not draft_feature_plan
+                                or not _feature_plan_operations(draft_feature_plan)
+                                else f"Feature engineering operations: {len(_feature_plan_operations(draft_feature_plan))}."
+                            ),
+                        )
+                        _render_preprocessing_step_status(
+                            "Feature engineering",
+                            draft_feature_step,
+                            applied_preprocessing_plan,
+                        )
+                        if draft_feature_plan:
+                            with st.expander(_t("Feature engineering plan"), expanded=True):
+                                _render_feature_engineering_plan(draft_feature_plan)
+                        else:
+                            st.caption(_t("Feature engineering is currently disabled."))
+                        feature_cols = st.columns(2)
+                        with feature_cols[0]:
+                            if st.button(_t("Apply feature engineering step")):
+                                st.session_state["_feature_engineering_applied_plan"] = (
+                                    draft_feature_plan
                                 )
-                            )
+                                _update_applied_preprocessing_step(draft_feature_step)
+                                st.rerun()
+                        with feature_cols[1]:
+                            if feature_plan:
+                                st.caption(
+                                    _t(
+                                        "Applied feature engineering remains active until you apply a different draft."
+                                    )
+                                )
 
-    draft_preprocessing_plan = _build_preprocessing_plan(
-        base_analysis_df=draft_base_analysis_df,
-        target_columns=target_columns,
-        excluded_columns=[],
-        test_size=float(test_size),
-        random_state=int(random_state),
-        high_missing_threshold=float(high_missing_threshold),
-        numeric_imputation_strategy=numeric_imputation_strategy,
-        categorical_imputation_strategy=categorical_imputation_strategy,
-        categorical_encoding_strategy=categorical_encoding_strategy,
-        standardize_numeric=bool(standardize_numeric),
-        autogluon_feature_generator_params=autogluon_feature_generator_params,
-        manual_cleaning_plan=preview_plan_data
-        if preview_plan_data is not None
-        else st.session_state.get("_manual_cleaning_plan"),
-        feature_plan=draft_feature_plan,
-    )
-    draft_preprocessing_plan = _upsert_preprocessing_step(
-        draft_preprocessing_plan, draft_column_step
-    )
-    draft_preprocessing_plan = _upsert_preprocessing_step(
-        draft_preprocessing_plan, draft_autogluon_step
-    )
-    st.session_state["_preprocessing_plan_draft"] = draft_preprocessing_plan
+        draft_preprocessing_plan = _build_preprocessing_plan(
+            base_analysis_df=draft_base_analysis_df,
+            target_columns=target_columns,
+            excluded_columns=[],
+            test_size=float(test_size),
+            random_state=int(random_state),
+            high_missing_threshold=float(high_missing_threshold),
+            numeric_imputation_strategy=numeric_imputation_strategy,
+            categorical_imputation_strategy=categorical_imputation_strategy,
+            categorical_encoding_strategy=categorical_encoding_strategy,
+            standardize_numeric=bool(standardize_numeric),
+            autogluon_feature_generator_params=autogluon_feature_generator_params,
+            manual_cleaning_plan=preview_plan_data
+            if preview_plan_data is not None
+            else st.session_state.get("_manual_cleaning_plan"),
+            feature_plan=draft_feature_plan,
+        )
+        draft_preprocessing_plan = _upsert_preprocessing_step(
+            draft_preprocessing_plan, draft_column_step
+        )
+        draft_preprocessing_plan = _upsert_preprocessing_step(
+            draft_preprocessing_plan, draft_autogluon_step
+        )
+        st.session_state["_preprocessing_plan_draft"] = draft_preprocessing_plan
     applied_preprocessing_plan = (
         st.session_state.get("_preprocessing_plan_applied")
         or applied_preprocessing_plan
@@ -4689,46 +4951,186 @@ def main() -> None:
         for target, validation in preflight_by_target.items()
         if not validation.ok_to_run
     ]
+    st.session_state["_beamer_failing_targets"] = list(failing_targets)
     if active_step == "check":
-        if failing_targets:
-            _render_step_status(
-                _t("The app found blocking issues in the current setup."),
-                _t(
-                    "Fix the checks for: {failing_targets} before starting training.",
-                    failing_targets=", ".join(failing_targets),
+        preprocess_frame_idx = _preprocess_frame_index()
+        if preprocess_frame_idx in {0, 3}:
+            if failing_targets:
+                _render_step_status(
+                    _t("The app found blocking issues in the current setup."),
+                    _t(
+                        "Fix the checks for: {failing_targets} before starting training.",
+                        failing_targets=", ".join(failing_targets),
+                    ),
+                    level="warning",
+                )
+            else:
+                _render_step_status(
+                    _t("The dataset and target selection passed the current checks."),
+                    _t("Continue through preprocessing frames, then prepare training."),
+                    level="success",
+                )
+
+        if preprocess_frame_idx == 0:
+            st.markdown(
+                '<div class="beamer-preprocess-frame-note">'
+                + _html_escape(_t("Field health is separated from preprocessing controls. Use this frame to inspect schema, missingness, ID-like columns, and leakage warnings."))
+                + '</div>',
+                unsafe_allow_html=True,
+            )
+            _render_field_health_table(
+                analysis_df,
+                target_columns=target_columns,
+                preflight_by_target=preflight_by_target,
+                high_missing_threshold=float(
+                    applied_missing_params.get("high_missing_threshold", 0.9)
                 ),
-                level="warning",
             )
+
+        elif preprocess_frame_idx == 1:
+            st.markdown(
+                '<div class="beamer-preprocess-frame-note">'
+                + _html_escape(_t("This frame contains preprocessing controls only. Field health, EDA profile, and preflight validation are intentionally separated into different frames."))
+                + '</div>',
+                unsafe_allow_html=True,
+            )
+
+        elif preprocess_frame_idx == 2:
+            st.markdown(
+                '<div class="beamer-preprocess-frame-note">'
+                + _html_escape(_t("This frame contains data preview and EDA diagnostics. It does not contain preprocessing controls or final preflight checks."))
+                + '</div>',
+                unsafe_allow_html=True,
+            )
+            with st.container(border=True):
+                st.write(_t("Data preview"))
+                _section_caption(
+                    _t("First 50 rows are shown for a quick sanity check before training.")
+                )
+                if (
+                    manual_cleaning_plan is not None
+                    and any(rule.enabled for rule in manual_cleaning_plan.rules)
+                    and manual_cleaning_plan.effect_stage == "pre_training"
+                ):
+                    st.info(
+                        _t(
+                            "Manual cleaning rules are set to apply only before training. The data preview and EDA below still show the pre-cleaning analysis subset."
+                        )
+                    )
+                st.dataframe(analysis_df.head(50), use_container_width=True)
+
+            with st.container(border=True):
+                st.write(_t("EDA summary"))
+                _section_caption(
+                    _t(
+                        "EDA means a quick health check for the dataset: shape, duplicates, missing values, correlations, and target behavior."
+                    )
+                )
+                metric_cols = st.columns(4)
+                with metric_cols[0]:
+                    st.metric(_t("Rows"), eda_summary["shape"]["rows"])
+                with metric_cols[1]:
+                    st.metric(_t("Columns"), eda_summary["shape"]["columns"])
+                with metric_cols[2]:
+                    st.metric(_t("Duplicate rows"), eda_summary["duplicate_rows"])
+                with metric_cols[3]:
+                    st.metric(
+                        _t("Rows with missing"),
+                        eda_summary["missingness"]["rows_with_any_missing"],
+                    )
+
+                st.write(_t("Column profile"))
+                st.dataframe(pd.DataFrame(eda_summary["columns"]).T, use_container_width=True)
+
+                if primary_target in analysis_df.columns and eda_summary.get("target"):
+                    label = (
+                        _t("Primary target profile")
+                        if len(target_columns) > 1
+                        else _t("Target profile")
+                    )
+                    st.write(label)
+                    _render_target_profile(eda_summary["target"])
+                if len(target_columns) > 1:
+                    st.write(_t("Target task types"))
+                    st.dataframe(
+                        pd.DataFrame(
+                            [
+                                {_t("Target"): target, _t("Task type"): _t(task_type)}
+                                for target, task_type in task_types.items()
+                            ]
+                        ),
+                        use_container_width=True,
+                    )
+
+                distribution_feature_columns = [
+                    column for column in analysis_df.columns if column not in target_columns
+                ]
+                eda_tabs = st.tabs(
+                    [
+                        _t("Missingness"),
+                        _t("Correlations"),
+                        _t("Target relationships"),
+                        _t("Distributions"),
+                        _t("Quality warnings"),
+                    ]
+                )
+                with eda_tabs[0]:
+                    top_missing = eda_summary["missingness"]["top_missing_columns"]
+                    if top_missing:
+                        st.dataframe(
+                            pd.DataFrame(
+                                [
+                                    {_t("Column"): column, _t("Missing rate"): rate}
+                                    for column, rate in top_missing.items()
+                                ]
+                            ),
+                            use_container_width=True,
+                        )
+                    correlated_missing = eda_summary["missingness"]["correlated_missing_pairs"]
+                    if correlated_missing:
+                        st.write(_t("Correlated missingness pairs"))
+                        st.dataframe(pd.DataFrame(correlated_missing), use_container_width=True)
+                with eda_tabs[1]:
+                    top_pairs = eda_summary["correlations"]["top_numeric_pairs"]
+                    target_corr = eda_summary["correlations"]["target_numeric_correlations"]
+                    if target_corr:
+                        st.write(_t("Numeric correlations with target"))
+                        st.dataframe(pd.DataFrame(target_corr), use_container_width=True)
+                    if top_pairs:
+                        st.write(_t("Strong numeric feature correlations"))
+                        st.dataframe(pd.DataFrame(top_pairs), use_container_width=True)
+                with eda_tabs[2]:
+                    _render_target_relationships(eda_summary.get("target_relationships", {}))
+                with eda_tabs[3]:
+                    _render_distribution_explorer(
+                        analysis_df,
+                        feature_columns=distribution_feature_columns,
+                        target_columns=target_columns,
+                        primary_target=primary_target,
+                    )
+                with eda_tabs[4]:
+                    for warning in eda_summary["quality_warnings"]:
+                        st.warning(warning)
+
         else:
-            _render_step_status(
-                _t("The dataset and target selection passed the current checks."),
-                _t("You can start training after this review, or adjust the setup first."),
-                level="success",
+            st.markdown(
+                '<div class="beamer-preprocess-frame-note">'
+                + _html_escape(_t("Preflight validation is the final gate before materializing train/test batches."))
+                + '</div>',
+                unsafe_allow_html=True,
             )
-        _render_field_health_table(
-            analysis_df,
-            target_columns=target_columns,
-            preflight_by_target=preflight_by_target,
-            high_missing_threshold=float(
-                applied_missing_params.get("high_missing_threshold", 0.9)
-            ),
-        )
-        if st.button(_t("Next: prepare training"), key="next_after_checks", disabled=bool(failing_targets)):
-            _set_active_step("prepare")
-            st.rerun()
-        with st.container(border=True):
-            st.write(_t("Preflight validation"))
-            _section_caption(
-                _t(
-                    "This check looks for blocking issues before training, such as missing target values or no usable feature columns."
+            with st.container(border=True):
+                st.write(_t("Preflight validation"))
+                _section_caption(
+                    _t(
+                        "This check looks for blocking issues before training, such as missing target values or no usable feature columns."
+                    )
                 )
-            )
-            st.caption(
-                _t(
-                    "These checks explain why training can continue or why it should pause. Blocking items stop the run; caution items let you continue but make the result less trustworthy."
+                st.caption(
+                    _t(
+                        "These checks explain why training can continue or why it should pause. Blocking items stop the run; caution items let you continue but make the result less trustworthy."
+                    )
                 )
-            )
-            with st.expander(_t("Preflight validation"), expanded=True):
                 for target in target_columns:
                     validation = artifact_to_dict(preflight_by_target[target])
                     st.write(f"{target} ({_t(task_types[target])})")
@@ -4751,120 +5153,15 @@ def main() -> None:
                         )
                     _render_issue_table(validation.get("issues", []))
 
-        with st.container(border=True):
-            st.write(_t("Data preview"))
-            _section_caption(
-                _t("First 50 rows are shown for a quick sanity check before training.")
-            )
-            if (
-                manual_cleaning_plan is not None
-                and any(rule.enabled for rule in manual_cleaning_plan.rules)
-                and manual_cleaning_plan.effect_stage == "pre_training"
-            ):
-                st.info(
-                    _t(
-                        "Manual cleaning rules are set to apply only before training. The data preview and EDA below still show the pre-cleaning analysis subset."
-                    )
-                )
-            st.dataframe(analysis_df.head(50), use_container_width=True)
+            if st.button(_t("Next: prepare training"), key="next_after_checks", disabled=bool(failing_targets)):
+                _set_active_step("prepare")
+                st.rerun()
 
-        with st.container(border=True):
-            st.write(_t("EDA summary"))
-            _section_caption(
-                _t(
-                    "EDA means a quick health check for the dataset: shape, duplicates, missing values, correlations, and target behavior."
-                )
-            )
-            metric_cols = st.columns(4)
-            with metric_cols[0]:
-                st.metric(_t("Rows"), eda_summary["shape"]["rows"])
-            with metric_cols[1]:
-                st.metric(_t("Columns"), eda_summary["shape"]["columns"])
-            with metric_cols[2]:
-                st.metric(_t("Duplicate rows"), eda_summary["duplicate_rows"])
-            with metric_cols[3]:
-                st.metric(
-                    _t("Rows with missing"),
-                    eda_summary["missingness"]["rows_with_any_missing"],
-                )
-
-            st.write(_t("Column profile"))
-            st.dataframe(pd.DataFrame(eda_summary["columns"]).T, use_container_width=True)
-
-            if primary_target in analysis_df.columns and eda_summary.get("target"):
-                label = (
-                    _t("Primary target profile")
-                    if len(target_columns) > 1
-                    else _t("Target profile")
-                )
-                st.write(label)
-                _render_target_profile(eda_summary["target"])
-            if len(target_columns) > 1:
-                st.write(_t("Target task types"))
-                st.dataframe(
-                    pd.DataFrame(
-                        [
-                            {_t("Target"): target, _t("Task type"): _t(task_type)}
-                            for target, task_type in task_types.items()
-                        ]
-                    ),
-                    use_container_width=True,
-                )
-
-            distribution_feature_columns = [
-                column for column in analysis_df.columns if column not in target_columns
-            ]
-            eda_tabs = st.tabs(
-                [
-                    _t("Missingness"),
-                    _t("Correlations"),
-                    _t("Target relationships"),
-                    _t("Distributions"),
-                    _t("Quality warnings"),
-                ]
-            )
-            with eda_tabs[0]:
-                top_missing = eda_summary["missingness"]["top_missing_columns"]
-                if top_missing:
-                    st.dataframe(
-                        pd.DataFrame(
-                            [
-                                {_t("Column"): column, _t("Missing rate"): rate}
-                                for column, rate in top_missing.items()
-                            ]
-                        ),
-                        use_container_width=True,
-                    )
-                correlated_missing = eda_summary["missingness"]["correlated_missing_pairs"]
-                if correlated_missing:
-                    st.write(_t("Correlated missingness pairs"))
-                    st.dataframe(pd.DataFrame(correlated_missing), use_container_width=True)
-            with eda_tabs[1]:
-                top_pairs = eda_summary["correlations"]["top_numeric_pairs"]
-                target_corr = eda_summary["correlations"]["target_numeric_correlations"]
-                if target_corr:
-                    st.write(_t("Numeric correlations with target"))
-                    st.dataframe(pd.DataFrame(target_corr), use_container_width=True)
-                if top_pairs:
-                    st.write(_t("Strong numeric feature correlations"))
-                    st.dataframe(pd.DataFrame(top_pairs), use_container_width=True)
-            with eda_tabs[2]:
-                _render_target_relationships(eda_summary.get("target_relationships", {}))
-            with eda_tabs[3]:
-                _render_distribution_explorer(
-                    analysis_df,
-                    feature_columns=distribution_feature_columns,
-                    target_columns=target_columns,
-                    primary_target=primary_target,
-                )
-            with eda_tabs[4]:
-                for warning in eda_summary["quality_warnings"]:
-                    st.warning(warning)
-
-        if _wizard_step_index(_active_step()) <= _wizard_step_index("check"):
-            return
+        _render_bottom_workflow_nav()
+        return
 
     elif _wizard_step_index(active_step) <= _wizard_step_index("check"):
+        _render_bottom_workflow_nav()
         return
 
     prepared_batches: list[dict[str, object]] = []
@@ -4936,6 +5233,7 @@ def main() -> None:
                 )
             except ValueError as exc:
                 st.error(str(exc))
+                _render_bottom_workflow_nav()
                 return
 
             prepared_ready = True
@@ -4976,6 +5274,7 @@ def main() -> None:
                 st.rerun()
 
     if _wizard_step_index(_active_step()) <= _wizard_step_index("prepare"):
+        _render_bottom_workflow_nav()
         return
 
     _render_slide_title("train", "Model Training", "Run AutoML training and write reproducible artifacts to storage.")
@@ -5032,6 +5331,11 @@ def main() -> None:
                     "Preparing data and training models with the applied preprocessing settings..."
                 )
             )
+            st.markdown('<div class="beamer-training-progress">', unsafe_allow_html=True)
+            training_progress = st.progress(0)
+            training_status = st.empty()
+            training_status.info(spinner_text)
+            st.markdown('</div>', unsafe_allow_html=True)
             with st.spinner(spinner_text):
                 if failing_targets:
                     logger.error(
@@ -5043,9 +5347,12 @@ def main() -> None:
                             failing_targets=", ".join(failing_targets),
                         )
                     )
+                    _render_bottom_workflow_nav()
                     return
 
                 if not prepared_ready:
+                    training_progress.progress(8)
+                    training_status.info(_t("Preparing train/test batches with the applied preprocessing plan..."))
                     try:
                         prepared_batches = _materialize_prepared_batches(
                             current_experiment_signature=current_experiment_signature,
@@ -5066,12 +5373,16 @@ def main() -> None:
                     except ValueError as exc:
                         logger.error("Automatic data preparation failed: %s", exc)
                         st.error(str(exc))
+                        _render_bottom_workflow_nav()
                         return
                     prepared_ready = True
+                    training_progress.progress(18)
+                    training_status.info(_t("Prepared data batches. Starting AutoML fitting..."))
 
                 if not prepared_batches:
                     logger.error("Training requested without prepared batches")
                     st.error(_t("Prepare data before training."))
+                    _render_bottom_workflow_nav()
                     return
 
                 logger.info(
@@ -5079,8 +5390,19 @@ def main() -> None:
                     target_columns,
                     task_types,
                 )
-                for batch in prepared_batches:
+                total_batches = max(len(prepared_batches), 1)
+                for batch_index, batch in enumerate(prepared_batches):
                     target = str(batch["target"])
+                    batch_base_progress = 20 + int(60 * batch_index / total_batches)
+                    training_progress.progress(min(batch_base_progress, 90))
+                    training_status.info(
+                        _t(
+                            "Training target {current}/{total}: {target}",
+                            current=batch_index + 1,
+                            total=total_batches,
+                            target=target,
+                        )
+                    )
                     task_type = str(batch["task_type"])
                     priority_metric = str(batch["priority_metric"])
                     preflight_validation = batch["preflight_validation"]
@@ -5127,6 +5449,15 @@ def main() -> None:
                         tracker=tracker,
                         output_path=run.path / "autogluon_predictor",
                         presets=AUTOGLUON_DEFAULT_PRESETS,
+                    )
+                    training_progress.progress(min(batch_base_progress + int(35 / total_batches), 94))
+                    training_status.info(
+                        _t(
+                            "Evaluating target {current}/{total}: {target}",
+                            current=batch_index + 1,
+                            total=total_batches,
+                            target=target,
+                        )
                     )
                     metrics, prediction_sample = evaluate_model(
                         trained.model, cleaned, task_type=task_type, tracker=tracker
@@ -5194,6 +5525,15 @@ def main() -> None:
                             recommendations=recommendations,
                         )
 
+                    training_progress.progress(min(batch_base_progress + int(50 / total_batches), 96))
+                    training_status.info(
+                        _t(
+                            "Saving artifacts for target {current}/{total}: {target}",
+                            current=batch_index + 1,
+                            total=total_batches,
+                            target=target,
+                        )
+                    )
                     storage.save_json(
                         run, "plan.json", artifact_to_dict(plan_suggestion)
                     )
@@ -5286,6 +5626,8 @@ def main() -> None:
                         }
                     )
 
+            training_progress.progress(100)
+            training_status.success(_t("Training complete. Results and artifacts are ready."))
             st.session_state["_latest_results_signature"] = current_experiment_signature
             st.session_state["_latest_results"] = list(results)
             _set_active_step("results")
@@ -5298,6 +5640,7 @@ def main() -> None:
 
     if results:
         _render_run_outputs(results)
+    _render_bottom_workflow_nav()
 
 
 if __name__ == "__main__":

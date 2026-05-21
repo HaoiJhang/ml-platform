@@ -129,33 +129,6 @@ WIZARD_STEP_LABELS = {
     "results": "Review results",
 }
 
-BEAMER_NAV_SECTIONS = {
-    "Dataset": ("upload",),
-    "Task": ("target",),
-    "Check": ("check",),
-    "Prepare": ("prepare",),
-    "Training": ("train",),
-    "Results": ("results",),
-}
-
-SLIDE_TITLES = {
-    "upload": "Dataset Upload",
-    "target": "Task Definition",
-    "check": "Data Check",
-    "prepare": "Training Preparation",
-    "train": "Model Training",
-    "results": "Evaluation & Export",
-}
-
-SLIDE_SUBTITLES = {
-    "upload": "Load a dataset and unlock schema inspection.",
-    "target": "Choose the outcome, task type, metric, and first-run budget.",
-    "check": "Inspect field health, leakage risk, missingness, and validation notes.",
-    "prepare": "Materialize the applied preprocessing plan before model fitting.",
-    "train": "Run AutoML training and collect artifacts in a reproducible run folder.",
-    "results": "Compare metrics, inspect validation notes, and download artifacts.",
-}
-
 
 def _ui_language() -> str:
     return str(st.session_state.get("ui_language", DEFAULT_UI_LANGUAGE))
@@ -420,39 +393,6 @@ def _json_equal(left: Any, right: Any) -> bool:
     return json.dumps(
         artifact_to_dict(left), sort_keys=True, ensure_ascii=True
     ) == json.dumps(artifact_to_dict(right), sort_keys=True, ensure_ascii=True)
-
-
-def _html_escape(value: object) -> str:
-    return (
-        str(value)
-        .replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-        .replace('"', "&quot;")
-        .replace("'", "&#x27;")
-    )
-
-
-def _render_slide_title(step: str, title: str | None = None, subtitle: str | None = None) -> None:
-    resolved_title = _t(title or SLIDE_TITLES.get(step, WIZARD_STEP_LABELS.get(step, step)))
-    resolved_subtitle = _t(subtitle or SLIDE_SUBTITLES.get(step, ""))
-    subtitle_html = ""
-    if resolved_subtitle:
-        subtitle_html = '<div class="beamer-slide-subtitle">' + _html_escape(resolved_subtitle) + '</div>'
-    st.markdown(
-        '<section class="beamer-slide-titlebar">'
-        + '<div class="beamer-slide-title">' + _html_escape(resolved_title) + '</div>'
-        + subtitle_html
-        + '</section>',
-        unsafe_allow_html=True,
-    )
-
-
-def _render_explanation_strip(text: str) -> None:
-    st.markdown(
-        '<div class="beamer-explanation-strip">' + _html_escape(_t(text)) + '</div>',
-        unsafe_allow_html=True,
-    )
 
 
 def _load_hero_background() -> str:
@@ -899,287 +839,51 @@ def _apply_design_system() -> None:
     )
 
 
-
-def _apply_beamer_design() -> None:
-    """Minimal beamer-like layer on top of the existing Streamlit app."""
-    st.markdown(
-        """
-        <style>
-            @import url("https://fonts.googleapis.com/css2?family=Exo+2:wght@400;500;600;700&display=swap");
-
-            :root {
-                --beamer-bg: #FAFAF8;
-                --beamer-paper: #FFFFFF;
-                --beamer-titlebar: #E9E3DC;
-                --beamer-blue: #1F4EAA;
-                --beamer-ink: #222222;
-                --beamer-muted: #78829A;
-                --beamer-faint: #B8C0D4;
-                --beamer-line: #D8D3CC;
-                --beamer-burgundy: #7A0019;
-            }
-
-            html, body, .stApp,
-            button, input, textarea, select,
-            [data-baseweb="select"] > div {
-                font-family: "Exo 2", "Helvetica Neue", Helvetica, Arial, sans-serif !important;
-            }
-
-            .stApp {
-                color: var(--beamer-ink);
-                background: var(--beamer-bg) !important;
-            }
-
-            .stApp::before {
-                background-image: radial-gradient(rgba(31, 78, 170, 0.11) 1px, transparent 1px) !important;
-                background-size: 22px 22px !important;
-                opacity: 0.32 !important;
-                mask-image: linear-gradient(to bottom, black, transparent 82%) !important;
-            }
-
-            .block-container {
-                max-width: 1120px !important;
-                padding-top: 1.1rem !important;
-                padding-bottom: 3rem !important;
-            }
-
-            [data-testid="stHeader"],
-            [data-testid="stToolbar"],
-            [data-testid="stDecoration"],
-            [data-testid="stStatusWidget"],
-            .stDeployButton,
-            footer {
-                display: none !important;
-                visibility: hidden !important;
-            }
-
-            h1, h2, h3 {
-                border: 0 !important;
-                padding-top: 0 !important;
-                margin-top: 0 !important;
-                color: var(--beamer-ink) !important;
-            }
-
-            .beamer-app-headline {
-                display: flex;
-                justify-content: space-between;
-                align-items: flex-end;
-                gap: 1rem;
-                margin: 0 0 0.5rem;
-                padding: 0.15rem 0 0.45rem;
-            }
-
-            .beamer-app-title {
-                color: var(--beamer-blue);
-                font-size: 1.4rem;
-                font-weight: 700;
-                letter-spacing: 0.01em;
-            }
-
-            .beamer-app-subtitle {
-                color: var(--beamer-muted);
-                font-size: 0.78rem;
-                margin-top: 0.15rem;
-            }
-
-            .beamer-nav {
-                width: 100%;
-                min-height: 44px;
-                display: grid;
-                grid-template-columns: repeat(6, 1fr);
-                align-items: center;
-                border: 2px solid #111111;
-                background: var(--beamer-paper);
-                margin: 0.25rem 0 0;
-                box-shadow: none;
-            }
-
-            .beamer-nav-section {
-                padding: 5px 15px 4px;
-                min-width: 0;
-            }
-
-            .beamer-nav-title {
-                color: #9DA7BF;
-                font-size: 0.72rem;
-                line-height: 1.05;
-                white-space: nowrap;
-                overflow: hidden;
-                text-overflow: ellipsis;
-                margin-bottom: 3px;
-            }
-
-            .beamer-nav-title.active {
-                color: var(--beamer-blue);
-                font-weight: 700;
-            }
-
-            .beamer-dots {
-                display: flex;
-                align-items: center;
-                gap: 4px;
-                height: 8px;
-            }
-
-            .beamer-dot {
-                width: 6px;
-                height: 6px;
-                border-radius: 999px;
-                border: 1px solid #A9B3CA;
-                background: transparent;
-                box-sizing: border-box;
-            }
-
-            .beamer-dot.done {
-                background: #A9B3CA;
-            }
-
-            .beamer-dot.current {
-                border-color: var(--beamer-blue);
-                background: var(--beamer-blue);
-            }
-
-            .beamer-slide-titlebar {
-                background: var(--beamer-titlebar);
-                border-left: 6px solid var(--beamer-blue);
-                padding: 0.82rem 1.05rem 0.78rem;
-                margin: 0 0 2rem;
-            }
-
-            .beamer-slide-title {
-                color: var(--beamer-blue);
-                font-size: clamp(1.45rem, 2.5vw, 2.05rem);
-                line-height: 1.12;
-                font-weight: 700;
-            }
-
-            .beamer-slide-subtitle {
-                color: var(--beamer-muted);
-                font-size: 0.86rem;
-                margin-top: 0.25rem;
-            }
-
-            .beamer-help-strip,
-            .beamer-explanation-strip {
-                margin: 0.85rem 0 1.15rem;
-                border-left: 5px solid var(--beamer-burgundy);
-                background: #F0EEEA;
-                padding: 0.8rem 1rem;
-                color: #333333;
-                font-size: 0.88rem;
-                line-height: 1.55;
-            }
-
-            .beamer-jump-caption {
-                color: var(--beamer-muted);
-                font-size: 0.74rem;
-                margin: 0.45rem 0 0.35rem;
-            }
-
-            [data-testid="stMetric"],
-            [data-testid="stDataFrame"],
-            [data-testid="stJson"],
-            [data-testid="stExpander"],
-            [data-testid="stFileUploader"] section,
-            div[data-testid="stVerticalBlockBorderWrapper"] {
-                border: 1px solid var(--beamer-line) !important;
-                background: var(--beamer-paper) !important;
-                border-radius: 4px !important;
-                box-shadow: none !important;
-            }
-
-            [data-testid="stMetricValue"] {
-                color: var(--beamer-blue) !important;
-                font-weight: 700 !important;
-            }
-
-            [data-testid="stMetricLabel"],
-            [data-testid="stCaptionContainer"],
-            p, li, label, .stMarkdown {
-                color: var(--beamer-muted);
-            }
-
-            button[kind="primary"],
-            .stDownloadButton button {
-                background: var(--beamer-blue) !important;
-                border-color: var(--beamer-blue) !important;
-                color: #FFFFFF !important;
-                border-radius: 3px !important;
-                box-shadow: none !important;
-                transform: none !important;
-            }
-
-            button[kind="secondary"] {
-                color: var(--beamer-blue) !important;
-                background: #FFFFFF !important;
-                border: 1px solid #D4D9E8 !important;
-                border-radius: 3px !important;
-                box-shadow: none !important;
-            }
-
-            button[kind="primary"] *,
-            .stDownloadButton button * {
-                color: #FFFFFF !important;
-            }
-
-            input, textarea, [data-baseweb="select"] > div {
-                border-radius: 3px !important;
-                border-color: #CCD2E0 !important;
-                background: #FFFFFF !important;
-            }
-
-            .stTabs [data-baseweb="tab-list"] {
-                border-bottom: 1px solid var(--beamer-line) !important;
-                gap: 0.25rem !important;
-            }
-
-            .stTabs [data-baseweb="tab"] {
-                border-radius: 3px 3px 0 0 !important;
-                box-shadow: none !important;
-            }
-
-            .lab-empty {
-                border-radius: 4px !important;
-                border-color: var(--beamer-line) !important;
-                background: #FFFFFF !important;
-            }
-
-            @media (max-width: 860px) {
-                .beamer-nav {
-                    grid-template-columns: repeat(3, 1fr);
-                }
-                .beamer-app-headline {
-                    align-items: flex-start;
-                    flex-direction: column;
-                }
-            }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-
 def _render_hero() -> None:
     hero_description = _t(
-        "Upload a tabular dataset, inspect data quality, train a local baseline, and export reproducible artifacts."
+        "Upload a tabular dataset, inspect data quality, train a local baseline,\n                and export the artifacts from one compact experiment surface."
     )
+    hero_pills = [
+        _t("Upload data"),
+        _t("Choose target"),
+        _t("Check data"),
+        _t("Review results"),
+    ]
     st.markdown(
-        '<section class="beamer-app-headline">'
-        + '<div><div class="beamer-app-title">ML Platform</div>'
-        + '<div class="beamer-app-subtitle">' + _html_escape(hero_description) + '</div></div>'
-        + '<div class="beamer-app-subtitle">AutoML · Streamlit · Minimal workflow</div>'
-        + '</section>',
+        """
+        <section class="lab-hero">
+            <h1>ML Platform</h1>
+            <p>
+                __HERO_DESCRIPTION__
+            </p>
+            <div class="lab-rail">
+                <span class="lab-pill">__PILL_1__</span>
+                <span class="lab-pill">__PILL_2__</span>
+                <span class="lab-pill">__PILL_3__</span>
+                <span class="lab-pill">__PILL_4__</span>
+            </div>
+        </section>
+        """.replace("__HERO_DESCRIPTION__", hero_description)
+        .replace("__PILL_1__", hero_pills[0])
+        .replace("__PILL_2__", hero_pills[1])
+        .replace("__PILL_3__", hero_pills[2])
+        .replace("__PILL_4__", hero_pills[3]),
         unsafe_allow_html=True,
     )
 
 
 def _render_help_center() -> None:
-    st.markdown(
-        '<div class="beamer-help-strip">'
-        + _html_escape(_t("This interface is organized as a beamer-style guided run: one section, one task, one compact explanation. Advanced settings stay folded until needed."))
-        + '</div>',
-        unsafe_allow_html=True,
+    st.subheader(_t("Quick start"))
+    _section_caption(
+        _t(
+            "This page is organized as a guided first run. Advanced settings stay out of the way until you need them."
+        )
     )
-
+    st.info(
+        _t(
+            "Upload a dataset, choose the column to predict, review the checks, then run training. Optional AI help and advanced adjustments can stay closed for a first pass."
+        )
+    )
 
 
 def _section_caption(text: str) -> None:
@@ -1225,7 +929,6 @@ def _render_wizard_nav(
     training_finished: bool,
 ) -> None:
     active_step = _active_step()
-    active_step_index = _wizard_step_index(active_step)
     unlocked = {
         "upload": True,
         "target": dataset_loaded,
@@ -1242,30 +945,7 @@ def _render_wizard_nav(
         "train": training_finished,
         "results": training_finished,
     }
-
-    html = ['<nav class="beamer-nav" aria-label="AutoML workflow navigation">']
-    for section_name, section_steps in BEAMER_NAV_SECTIONS.items():
-        section_active = active_step in section_steps
-        title_class = "beamer-nav-title active" if section_active else "beamer-nav-title"
-        html.append('<div class="beamer-nav-section">')
-        html.append(f'<div class="{title_class}">{_html_escape(_t(section_name))}</div>')
-        html.append('<div class="beamer-dots">')
-        for step in section_steps:
-            if step == active_step:
-                dot_class = "beamer-dot current"
-            elif completed.get(step) or _wizard_step_index(step) < active_step_index:
-                dot_class = "beamer-dot done"
-            else:
-                dot_class = "beamer-dot"
-            html.append(f'<span class="{dot_class}"></span>')
-        html.append('</div></div>')
-    html.append('</nav>')
-    st.markdown("".join(html), unsafe_allow_html=True)
-
-    st.markdown(
-        '<div class="beamer-jump-caption">' + _html_escape(_t("Section navigation")) + '</div>',
-        unsafe_allow_html=True,
-    )
+    st.caption(_t("Guided workflow"))
     cols = st.columns(len(WIZARD_STEPS))
     for index, step in enumerate(WIZARD_STEPS):
         label = _t(WIZARD_STEP_LABELS[step])
@@ -1280,7 +960,6 @@ def _render_wizard_nav(
             ):
                 _set_active_step(step)
                 st.rerun()
-
 
 
 def _cache_current_dataset(df: pd.DataFrame, *, source_label: str) -> None:
@@ -1470,7 +1149,7 @@ def _initialize_experiment_state(dataset_signature: str, columns: list[str]) -> 
 
 
 def _render_run_outputs(results: list[dict[str, object]]) -> None:
-    _render_slide_title("results", "Evaluation & Export", "Training has finished. Start with validation notes, metrics, and downloadable artifacts.")
+    st.subheader(_t("6. Review results"))
     _section_caption(
         _t(
             "Training has finished. Start with the short summary below, then open details or download files."
@@ -3508,7 +3187,6 @@ def _materialize_prepared_batches(
 
 def main() -> None:
     _apply_design_system()
-    _apply_beamer_design()
     _render_language_switcher()
     _render_hero()
     _render_help_center()
@@ -3536,7 +3214,7 @@ def main() -> None:
 
     df = _cached_current_dataset()
     if active_step == "upload" or df is None:
-        _render_slide_title("upload", "Dataset Upload", "Start with one CSV file or a demo dataset.")
+        st.subheader(_t("1. Upload data"))
         with st.container(border=True):
             _section_caption(
                 _t(
@@ -3638,7 +3316,7 @@ def main() -> None:
     target_columns = [column for column in stored_targets if column in columns]
 
     if active_step == "target":
-        _render_slide_title("target", "Task Definition", "Choose target variables, task type, metric, and first-run budget.")
+        st.subheader(_t("2. Choose what to predict"))
         with st.container(border=True):
             _section_caption(
                 _t(
@@ -4000,7 +3678,7 @@ def main() -> None:
             draft_autogluon_plan, "autogluon_feature_generator"
         ) or _preprocessing_step("autogluon_feature_generator")
     else:
-        _render_slide_title("check", "Data Check", "Review field health, leakage warnings, and preprocessing choices.")
+        st.subheader(_t("3. Configure preprocessing"))
         with st.container(border=True):
             _section_caption(
                 _t(
@@ -4875,7 +4553,7 @@ def main() -> None:
     if prepared_ready:
         prepared_batches = list(st.session_state.get("_latest_prepared_batches", []))
 
-    _render_slide_title("prepare", "Training Preparation", "Apply the current preprocessing plan and materialize train/test batches.")
+    st.subheader(_t("4. Prepare data"))
     with st.container(border=True):
         _section_caption(
             _t(
@@ -4978,7 +4656,7 @@ def main() -> None:
     if _wizard_step_index(_active_step()) <= _wizard_step_index("prepare"):
         return
 
-    _render_slide_title("train", "Model Training", "Run AutoML training and write reproducible artifacts to storage.")
+    st.subheader(_t("5. Start training"))
     results: list[dict[str, object]] = []
     if (
         st.session_state.get("_latest_results_signature")
