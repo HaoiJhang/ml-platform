@@ -1249,6 +1249,10 @@ def _apply_beamer_design() -> None:
                 background: var(--beamer-rainbow-strip);
                 background-size: cover;
                 background-position: center 46%;
+                min-height: 104px;
+                padding: 0;
+                border-left: 0;
+                border-radius: 6px;
             }
 
             .beamer-frame-note-info {
@@ -1526,9 +1530,7 @@ def _render_hero() -> None:
 
 def _render_help_center() -> None:
     st.markdown(
-        '<div class="beamer-help-strip">'
-        + _html_escape(_t("This interface is organized as a beamer-style guided run: one section, one task, one compact explanation. Advanced settings stay folded until needed."))
-        + '</div>',
+        '<div class="beamer-help-strip" aria-hidden="true"></div>',
         unsafe_allow_html=True,
     )
 

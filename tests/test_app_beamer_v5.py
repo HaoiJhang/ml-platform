@@ -205,7 +205,7 @@ def test_beamer_v5_zh_top_level_copy_is_localized(monkeypatch, tmp_path) -> None
     assert app.selectbox(key="ui_language").label == "界面语言"
     assert "数据集上传" in text_blob
     assert "引导式 AutoML 工作流" in text_blob
-    assert "这个界面按 beamer 风格组织成引导式流程" in text_blob
+    assert any('class="beamer-help-strip"' in item.value for item in app.markdown)
     assert "Dataset Upload" not in text_blob
     assert "Guided AutoML workflow" not in text_blob
     assert "Interface language" not in text_blob
@@ -223,7 +223,7 @@ def test_beamer_v5_english_switches_top_level_copy(monkeypatch, tmp_path) -> Non
     assert app.selectbox(key="ui_language").label == "Interface language"
     assert "Dataset Upload" in text_blob
     assert "Guided AutoML workflow" in text_blob
-    assert "This interface is organized as a beamer-style guided run" in text_blob
+    assert any('class="beamer-help-strip"' in item.value for item in app.markdown)
     assert "数据集上传" not in text_blob
     assert "界面语言" not in text_blob
 
