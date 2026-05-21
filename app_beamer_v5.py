@@ -7,7 +7,7 @@ import logging
 import os
 from pathlib import Path
 import sys
-from typing import Any
+from typing import Any, Callable
 from urllib.parse import urlencode
 
 PROJECT_ROOT = Path(__file__).resolve().parent
@@ -147,16 +147,16 @@ BEAMER_SECTION_LABELS = {
 }
 
 BEAMER_NAV_SECTIONS = {
-    "dataset": ("Source", "Schema", "Profile"),
-    "task": ("Target", "Metric", "Budget"),
+    "dataset": ("Source",),
+    "task": ("Target",),
     "preprocess": (
         "Field health",
         "Preprocessing details",
         "EDA profile",
         "Preflight validation",
     ),
-    "training": ("Prepare batches", "Fit models", "Save artifacts"),
-    "results": ("Summary", "Metrics", "Validation", "Importance", "Downloads"),
+    "training": ("Prepare batches", "Fit models"),
+    "results": ("Summary", "Metrics", "Validation", "Feature importance", "Downloads"),
 }
 
 BEAMER_STEP_TO_SECTION_FRAME = {
@@ -169,10 +169,10 @@ BEAMER_STEP_TO_SECTION_FRAME = {
 }
 
 BEAMER_NAV_STEP_TARGETS = {
-    "dataset": ("upload", "upload", "upload"),
-    "task": ("target", "target", "target"),
+    "dataset": ("upload",),
+    "task": ("target",),
     "preprocess": ("check", "check", "check", "check"),
-    "training": ("prepare", "train", "train"),
+    "training": ("prepare", "train"),
     "results": ("results", "results", "results", "results", "results"),
 }
 
@@ -1576,7 +1576,7 @@ def _write_navigation_query_params(step: str, frame_index: int | None = None) ->
     current_step = _query_param_value("step")
     if current_step != step:
         st.query_params["step"] = step
-    if step == "check" and frame_index is not None:
+    if step in {"check", "results"} and frame_index is not None:
         frame_value = str(frame_index)
         if _query_param_value("frame") != frame_value:
             st.query_params["frame"] = frame_value
@@ -1595,12 +1595,19 @@ def _sync_navigation_state_from_query_params() -> None:
             except ValueError:
                 frame_index = 0
             st.session_state["preprocess_frame_idx"] = frame_index
+        elif query_step == "results":
+            query_frame = _query_param_value("frame")
+            try:
+                frame_index = int(query_frame) if query_frame is not None else 0
+            except ValueError:
+                frame_index = 0
+            st.session_state["result_frame_idx"] = frame_index
         else:
             st.session_state["preprocess_frame_idx"] = 0
         return
     _write_navigation_query_params(
         _active_step(),
-        _preprocess_frame_index() if _active_step() == "check" else None,
+        _frame_index_for_step(_active_step()),
     )
 
 
@@ -1613,10 +1620,9 @@ def _set_active_step(step: str) -> None:
         st.session_state["active_step"] = step
         if step != "check":
             st.session_state["preprocess_frame_idx"] = 0
-        _write_navigation_query_params(
-            step,
-            _preprocess_frame_index() if step == "check" else None,
-        )
+        if step != "results":
+            st.session_state["result_frame_idx"] = 0
+        _write_navigation_query_params(step, _frame_index_for_step(step))
 
 
 def _active_step() -> str:
@@ -1642,14 +1648,44 @@ def _set_preprocess_frame_index(frame_index: int) -> None:
         _write_navigation_query_params("check", resolved_index)
 
 
-def _render_preprocessing_roadmap() -> None:
-    """Render local controls for the separated preprocessing mini-frames."""
-    frames = list(BEAMER_NAV_SECTIONS["preprocess"])
-    current_idx = _preprocess_frame_index()
+def _result_frame_index() -> int:
+    """Current beamer mini-frame inside the results section."""
+    frame_count = len(BEAMER_NAV_SECTIONS["results"])
+    try:
+        frame_index = int(st.session_state.get("result_frame_idx", 0))
+    except (TypeError, ValueError):
+        frame_index = 0
+    return max(0, min(frame_index, frame_count - 1))
 
+
+def _set_result_frame_index(frame_index: int) -> None:
+    frame_count = len(BEAMER_NAV_SECTIONS["results"])
+    resolved_index = max(0, min(int(frame_index), frame_count - 1))
+    st.session_state["result_frame_idx"] = resolved_index
+    if _active_step() == "results":
+        _write_navigation_query_params("results", resolved_index)
+
+
+def _frame_index_for_step(step: str) -> int | None:
+    if step == "check":
+        return _preprocess_frame_index()
+    if step == "results":
+        return _result_frame_index()
+    return None
+
+
+def _render_frame_roadmap(
+    *,
+    section_name: str,
+    current_idx: int,
+    title: str,
+    button_key_prefix: str,
+    on_select: Callable[[int], None],
+) -> None:
+    frames = list(BEAMER_NAV_SECTIONS[section_name])
     st.markdown(
         '<div class="beamer-frame-selector-title">'
-        + _html_escape(_t("Preprocessing frames"))
+        + _html_escape(title)
         + '</div>',
         unsafe_allow_html=True,
     )
@@ -1660,22 +1696,22 @@ def _render_preprocessing_roadmap() -> None:
             button_type = "primary" if idx == current_idx else "secondary"
             if st.button(
                 _t(frame_name),
-                key=f"preprocess_frame_select_{idx}",
+                key=f"{button_key_prefix}_select_{idx}",
                 use_container_width=True,
                 type=button_type,
             ):
-                _set_preprocess_frame_index(idx)
+                on_select(idx)
                 st.rerun()
 
     nav_left, nav_mid, nav_right = st.columns([1, 3, 1])
     with nav_left:
         if st.button(
             _t("← Previous frame"),
-            key="preprocess_frame_prev",
+            key=f"{button_key_prefix}_prev",
             use_container_width=True,
             disabled=current_idx <= 0,
         ):
-            _set_preprocess_frame_index(current_idx - 1)
+            on_select(current_idx - 1)
             st.rerun()
     with nav_mid:
         st.markdown(
@@ -1694,12 +1730,33 @@ def _render_preprocessing_roadmap() -> None:
     with nav_right:
         if st.button(
             _t("Next frame →"),
-            key="preprocess_frame_next",
+            key=f"{button_key_prefix}_next",
             use_container_width=True,
             disabled=current_idx >= len(frames) - 1,
         ):
-            _set_preprocess_frame_index(current_idx + 1)
+            on_select(current_idx + 1)
             st.rerun()
+
+
+def _render_preprocessing_roadmap() -> None:
+    """Render local controls for the separated preprocessing mini-frames."""
+    _render_frame_roadmap(
+        section_name="preprocess",
+        current_idx=_preprocess_frame_index(),
+        title=_t("Preprocessing frames"),
+        button_key_prefix="preprocess_frame",
+        on_select=_set_preprocess_frame_index,
+    )
+
+
+def _render_results_roadmap() -> None:
+    _render_frame_roadmap(
+        section_name="results",
+        current_idx=_result_frame_index(),
+        title=_t("Result frames"),
+        button_key_prefix="result_frame",
+        on_select=_set_result_frame_index,
+    )
 
 
 def _nav_target_for(section_name: str, frame_index: int) -> tuple[str, int | None]:
@@ -1708,7 +1765,7 @@ def _nav_target_for(section_name: str, frame_index: int) -> tuple[str, int | Non
         return "upload", None
     safe_index = max(0, min(frame_index, len(steps) - 1))
     step = steps[safe_index]
-    if step == "check":
+    if step in {"check", "results"}:
         return step, safe_index
     return step, None
 
@@ -1735,6 +1792,8 @@ def _render_wizard_nav(
     )
     if active_step == "check":
         active_frame_index = _preprocess_frame_index()
+    elif active_step == "results":
+        active_frame_index = _result_frame_index()
     section_names = list(BEAMER_NAV_SECTIONS)
     active_section_index = section_names.index(active_section)
     completed_sections = {
@@ -2040,17 +2099,10 @@ def _render_run_outputs(results: list[dict[str, object]]) -> None:
         level="success",
     )
 
-    summary_tab, metrics_tab, validation_tab, importance_tab, downloads_tab = st.tabs(
-        [
-            _t("Summary"),
-            _t("Metrics"),
-            _t("Validation"),
-            _t("Feature importance"),
-            _t("Downloads"),
-        ]
-    )
+    _render_results_roadmap()
+    result_frame_idx = _result_frame_index()
 
-    with summary_tab:
+    if result_frame_idx == 0:
         _panel_title(_t("Run summary"))
         summary_cols = st.columns(3)
         with summary_cols[0]:
@@ -2085,7 +2137,7 @@ def _render_run_outputs(results: list[dict[str, object]]) -> None:
             "Summary is the first frame: it tells you which targets were trained and which metric each run optimized."
         )
 
-    with metrics_tab:
+    elif result_frame_idx == 1:
         for result in results:
             with st.container(border=True):
                 _panel_title(_t("{target} metrics", target=result["target"]))
@@ -2104,7 +2156,7 @@ def _render_run_outputs(results: list[dict[str, object]]) -> None:
             "Metrics are isolated from downloads and reports so the result page does not become a single dense block."
         )
 
-    with validation_tab:
+    elif result_frame_idx == 2:
         for result in results:
             with st.container(border=True):
                 _panel_title(_t("{target} validation", target=result["target"]))
@@ -2120,7 +2172,7 @@ def _render_run_outputs(results: list[dict[str, object]]) -> None:
             "Validation is separated from score comparison because it answers a different question: whether this run is safe to trust."
         )
 
-    with importance_tab:
+    elif result_frame_idx == 3:
         for result in results:
             with st.container(border=True):
                 _panel_title(_t("{target} feature importance", target=result["target"]))
@@ -2133,7 +2185,7 @@ def _render_run_outputs(results: list[dict[str, object]]) -> None:
             "Feature importance is kept in its own frame so model explanation does not compete with model comparison."
         )
 
-    with downloads_tab:
+    else:
         _panel_title(_t("Download files"))
         for result_index, result in enumerate(results):
             run = result["run"]

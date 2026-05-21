@@ -267,6 +267,9 @@ def test_beamer_v5_nav_dots_expose_section_jump_links(monkeypatch, tmp_path) -> 
     assert '?step=target' in nav_markup
     assert '?step=check&frame=0' in nav_markup
     assert '?step=prepare' in nav_markup
+    assert nav_markup.count('aria-label="数据集 · 来源"') == 1
+    assert 'aria-label="数据集 · 结构"' not in nav_markup
+    assert 'aria-label="任务 · 预算"' not in nav_markup
 
 
 def test_beamer_v5_upload_ready_advances_and_can_return(monkeypatch, tmp_path) -> None:
@@ -312,6 +315,11 @@ def test_beamer_v5_results_page_does_not_render_training(monkeypatch, tmp_path) 
 
     text_blob = _markdown_blob(app)
     assert "评估与导出" in text_blob
+    assert "结果 frame" in text_blob
+    assert "摘要" in [button.label for button in app.button]
+    assert "下载" in [button.label for button in app.button]
+    _click_button(app, "下载")
+    text_blob = _markdown_blob(app)
     assert "下载文件" in text_blob
     assert "模型训练" not in text_blob
     assert "训练现在会直接使用上一步准备好的 train/test 数据" not in text_blob

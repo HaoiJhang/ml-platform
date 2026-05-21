@@ -481,6 +481,7 @@ UI_TRANSLATIONS: dict[str, dict[str, str]] = {
         "Upload a tabular dataset, inspect data quality, train a local baseline, and export reproducible artifacts.": "上传表格数据、检查数据质量、训练本地 baseline，并导出可复现的输出文件。",
         "This interface is organized as a beamer-style guided run: one section, one task, one compact explanation. Advanced settings stay folded until needed.": "这个界面按 beamer 风格组织成引导式流程：一个 section 对应一个任务和一段简明说明。高级设置会先收起，需要时再展开。",
         "Preprocessing frames": "预处理 frame",
+        "Result frames": "结果 frame",
         "Preprocess frame: {frame}.": "预处理 frame：{frame}。",
         "Frame {current} / {total}: {frame}": "第 {current} / {total} 个 frame：{frame}",
         "← Previous frame": "← 上一个 frame",
