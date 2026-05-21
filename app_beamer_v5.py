@@ -4278,6 +4278,8 @@ def main() -> None:
     target_columns = [column for column in stored_targets if column in columns]
 
     if active_step == "target":
+        if "target_columns" not in st.session_state and target_columns:
+            st.session_state["target_columns"] = list(target_columns)
         _render_slide_title("target", "Task Definition", "Choose target variables, task type, metric, and first-run budget.")
         with st.container(border=True):
             back_cols = st.columns([0.22, 0.78])
@@ -4647,6 +4649,11 @@ def main() -> None:
             "Data Preprocessing",
             _t("Preprocess frame: {frame}.", frame=_t(preprocess_frame_label)),
         )
+        back_cols = st.columns([0.22, 0.78])
+        with back_cols[0]:
+            if st.button(_t("Back: choose target"), key="back_to_target_from_check"):
+                _set_active_step("target")
+                st.rerun()
         _render_preprocessing_roadmap()
         draft_excluded_columns = list(preprocessing_summary_excluded_columns)
         draft_analysis_columns = [

@@ -270,6 +270,23 @@ def test_beamer_v5_nav_dots_are_progress_only(monkeypatch, tmp_path) -> None:
     assert 'aria-label="任务 · 预算"' not in nav_markup
 
 
+def test_beamer_v5_preprocess_can_return_to_target(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("ML_PLATFORM_RUNS_DIR", str(tmp_path / "runs"))
+
+    app = AppTest.from_file("app_beamer_v5.py")
+    app.run(timeout=120)
+    _choose_demo_and_target(app, language="zh-CN")
+
+    text_blob = _markdown_blob(app)
+    assert "数据预处理" in text_blob
+    app.session_state["target_columns"] = ["churn"]
+    _click_button(app, "返回：选择目标")
+
+    text_blob = _markdown_blob(app)
+    assert "任务定义" in text_blob
+    assert "预处理 frame" not in text_blob
+
+
 def test_beamer_v5_upload_ready_advances_and_can_return(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("ML_PLATFORM_RUNS_DIR", str(tmp_path / "runs"))
 

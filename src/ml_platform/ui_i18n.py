@@ -350,6 +350,7 @@ UI_TRANSLATIONS: dict[str, dict[str, str]] = {
         "Start training": "开始训练",
         "Review results": "查看结果",
         "Back: upload data": "返回：上传数据",
+        "Back: choose target": "返回：选择目标",
         "Next: choose target": "下一步：选择预测目标",
         "Next: check data": "下一步：检查数据",
         "Next: prepare training": "下一步：准备训练",
