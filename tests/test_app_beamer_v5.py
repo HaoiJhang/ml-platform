@@ -251,25 +251,26 @@ def test_beamer_v5_preprocess_frame_copy_is_localized(monkeypatch, tmp_path) -> 
     assert "Field health is separated from preprocessing controls." not in text_blob
 
 
-def test_beamer_v5_nav_dots_expose_section_jump_links(monkeypatch, tmp_path) -> None:
+def test_beamer_v5_nav_dots_use_session_navigation(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("ML_PLATFORM_RUNS_DIR", str(tmp_path / "runs"))
 
     app = AppTest.from_file("app_beamer_v5.py")
     app.run(timeout=120)
     _choose_demo_and_target(app, language="zh-CN")
 
-    nav_markup = next(
-        markdown.value
-        for markdown in app.markdown
-        if '<nav class="beamer-nav"' in markdown.value
-    )
-    assert '?step=upload' in nav_markup
-    assert '?step=target' in nav_markup
-    assert '?step=check&frame=0' in nav_markup
-    assert '?step=prepare' in nav_markup
-    assert nav_markup.count('aria-label="数据集 · 来源"') == 1
-    assert 'aria-label="数据集 · 结构"' not in nav_markup
-    assert 'aria-label="任务 · 预算"' not in nav_markup
+    nav_keys = {button.key for button in app.button if button.key}
+    assert "wizard_nav_dataset_0" in nav_keys
+    assert "wizard_nav_task_0" in nav_keys
+    assert "wizard_nav_preprocess_3" in nav_keys
+    assert "wizard_nav_dataset_1" not in nav_keys
+    assert "wizard_nav_task_1" not in nav_keys
+
+    app.button(key="wizard_nav_task_0").click()
+    app.run(timeout=120)
+
+    text_blob = _markdown_blob(app)
+    assert "任务定义" in text_blob
+    assert "数据集上传" not in text_blob
 
 
 def test_beamer_v5_upload_ready_advances_and_can_return(monkeypatch, tmp_path) -> None:

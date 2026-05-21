@@ -8,7 +8,6 @@ import os
 from pathlib import Path
 import sys
 from typing import Any, Callable
-from urllib.parse import urlencode
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 SRC_DIR = PROJECT_ROOT / "src"
@@ -1770,12 +1769,14 @@ def _nav_target_for(section_name: str, frame_index: int) -> tuple[str, int | Non
     return step, None
 
 
-def _nav_href_for(section_name: str, frame_index: int) -> str:
+def _navigate_to_nav_target(section_name: str, frame_index: int) -> None:
     step, query_frame = _nav_target_for(section_name, frame_index)
-    params: dict[str, str] = {"step": step}
-    if query_frame is not None:
-        params["frame"] = str(query_frame)
-    return "?" + urlencode(params)
+    if step == "check":
+        _set_preprocess_frame_index(query_frame or 0)
+    elif step == "results":
+        _set_result_frame_index(query_frame or 0)
+    _set_active_step(step)
+    st.rerun()
 
 
 def _render_wizard_nav(
@@ -1811,39 +1812,56 @@ def _render_wizard_nav(
         "results": training_finished,
     }
 
-    html = ['<nav class="beamer-nav" aria-label="AutoML workflow navigation">']
-    for section_index, (section_name, frames) in enumerate(BEAMER_NAV_SECTIONS.items()):
-        section_active = section_name == active_section
-        section_finished = bool(completed_sections.get(section_name)) or (
-            section_index < active_section_index
+    with st.container(border=True):
+        st.markdown(
+            '<div class="beamer-frame-selector-title">'
+            + _html_escape(_t("Guided workflow"))
+            + '</div>',
+            unsafe_allow_html=True,
         )
-        section_enabled = bool(enabled_sections.get(section_name))
-        title_class = "beamer-nav-title active" if section_active else "beamer-nav-title"
-        html.append('<div class="beamer-nav-section">')
-        html.append(
-            f'<div class="{title_class}">{_html_escape(_t(BEAMER_SECTION_LABELS[section_name]))}</div>'
-        )
-        html.append('<div class="beamer-dots">')
-        for frame_index, frame_name in enumerate(frames):
-            if section_active and frame_index == active_frame_index:
-                dot_class = "beamer-dot current"
-            elif section_finished or (section_active and frame_index < active_frame_index):
-                dot_class = "beamer-dot done"
-            else:
-                dot_class = "beamer-dot"
-            if section_enabled:
-                dot_href = _nav_href_for(section_name, frame_index)
-                dot_label = _html_escape(
-                    f"{_t(BEAMER_SECTION_LABELS[section_name])} · {_t(frame_name)}"
+        section_cols = st.columns(len(BEAMER_NAV_SECTIONS))
+        for section_index, (section_name, frames) in enumerate(
+            BEAMER_NAV_SECTIONS.items()
+        ):
+            section_active = section_name == active_section
+            section_finished = bool(completed_sections.get(section_name)) or (
+                section_index < active_section_index
+            )
+            section_enabled = bool(enabled_sections.get(section_name))
+            title_class = (
+                "beamer-nav-title active" if section_active else "beamer-nav-title"
+            )
+            with section_cols[section_index]:
+                st.markdown(
+                    f'<div class="{title_class}">{_html_escape(_t(BEAMER_SECTION_LABELS[section_name]))}</div>',
+                    unsafe_allow_html=True,
                 )
-                html.append(
-                    f'<a class="{dot_class} beamer-dot-link" href="{dot_href}" target="_self" aria-label="{dot_label}" title="{dot_label}"></a>'
-                )
-            else:
-                html.append(f'<span class="{dot_class}"></span>')
-        html.append('</div></div>')
-    html.append('</nav>')
-    st.markdown("".join(html), unsafe_allow_html=True)
+                dot_cols = st.columns(len(frames))
+                for frame_index, frame_name in enumerate(frames):
+                    if section_active and frame_index == active_frame_index:
+                        dot_label = "●"
+                        button_type = "primary"
+                    elif section_finished or (
+                        section_active and frame_index < active_frame_index
+                    ):
+                        dot_label = "●"
+                        button_type = "secondary"
+                    else:
+                        dot_label = "○"
+                        button_type = "secondary"
+                    help_label = (
+                        f"{_t(BEAMER_SECTION_LABELS[section_name])} · {_t(frame_name)}"
+                    )
+                    with dot_cols[frame_index]:
+                        if st.button(
+                            dot_label,
+                            key=f"wizard_nav_{section_name}_{frame_index}",
+                            help=help_label,
+                            disabled=not section_enabled,
+                            type=button_type,
+                            use_container_width=True,
+                        ):
+                            _navigate_to_nav_target(section_name, frame_index)
 
 
 def _render_bottom_workflow_nav() -> None:
