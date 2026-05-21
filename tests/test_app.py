@@ -9,7 +9,10 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 import app as app_module
+import pandas as pd
 from streamlit.testing.v1 import AppTest
+
+from ml_platform.validation import validate_preflight
 
 
 def _latest_run_config(runs_dir: Path) -> dict[str, object]:
@@ -21,6 +24,27 @@ def _latest_run_config(runs_dir: Path) -> dict[str, object]:
 def _switch_to_english(app: AppTest) -> None:
     app.selectbox(key="ui_language").set_value("en")
     app.run(timeout=120)
+
+
+def _click_button(app: AppTest, label: str) -> None:
+    button = next(button for button in app.button if button.label == label)
+    button.click()
+    app.run(timeout=120)
+
+
+def _advance_to_check(app: AppTest, label: str = "Next: check data") -> None:
+    _click_button(app, label)
+
+
+def _advance_to_prepare(app: AppTest, label: str = "Next: prepare training") -> None:
+    _click_button(app, label)
+
+
+def _choose_demo(app: AppTest, label: str = "Demo: demo_customer_churn.csv") -> None:
+    app.radio[0].set_value(label)
+    app.run(timeout=120)
+    next_label = "下一步：选择预测目标" if label.startswith("示例") else "Next: choose target"
+    _click_button(app, next_label)
 
 
 def test_local_llm_config_enabled_by_default(monkeypatch) -> None:
@@ -44,6 +68,44 @@ def test_optional_ai_help_is_collapsed_by_default(monkeypatch, tmp_path) -> None
     ai_help = next(expander for expander in app.expander if expander.label == "Optional AI help")
     assert ai_help.proto.expanded is False
     assert not any(subheader.value == "2. Report engine" for subheader in app.subheader)
+
+
+def test_field_health_rows_flag_target_id_leakage_and_missingness() -> None:
+    df = pd.DataFrame(
+        {
+            "customer_id": [f"c-{index}" for index in range(30)],
+            "target": [0, 1] * 15,
+            "target_copy": [0, 1] * 15,
+            "mostly_missing": [None] * 25 + [1, 2, 3, 4, 5],
+        }
+    )
+    preflight = validate_preflight(
+        df=df,
+        target="target",
+        task_type="classification",
+        excluded_columns=[],
+        priority_metric="auto",
+        high_missing_threshold=0.5,
+    )
+
+    rows = app_module.build_field_health_rows(
+        df,
+        target_columns=["target"],
+        preflight_by_target={"target": preflight},
+        high_missing_threshold=0.5,
+    )
+    column_key = app_module._t("Column")
+    suggested_action_key = app_module._t("Suggested action")
+    id_like_key = app_module._t("ID-like")
+    leakage_risk_key = app_module._t("Leakage risk")
+    by_column = {row[column_key]: row for row in rows}
+
+    assert by_column["target"][suggested_action_key] == app_module._t("Target column")
+    assert by_column["customer_id"][id_like_key] == app_module._t("Yes")
+    assert by_column["target_copy"][leakage_risk_key] == app_module._t("Yes")
+    assert by_column["mostly_missing"][suggested_action_key] == app_module._t(
+        "Review missing values"
+    )
 
 
 def test_can_switch_ui_language_to_chinese(monkeypatch, tmp_path) -> None:
@@ -72,11 +134,11 @@ def test_distribution_tab_shows_default_feature_and_excludes_target(
 
     _switch_to_english(app)
 
-    app.radio[0].set_value("Demo: demo_customer_churn.csv")
-    app.run(timeout=120)
+    _choose_demo(app)
 
     app.multiselect(key="target_columns").set_value(["churn"])
     app.run(timeout=120)
+    _advance_to_check(app)
 
     assert any(tab.label == "Distributions" for tab in app.tabs)
     distribution_feature = app.selectbox(key="distribution_feature_column")
@@ -99,11 +161,11 @@ def test_categorical_encoding_strategy_offers_three_options(monkeypatch, tmp_pat
 
     _switch_to_english(app)
 
-    app.radio[0].set_value("Demo: demo_customer_churn.csv")
-    app.run(timeout=120)
+    _choose_demo(app)
 
     app.multiselect(key="target_columns").set_value(["churn"])
     app.run(timeout=120)
+    _advance_to_check(app)
 
     categorical_encoding = app.selectbox(key="_categorical_encoding_strategy_label")
     assert categorical_encoding.options == ["one_hot", "ordinal", "frequency"]
@@ -117,11 +179,11 @@ def test_preprocessing_section_is_collapsed_by_default(monkeypatch, tmp_path) ->
 
     _switch_to_english(app)
 
-    app.radio[0].set_value("Demo: demo_customer_churn.csv")
-    app.run(timeout=120)
+    _choose_demo(app)
 
     app.multiselect(key="target_columns").set_value(["churn"])
     app.run(timeout=120)
+    _advance_to_check(app)
 
     preprocessing_expander = next(
         expander for expander in app.expander if expander.label == "Open preprocessing details"
@@ -139,24 +201,26 @@ def test_chinese_ui_covers_preprocessing_and_results_labels(monkeypatch, tmp_pat
     app.selectbox(key="ui_language").set_value("zh-CN")
     app.run(timeout=120)
 
-    app.radio[0].set_value("示例：demo_customer_churn.csv")
-    app.run(timeout=120)
+    _choose_demo(app, "示例：demo_customer_churn.csv")
 
     app.multiselect(key="target_columns").set_value(["churn"])
     app.run(timeout=120)
-
     app.text_input(key="time_budget_text").set_value("5")
     app.run(timeout=120)
+    _advance_to_check(app, "下一步：检查数据")
 
     assert any(subheader.value == "3. 配置数据预处理" for subheader in app.subheader)
+    assert not any(subheader.value == "4. 准备数据" for subheader in app.subheader)
+    assert any("类别编码策略" in caption.value for caption in app.caption)
+    assert any("这些检查会解释为什么当前可以继续训练" in caption.value for caption in app.caption)
+    assert any("这些检查项不会阻止训练" in alert.value for alert in app.info)
+    _advance_to_prepare(app, "下一步：准备训练")
     assert any(subheader.value == "4. 准备数据" for subheader in app.subheader)
+    assert not any(subheader.value == "5. 开始训练" for subheader in app.subheader)
+    _click_button(app, "准备数据")
     assert any(subheader.value == "5. 开始训练" for subheader in app.subheader)
     assert any(button.label == "准备数据" for button in app.button)
     assert any(button.label == "开始训练" for button in app.button)
-    assert any("类别编码策略" in caption.value for caption in app.caption)
-    assert any("目标列就是你希望模型预测的结果" in caption.value for caption in app.caption)
-    assert any("这些检查会解释为什么当前可以继续训练" in caption.value for caption in app.caption)
-    assert any("这些检查项不会阻止训练" in alert.value for alert in app.info)
 
     run_training = next(button for button in app.button if button.label == "开始训练")
     run_training.click()
@@ -181,11 +245,11 @@ def test_chinese_ui_translates_distribution_tab_and_controls(
     app.selectbox(key="ui_language").set_value("zh-CN")
     app.run(timeout=120)
 
-    app.radio[0].set_value("示例：demo_customer_churn.csv")
-    app.run(timeout=120)
+    _choose_demo(app, "示例：demo_customer_churn.csv")
 
     app.multiselect(key="target_columns").set_value(["churn"])
     app.run(timeout=120)
+    _advance_to_check(app, "下一步：检查数据")
 
     assert any(tab.label == "分布可视化" for tab in app.tabs)
     distribution_feature = app.selectbox(key="distribution_feature_column")
@@ -207,8 +271,7 @@ def test_workflow_waits_for_target_selection(monkeypatch, tmp_path) -> None:
     assert any(subheader.value == "1. Upload data" for subheader in app.subheader)
     assert not any(subheader.value == "2. Choose what to predict" for subheader in app.subheader)
 
-    app.radio[0].set_value("Demo: demo_customer_churn.csv")
-    app.run(timeout=120)
+    _choose_demo(app)
 
     assert any(subheader.value == "2. Choose what to predict" for subheader in app.subheader)
     assert any("no prediction target has been selected yet" in alert.value.lower() for alert in app.warning)
@@ -219,13 +282,12 @@ def test_workflow_waits_for_target_selection(monkeypatch, tmp_path) -> None:
 
     advanced_settings = next(expander for expander in app.expander if expander.label == "Advanced experiment settings")
     assert advanced_settings.proto.expanded is False
+    assert not any(subheader.value == "3. Configure preprocessing" for subheader in app.subheader)
+    assert not any(button.label == "Run training" for button in app.button)
+    _advance_to_check(app)
     assert any(subheader.value == "3. Configure preprocessing" for subheader in app.subheader)
-    assert any(subheader.value == "4. Prepare data" for subheader in app.subheader)
-    assert any(subheader.value == "5. Start training" for subheader in app.subheader)
-    run_training = next(button for button in app.button if button.label == "Run training")
-    assert run_training.disabled is False
-    assert any("Your target column is the outcome you want the model to predict." in caption.value for caption in app.caption)
-    assert any("The app currently reads `churn` as" in alert.value for alert in app.info)
+    assert not any(subheader.value == "4. Prepare data" for subheader in app.subheader)
+    assert any("Field health" in markdown.value for markdown in app.markdown)
     assert any("These checks explain why training can continue" in caption.value for caption in app.caption)
     assert any("These checks will not stop training" in alert.value for alert in app.info)
 
@@ -238,18 +300,17 @@ def test_data_flow_selection_does_not_drop_latest_results(monkeypatch, tmp_path)
 
     _switch_to_english(app)
 
-    app.radio[0].set_value("Demo: demo_customer_churn.csv")
-    app.run(timeout=120)
+    _choose_demo(app)
 
     app.multiselect(key="target_columns").set_value(["churn"])
     app.run(timeout=120)
-
     app.text_input(key="time_budget_text").set_value("5")
     app.run(timeout=120)
+    _advance_to_check(app)
+    _advance_to_prepare(app)
 
-    run_training = next(button for button in app.button if button.label == "Run training")
-    run_training.click()
-    app.run(timeout=120)
+    _click_button(app, "Prepare data")
+    _click_button(app, "Run training")
 
     assert any(subheader.value == "6. Review results" for subheader in app.subheader)
     assert any(metric.label == "Completed runs" for metric in app.metric)
@@ -272,11 +333,11 @@ def test_manual_cleaning_rules_only_change_eda_after_apply(monkeypatch, tmp_path
     app = AppTest.from_file("app.py")
     app.run(timeout=120)
 
-    app.radio[0].set_value("示例：demo_customer_churn.csv")
-    app.run(timeout=120)
+    _choose_demo(app, "示例：demo_customer_churn.csv")
 
     app.multiselect(key="target_columns").set_value(["churn"])
     app.run(timeout=120)
+    _advance_to_check(app, "下一步：检查数据")
 
     def rows_metric_value() -> str:
         return next(metric.value for metric in app.metric if metric.label == "行数")
@@ -307,14 +368,14 @@ def test_applied_preprocessing_step_invalidates_prepared_data(monkeypatch, tmp_p
 
     _switch_to_english(app)
 
-    app.radio[0].set_value("Demo: demo_customer_churn.csv")
-    app.run(timeout=120)
+    _choose_demo(app)
 
     app.multiselect(key="target_columns").set_value(["churn"])
     app.run(timeout=120)
-
     app.text_input(key="time_budget_text").set_value("5")
     app.run(timeout=120)
+    _advance_to_check(app)
+    _advance_to_prepare(app)
 
     prepare_data = next(button for button in app.button if button.label == "Prepare data")
     prepare_data.click()
@@ -323,19 +384,17 @@ def test_applied_preprocessing_step_invalidates_prepared_data(monkeypatch, tmp_p
     run_training = next(button for button in app.button if button.label == "Run training")
     assert run_training.disabled is False
 
+    _click_button(app, "Done: Check data")
     app.selectbox(key="numeric_imputation_strategy").set_value("mean")
     app.run(timeout=120)
-    run_training = next(button for button in app.button if button.label == "Run training")
-    assert run_training.disabled is False
 
     apply_missing_step = next(button for button in app.button if button.label == "Apply missing-value step")
     apply_missing_step.click()
     app.run(timeout=120)
 
-    run_training = next(button for button in app.button if button.label == "Run training")
-    assert run_training.disabled is False
-    run_training.click()
-    app.run(timeout=120)
+    _advance_to_prepare(app)
+    _click_button(app, "Prepare data")
+    _click_button(app, "Run training")
 
     run_config = _latest_run_config(tmp_path / "runs")
     assert run_config["numeric_imputation_strategy"] == "mean"
@@ -349,11 +408,11 @@ def test_blocking_preflight_explanation_is_shown_when_no_features_remain(monkeyp
 
     _switch_to_english(app)
 
-    app.radio[0].set_value("Demo: demo_customer_churn.csv")
-    app.run(timeout=120)
+    _choose_demo(app)
 
     app.multiselect(key="target_columns").set_value(["churn"])
     app.run(timeout=120)
+    _advance_to_check(app)
 
     app.multiselect(key="excluded_columns").set_value(
         [
@@ -392,21 +451,18 @@ def test_run_training_uses_applied_preprocessing_not_unapplied_draft(monkeypatch
 
     _switch_to_english(app)
 
-    app.radio[0].set_value("Demo: demo_customer_churn.csv")
-    app.run(timeout=120)
+    _choose_demo(app)
 
     app.multiselect(key="target_columns").set_value(["churn"])
     app.run(timeout=120)
+    _advance_to_check(app)
 
     app.selectbox(key="numeric_imputation_strategy").set_value("mean")
     app.run(timeout=120)
+    _advance_to_prepare(app)
 
-    app.text_input(key="time_budget_text").set_value("5")
-    app.run(timeout=120)
-
-    run_training = next(button for button in app.button if button.label == "Run training")
-    run_training.click()
-    app.run(timeout=120)
+    _click_button(app, "Prepare data")
+    _click_button(app, "Run training")
 
     run_config = _latest_run_config(tmp_path / "runs")
     assert run_config["numeric_imputation_strategy"] == "median"
