@@ -1207,6 +1207,48 @@ def _apply_beamer_design() -> None:
                 cursor: pointer;
             }
 
+            div[data-testid="stVerticalBlockBorderWrapper"]:has(.beamer-native-nav-marker) {
+                border: 2px solid #111111 !important;
+                border-radius: 0 !important;
+                background: var(--beamer-paper) !important;
+                padding: 0.65rem 0.8rem 0.75rem !important;
+            }
+
+            div[data-testid="stVerticalBlockBorderWrapper"]:has(.beamer-native-nav-marker) button {
+                width: 20px !important;
+                min-width: 20px !important;
+                max-width: 20px !important;
+                height: 20px !important;
+                min-height: 20px !important;
+                padding: 0 !important;
+                border-radius: 999px !important;
+                box-shadow: none !important;
+                display: inline-flex !important;
+                align-items: center !important;
+                justify-content: center !important;
+                font-size: 16px !important;
+                line-height: 1 !important;
+            }
+
+            div[data-testid="stVerticalBlockBorderWrapper"]:has(.beamer-native-nav-marker) button[kind="primary"] {
+                background: var(--beamer-blue) !important;
+                border-color: var(--beamer-blue) !important;
+                color: #FFFFFF !important;
+            }
+
+            div[data-testid="stVerticalBlockBorderWrapper"]:has(.beamer-native-nav-marker) button[kind="secondary"] {
+                background: transparent !important;
+                border-color: transparent !important;
+                color: #222222 !important;
+            }
+
+            div[data-testid="stVerticalBlockBorderWrapper"]:has(.beamer-native-nav-marker) button:disabled {
+                opacity: 0.34 !important;
+                background: transparent !important;
+                border-color: transparent !important;
+                color: #222222 !important;
+            }
+
             .beamer-dot.done {
                 background: #A9B3CA;
             }
@@ -1814,7 +1856,8 @@ def _render_wizard_nav(
 
     with st.container(border=True):
         st.markdown(
-            '<div class="beamer-frame-selector-title">'
+            '<div class="beamer-native-nav-marker"></div>'
+            + '<div class="beamer-frame-selector-title">'
             + _html_escape(_t("Guided workflow"))
             + '</div>',
             unsafe_allow_html=True,
@@ -1836,7 +1879,7 @@ def _render_wizard_nav(
                     f'<div class="{title_class}">{_html_escape(_t(BEAMER_SECTION_LABELS[section_name]))}</div>',
                     unsafe_allow_html=True,
                 )
-                dot_cols = st.columns(len(frames))
+                dot_cols = st.columns([1, *([0.18] * len(frames)), 1])
                 for frame_index, frame_name in enumerate(frames):
                     if section_active and frame_index == active_frame_index:
                         dot_label = "●"
@@ -1852,14 +1895,13 @@ def _render_wizard_nav(
                     help_label = (
                         f"{_t(BEAMER_SECTION_LABELS[section_name])} · {_t(frame_name)}"
                     )
-                    with dot_cols[frame_index]:
+                    with dot_cols[frame_index + 1]:
                         if st.button(
                             dot_label,
                             key=f"wizard_nav_{section_name}_{frame_index}",
                             help=help_label,
                             disabled=not section_enabled,
                             type=button_type,
-                            use_container_width=True,
                         ):
                             _navigate_to_nav_target(section_name, frame_index)
 
