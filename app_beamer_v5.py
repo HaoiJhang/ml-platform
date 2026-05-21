@@ -526,6 +526,18 @@ def _frame_note(text: str, *, tone: str = "info") -> None:
     )
 
 
+def _render_task_type_card(label: str, value: str) -> None:
+    st.markdown(
+        '<div class="beamer-task-type-card">'
+        + '<div class="beamer-task-type-label">'
+        + _html_escape(str(label))
+        + '</div><div class="beamer-task-type-value">'
+        + _html_escape(str(value))
+        + "</div></div>",
+        unsafe_allow_html=True,
+    )
+
+
 def _load_hero_background() -> str:
     hero_image_path = next(
         (path for path in HERO_IMAGE_CANDIDATES if path.exists()), None
@@ -1255,6 +1267,28 @@ def _apply_beamer_design() -> None:
                 color: var(--beamer-muted);
                 font-size: var(--beamer-fs-meta);
                 line-height: 1.45;
+            }
+
+            .beamer-task-type-card {
+                border: 1px solid var(--beamer-line);
+                border-radius: 6px;
+                background: #FFFFFF;
+                padding: 0.85rem 1rem;
+                margin: 0.1rem 0 1rem;
+            }
+
+            .beamer-task-type-label {
+                color: var(--beamer-muted);
+                font-size: var(--beamer-fs-meta);
+                line-height: 1.45;
+                margin-bottom: 0.3rem;
+            }
+
+            .beamer-task-type-value {
+                color: var(--beamer-blue);
+                font-size: var(--beamer-fs-panel);
+                line-height: 1.25;
+                font-weight: 700;
             }
 
             .beamer-frame-selector-title,
@@ -4188,9 +4222,11 @@ def main() -> None:
     if active_step == "target":
         _render_slide_title("target", "Task Definition", "Choose target variables, task type, metric, and first-run budget.")
         with st.container(border=True):
-            if st.button(_t("Back: upload data"), key="back_to_upload_from_target"):
-                _request_upload_revisit()
-                st.rerun()
+            back_cols = st.columns([0.22, 0.78])
+            with back_cols[0]:
+                if st.button(_t("Back: upload data"), key="back_to_upload_from_target"):
+                    _request_upload_revisit()
+                    st.rerun()
             _section_caption(
                 _t(
                     "Pick the column you want the app to predict. The app can infer the task type automatically."
@@ -4201,7 +4237,7 @@ def main() -> None:
                     "Your target column is the outcome you want the model to predict. Labels like yes/no usually mean classification, while numbers like price or spend usually mean regression."
                 )
             )
-            setup_cols = st.columns([1.5, 1.0])
+            setup_cols = st.columns([1.05, 0.95])
             with setup_cols[0]:
                 target_columns = st.multiselect(
                     _t("Target variables"),
@@ -4239,13 +4275,13 @@ def main() -> None:
                 df, target_columns, task_type_choice
             )
             with setup_cols[1]:
-                st.caption(_t("Detected task type"))
                 if len(selection_task_types) == 1:
-                    st.metric(
-                        _t("Task type"),
+                    _render_task_type_card(
+                        _t("Detected task type"),
                         _t(next(iter(selection_task_types.values()))),
                     )
                 else:
+                    _panel_title(_t("Detected task type"))
                     st.dataframe(
                         pd.DataFrame(
                             [
@@ -4256,7 +4292,7 @@ def main() -> None:
                         hide_index=True,
                         use_container_width=True,
                     )
-                st.caption(_t("Manual task type override"))
+                _section_caption(_t("Manual task type override"))
                 task_type_choice = st.radio(
                     _t("Task type"),
                     list(task_type_labels.keys()),
