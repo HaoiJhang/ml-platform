@@ -1878,6 +1878,31 @@ def _render_results_roadmap() -> None:
     )
 
 
+def _render_results_restart_actions() -> None:
+    st.caption(
+        _t(
+            "Need another run? Return to the dataset and task section to choose a different CSV or target setup."
+        )
+    )
+    action_cols = st.columns([1, 1, 2])
+    with action_cols[0]:
+        if st.button(
+            _t("Back: choose dataset"),
+            key="results_back_to_dataset",
+            use_container_width=True,
+        ):
+            _set_active_step("upload")
+            st.rerun()
+    with action_cols[1]:
+        if st.button(
+            _t("Back: choose task"),
+            key="results_back_to_task",
+            use_container_width=True,
+        ):
+            _set_active_step("target")
+            st.rerun()
+
+
 def _nav_target_for(section_name: str, frame_index: int) -> tuple[str, int | None]:
     steps = BEAMER_NAV_STEP_TARGETS.get(section_name, ())
     if not steps:
@@ -2235,6 +2260,7 @@ def _render_run_outputs(results: list[dict[str, object]]) -> None:
         level="success",
     )
 
+    _render_results_restart_actions()
     _render_results_roadmap()
     result_frame_idx = _result_frame_index()
 
@@ -5824,6 +5850,12 @@ def main() -> None:
             "Training Preparation",
             "Apply the current preprocessing plan and materialize train/test batches.",
         )
+        back_cols = st.columns([0.22, 0.78])
+        with back_cols[0]:
+            if st.button(_t("Back: preprocessing"), key="back_to_check_from_prepare"):
+                _set_active_step("check")
+                _set_preprocess_frame_index(len(BEAMER_NAV_SECTIONS["preprocess"]) - 1)
+                st.rerun()
         with st.container(border=True):
             _section_caption(
                 _t(

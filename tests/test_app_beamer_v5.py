@@ -429,6 +429,26 @@ def test_beamer_v5_upload_ready_advances_and_can_return(monkeypatch, tmp_path) -
     assert "下一步：选择预测目标" in [button.label for button in app.button]
 
 
+def test_beamer_v5_prepare_can_return_to_preprocessing(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("ML_PLATFORM_RUNS_DIR", str(tmp_path / "runs"))
+
+    app = AppTest.from_file("app_beamer_v5.py")
+    _seed_cached_result_state(app, tmp_path, active_step="prepare")
+    app.run(timeout=120)
+
+    text_blob = _markdown_blob(app)
+    assert "训练准备" in text_blob
+    assert "返回：预处理" in [button.label for button in app.button]
+
+    _click_button(app, "返回：预处理")
+
+    text_blob = _markdown_blob(app)
+    assert "数据预处理" in text_blob
+    assert "训练前校验" in text_blob
+    assert app.session_state["active_step"] == "check"
+    assert app.session_state["preprocess_frame_idx"] == 3
+
+
 def test_beamer_v5_train_page_does_not_render_results(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("ML_PLATFORM_RUNS_DIR", str(tmp_path / "runs"))
 
@@ -460,6 +480,32 @@ def test_beamer_v5_results_page_does_not_render_training(monkeypatch, tmp_path) 
     assert "下载文件" in text_blob
     assert "模型训练" not in text_blob
     assert "训练现在会直接使用上一步准备好的 train/test 数据" not in text_blob
+
+
+def test_beamer_v5_results_can_return_to_dataset_or_task(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("ML_PLATFORM_RUNS_DIR", str(tmp_path / "runs"))
+
+    app = AppTest.from_file("app_beamer_v5.py")
+    _seed_cached_result_state(app, tmp_path, active_step="results")
+    app.run(timeout=120)
+
+    text_blob = _markdown_blob(app)
+    assert "需要再跑一版时，可以回到数据集与任务部分" in text_blob
+    assert "返回：选择数据集" in [button.label for button in app.button]
+    assert "返回：选择任务" in [button.label for button in app.button]
+
+    _click_button(app, "返回：选择任务")
+    text_blob = _markdown_blob(app)
+    assert "任务定义" in text_blob
+    assert app.session_state["active_step"] == "target"
+
+    app_for_dataset = AppTest.from_file("app_beamer_v5.py")
+    _seed_cached_result_state(app_for_dataset, tmp_path, active_step="results")
+    app_for_dataset.run(timeout=120)
+    _click_button(app_for_dataset, "返回：选择数据集")
+    text_blob = _markdown_blob(app_for_dataset)
+    assert "数据集上传" in text_blob
+    assert app_for_dataset.session_state["active_step"] == "upload"
 
 
 def test_beamer_v5_translation_audit_covers_metadata_and_helper_literals() -> None:
