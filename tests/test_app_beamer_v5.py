@@ -251,6 +251,30 @@ def test_beamer_v5_preprocess_frame_copy_is_localized(monkeypatch, tmp_path) -> 
     assert "Field health is separated from preprocessing controls." not in text_blob
 
 
+def test_beamer_v5_advanced_experiment_settings_are_always_visible(
+    monkeypatch, tmp_path
+) -> None:
+    monkeypatch.setenv("ML_PLATFORM_RUNS_DIR", str(tmp_path / "runs"))
+
+    app = AppTest.from_file("app_beamer_v5.py")
+    app.run(timeout=120)
+
+    app.selectbox(key="ui_language").set_value("en")
+    app.run(timeout=120)
+    app.radio[0].set_value("Demo: demo_customer_churn.csv")
+    app.run(timeout=120)
+    app.multiselect(key="target_columns").set_value(["churn"])
+    app.run(timeout=120)
+
+    text_blob = _markdown_blob(app)
+    assert "Advanced experiment settings" in text_blob
+    assert app.text_input(key="time_budget_text").label == "Training time budget seconds"
+    assert "Priority metric" in text_blob
+    assert not any(
+        expander.label == "Advanced experiment settings" for expander in app.expander
+    )
+
+
 def test_beamer_v5_nav_dots_are_progress_only(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("ML_PLATFORM_RUNS_DIR", str(tmp_path / "runs"))
 

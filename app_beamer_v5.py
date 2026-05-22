@@ -4365,10 +4365,11 @@ def main() -> None:
                     df, target_columns, str(task_type_choice)
                 )
 
-            with st.expander(_t("Advanced experiment settings"), expanded=False):
+            with st.container(border=True):
+                _panel_title(_t("Advanced experiment settings"))
                 st.caption(
                     _t(
-                        "Most first runs can keep the defaults here. Open this only if you want more control."
+                        "Most first runs can keep the defaults here. Adjust these only when you want more control."
                     )
                 )
                 top_advanced_cols = st.columns(2)

@@ -169,7 +169,7 @@ UI_TRANSLATIONS: dict[str, dict[str, str]] = {
         "Selected target columns: {selected_targets}.": "已选择目标列：{selected_targets}。",
         "Review the data checks before starting training.": "开始训练前，先看一下数据检查结果。",
         "Advanced experiment settings": "高级实验设置",
-        "Most first runs can keep the defaults here. Open this only if you want more control.": "第一次运行通常保留默认值即可。只有在你想要更多控制时，再展开这里。",
+        "Most first runs can keep the defaults here. Adjust these only when you want more control.": "第一次运行通常保留默认值即可。需要更多控制时再调整这些设置。",
         "Exclude columns from EDA and training features": "从 EDA 和训练特征中排除列",
         "Excluded columns are removed before EDA and are not used as model features.": "被排除的列会在 EDA 前移除，也不会作为模型特征使用。",
         "Training time budget seconds": "训练时间预算（秒）",
