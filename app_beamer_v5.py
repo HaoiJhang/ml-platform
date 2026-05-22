@@ -2181,7 +2181,8 @@ def _sync_task_type_choices(targets: list[str]) -> dict[str, str]:
         widget_key = f"task_type_choice__{_safe_widget_key(target)}"
         raw_choice = st.session_state.get(widget_key, stored.get(target, legacy_choice))
         choices[target] = _normalize_task_type_choice(raw_choice)
-        st.session_state[widget_key] = choices[target]
+        if widget_key not in st.session_state:
+            st.session_state[widget_key] = choices[target]
     st.session_state["task_type_choices"] = choices
     return choices
 
@@ -4595,7 +4596,6 @@ def main() -> None:
                         selected_task_type = st.selectbox(
                             _t("Task type setting"),
                             list(task_type_labels.keys()),
-                            index=list(task_type_labels.keys()).index(current_choice),
                             key=widget_key,
                             label_visibility="collapsed",
                             format_func=lambda value: task_type_labels.get(
