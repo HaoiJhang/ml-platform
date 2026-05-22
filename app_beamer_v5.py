@@ -138,16 +138,14 @@ WIZARD_STEP_LABELS = {
 }
 
 BEAMER_SECTION_LABELS = {
-    "dataset": "Dataset",
-    "task": "Task",
+    "dataset_task": "Dataset & Task",
     "preprocess": "Preprocess",
     "training": "Training",
     "results": "Results",
 }
 
 BEAMER_NAV_SECTIONS = {
-    "dataset": ("Source",),
-    "task": ("Target",),
+    "dataset_task": ("Source", "Target"),
     "preprocess": (
         "Field health",
         "Preprocessing details",
@@ -159,8 +157,8 @@ BEAMER_NAV_SECTIONS = {
 }
 
 BEAMER_STEP_TO_SECTION_FRAME = {
-    "upload": ("dataset", 0),
-    "target": ("task", 0),
+    "upload": ("dataset_task", 0),
+    "target": ("dataset_task", 1),
     "check": ("preprocess", 0),
     "prepare": ("training", 0),
     "train": ("training", 1),
@@ -168,8 +166,7 @@ BEAMER_STEP_TO_SECTION_FRAME = {
 }
 
 BEAMER_NAV_STEP_TARGETS = {
-    "dataset": ("upload",),
-    "task": ("target",),
+    "dataset_task": ("upload", "target"),
     "preprocess": ("check", "check", "check", "check"),
     "training": ("prepare", "train"),
     "results": ("results", "results", "results", "results", "results"),
@@ -203,20 +200,18 @@ def _t(text: str, **kwargs: Any) -> str:
 
 
 def _render_language_switcher() -> None:
-    topbar_cols = st.columns([0.82, 0.18])
-    with topbar_cols[1]:
-        st.caption(_t("Interface language"))
-        current_language = _ui_language()
-        if current_language not in UI_LANGUAGE_OPTIONS:
-            current_language = DEFAULT_UI_LANGUAGE
-        st.selectbox(
-            _t("Interface language"),
-            UI_LANGUAGE_OPTIONS,
-            index=UI_LANGUAGE_OPTIONS.index(current_language),
-            key="ui_language",
-            label_visibility="collapsed",
-            format_func=lambda code: UI_LANGUAGE_LABELS.get(code, code),
-        )
+    st.caption(_t("Interface language"))
+    current_language = _ui_language()
+    if current_language not in UI_LANGUAGE_OPTIONS:
+        current_language = DEFAULT_UI_LANGUAGE
+    st.selectbox(
+        _t("Interface language"),
+        UI_LANGUAGE_OPTIONS,
+        index=UI_LANGUAGE_OPTIONS.index(current_language),
+        key="ui_language",
+        label_visibility="collapsed",
+        format_func=lambda code: UI_LANGUAGE_LABELS.get(code, code),
+    )
 
 
 def _local_llm_config_enabled() -> bool:
@@ -1125,13 +1120,57 @@ def _apply_beamer_design() -> None:
                 justify-content: space-between;
                 align-items: center;
                 gap: 1rem;
-                min-height: 168px;
+                min-height: 188px;
+                margin: 0;
+                padding: 1.2rem 0 1.2rem 1.35rem;
+            }
+
+            [data-testid="stHorizontalBlock"]:has(.beamer-app-headline) {
                 margin: 0 0 1.15rem;
-                padding: 1.35rem 1.5rem;
+                padding: 0.35rem 1.35rem 0.45rem 0;
                 border-radius: 6px;
                 background: var(--beamer-rainbow-strip);
                 background-size: cover;
                 background-position: center 46%;
+                align-items: stretch;
+            }
+
+            [data-testid="stHorizontalBlock"]:has(.beamer-app-headline) [data-testid="column"]:last-child {
+                padding: 0.55rem 0.35rem 0.85rem 0.15rem;
+            }
+
+            .beamer-ai-callout {
+                margin: 0 0 0.45rem;
+                min-height: 68px;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: flex-end;
+                color: var(--beamer-blue);
+            }
+
+            .beamer-ai-callout-text {
+                color: var(--beamer-blue);
+                font-size: var(--beamer-fs-meta);
+                line-height: 1.35;
+                font-weight: 700;
+                text-align: center;
+            }
+
+            .beamer-ai-arrow {
+                display: block;
+                width: min(100%, 170px);
+                height: 40px;
+                overflow: visible;
+            }
+
+            .beamer-ai-arrow path,
+            .beamer-ai-arrow polyline {
+                stroke: var(--beamer-blue);
+                stroke-width: 2.2;
+                stroke-linecap: round;
+                stroke-linejoin: round;
+                fill: none;
             }
 
             .beamer-app-title {
@@ -1331,6 +1370,33 @@ def _apply_beamer_design() -> None:
                 padding-top: 0.45rem;
             }
 
+            .beamer-frame-bottom-nav {
+                margin: 1rem 0 0.25rem;
+                padding: 0.75rem;
+                border: 1px solid var(--beamer-line);
+                border-radius: 6px;
+                background: #F8FAFC;
+            }
+
+            .beamer-top-link {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                min-height: 2.55rem;
+                border: 1px solid var(--beamer-line);
+                border-radius: 6px;
+                background: var(--beamer-paper);
+                color: var(--beamer-blue) !important;
+                font-size: var(--beamer-fs-meta);
+                font-weight: 700;
+                text-decoration: none !important;
+            }
+
+            .beamer-top-link:hover {
+                border-color: var(--beamer-blue);
+                background: #F4F7FD;
+            }
+
             .beamer-empty {
                 padding: 1rem 1.05rem;
                 border: 1px dashed var(--beamer-line);
@@ -1496,6 +1562,15 @@ def _apply_beamer_design() -> None:
                     flex-direction: column;
                     align-items: flex-start;
                     min-height: 156px;
+                    padding: 1.1rem 1rem 0.25rem;
+                }
+                [data-testid="stHorizontalBlock"]:has(.beamer-app-headline) {
+                    padding: 0.25rem 1rem 1rem;
+                }
+                .beamer-ai-callout {
+                    align-items: center;
+                    margin-top: 0.65rem;
+                    min-height: 72px;
                 }
                 .beamer-roadmap {
                     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1522,8 +1597,22 @@ def _render_hero() -> None:
         '<section class="beamer-app-headline">'
         + '<div><div class="beamer-app-title">ML Platform</div>'
         + '<div class="beamer-app-subtitle">' + _html_escape(hero_description) + '</div></div>'
-        + '<div class="beamer-app-subtitle">' + _html_escape(_t("Guided AutoML workflow")) + '</div>'
         + '</section>',
+        unsafe_allow_html=True,
+    )
+
+
+def _render_ai_help_prompt() -> None:
+    prompt = _t("Use AI suggestions")
+    st.markdown(
+        '<div class="beamer-ai-callout">'
+        + '<div class="beamer-ai-callout-text">' + _html_escape(prompt) + "</div>"
+        + '<svg class="beamer-ai-arrow" viewBox="0 0 180 58" role="img" '
+        + 'focusable="false" aria-label="' + _html_escape(prompt) + '">'
+        + '<path d="M24 10 C70 8, 112 20, 98 43 C95 49, 92 53, 90 58" />'
+        + '<polyline points="80,49 90,58 100,49" />'
+        + "</svg>"
+        + "</div>",
         unsafe_allow_html=True,
     )
 
@@ -1742,6 +1831,43 @@ def _render_preprocessing_roadmap() -> None:
     )
 
 
+def _render_preprocessing_frame_anchor() -> None:
+    st.markdown('<div id="preprocessing-frame-top"></div>', unsafe_allow_html=True)
+
+
+def _render_preprocessing_frame_bottom_nav() -> None:
+    current_idx = _preprocess_frame_index()
+    frames = list(BEAMER_NAV_SECTIONS["preprocess"])
+    st.markdown('<div class="beamer-frame-bottom-nav">', unsafe_allow_html=True)
+    nav_cols = st.columns([1, 1, 1])
+    with nav_cols[0]:
+        if st.button(
+            _t("← Previous frame"),
+            key="preprocess_frame_bottom_prev",
+            use_container_width=True,
+            disabled=current_idx <= 0,
+        ):
+            _set_preprocess_frame_index(current_idx - 1)
+            st.rerun()
+    with nav_cols[1]:
+        st.markdown(
+            '<a class="beamer-top-link" href="#preprocessing-frame-top">'
+            + _html_escape(_t("Back to frame top"))
+            + "</a>",
+            unsafe_allow_html=True,
+        )
+    with nav_cols[2]:
+        if st.button(
+            _t("Next frame →"),
+            key="preprocess_frame_bottom_next",
+            use_container_width=True,
+            disabled=current_idx >= len(frames) - 1,
+        ):
+            _set_preprocess_frame_index(current_idx + 1)
+            st.rerun()
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
 def _render_results_roadmap() -> None:
     _render_frame_roadmap(
         section_name="results",
@@ -1898,17 +2024,17 @@ def _configure_llm_settings(settings: Settings) -> Settings:
     saved_api_key = saved_config.get("llm_api_key", "")
     saved_base_url = saved_config.get("llm_base_url", "")
     saved_model = saved_config.get("llm_model", "")
-    _section_caption(
-        _t(
-            "Optional AI help: you can finish the full local training flow without any API key. Add one only if you want AI-generated suggestions and a more natural-language report."
-        )
-    )
 
     api_key = saved_api_key
     base_url = saved_base_url or settings.llm_base_url or ""
     model = saved_model or settings.llm_model
 
-    with st.expander(_t("Optional AI help"), expanded=False):
+    with st.popover(_t("Optional AI help"), use_container_width=True):
+        st.caption(
+            _t(
+                "Local training works without an API key. Add one only for AI-generated suggestions and a natural-language report."
+            )
+        )
         if allow_local_llm_config:
             st.caption(
                 _t(
@@ -1922,26 +2048,22 @@ def _configure_llm_settings(settings: Settings) -> Settings:
                 )
             )
 
-        config_cols = st.columns(3)
-        with config_cols[0]:
-            api_key = st.text_input(
-                _t("API key"),
-                value=saved_api_key,
-                key="_llm_api_key",
-                type="password",
-                placeholder=_t("Uses LLM_API_KEY if empty"),
-            )
-        with config_cols[1]:
-            base_url = st.text_input(
-                _t("Base URL"),
-                value=saved_base_url or settings.llm_base_url or "",
-                key="_llm_base_url",
-                placeholder=_t("LLM default or compatible API URL"),
-            )
-        with config_cols[2]:
-            model = st.text_input(
-                _t("Model"), value=saved_model or settings.llm_model, key="_llm_model"
-            )
+        api_key = st.text_input(
+            _t("API key"),
+            value=saved_api_key,
+            key="_llm_api_key",
+            type="password",
+            placeholder=_t("Uses LLM_API_KEY if empty"),
+        )
+        base_url = st.text_input(
+            _t("Base URL"),
+            value=saved_base_url or settings.llm_base_url or "",
+            key="_llm_base_url",
+            placeholder=_t("LLM default or compatible API URL"),
+        )
+        model = st.text_input(
+            _t("Model"), value=saved_model or settings.llm_model, key="_llm_model"
+        )
 
         if allow_local_llm_config:
             remember_config = st.checkbox(
@@ -1982,12 +2104,43 @@ def _infer_task_type(df: pd.DataFrame, target: str) -> str:
     return "regression"
 
 
+VALID_TASK_TYPE_CHOICES = {"auto", "classification", "regression"}
+
+
+def _normalize_task_type_choice(value: object) -> str:
+    choice = str(value)
+    return choice if choice in VALID_TASK_TYPE_CHOICES else "auto"
+
+
+def _sync_task_type_choices(targets: list[str]) -> dict[str, str]:
+    legacy_choice = _normalize_task_type_choice(
+        st.session_state.get("task_type_choice", "auto")
+    )
+    stored = st.session_state.get("task_type_choices", {})
+    if not isinstance(stored, dict):
+        stored = {}
+    choices: dict[str, str] = {}
+    for target in targets:
+        widget_key = f"task_type_choice__{_safe_widget_key(target)}"
+        raw_choice = st.session_state.get(widget_key, stored.get(target, legacy_choice))
+        choices[target] = _normalize_task_type_choice(raw_choice)
+        st.session_state[widget_key] = choices[target]
+    st.session_state["task_type_choices"] = choices
+    return choices
+
+
 def _target_task_types(
-    df: pd.DataFrame, targets: list[str], task_type_choice: str
+    df: pd.DataFrame,
+    targets: list[str],
+    task_type_choice: str = "auto",
+    task_type_choices: dict[str, str] | None = None,
 ) -> dict[str, str]:
-    if task_type_choice in {"classification", "regression"}:
-        return {target: task_type_choice for target in targets}
-    return {target: _infer_task_type(df, target) for target in targets}
+    choices = task_type_choices or {}
+    resolved: dict[str, str] = {}
+    for target in targets:
+        choice = _normalize_task_type_choice(choices.get(target, task_type_choice))
+        resolved[target] = choice if choice != "auto" else _infer_task_type(df, target)
+    return resolved
 
 
 def _experiment_signature(
@@ -1995,6 +2148,7 @@ def _experiment_signature(
     dataset_fingerprint: str,
     target_columns: list[str],
     task_type_choice: str,
+    task_type_choices: dict[str, str] | None = None,
     time_budget: int,
     priority_metric_choice: str,
     planner_brief: str,
@@ -2004,6 +2158,7 @@ def _experiment_signature(
         "dataset_fingerprint": dataset_fingerprint,
         "target_columns": target_columns,
         "task_type_choice": task_type_choice,
+        "task_type_choices": task_type_choices or {},
         "time_budget": time_budget,
         "priority_metric_choice": priority_metric_choice,
         "planner_brief": planner_brief.strip(),
@@ -2023,6 +2178,7 @@ def _initialize_experiment_state(dataset_signature: str, columns: list[str]) -> 
     st.session_state["target_columns"] = []
     st.session_state["_selected_target_columns"] = []
     st.session_state["task_type_choice"] = "auto"
+    st.session_state["task_type_choices"] = {}
     st.session_state["time_budget"] = 30
     st.session_state["time_budget_text"] = "30"
     st.session_state["priority_metric_choice"] = "auto"
@@ -2229,6 +2385,11 @@ def _queue_plan_suggestion(
     st.session_state["_pending_plan_suggestion"] = {
         "target_columns": suggested_targets,
         "task_type_choice": suggested_task_type,
+        "task_type_choices": {
+            target: suggested_task_type for target in pending_targets
+        }
+        if suggested_task_type in {"auto", "classification", "regression"}
+        else {},
         "excluded_columns": excluded,
         "priority_metric_choice": metric,
     }
@@ -2248,6 +2409,14 @@ def _consume_pending_plan_suggestion(columns: list[str]) -> None:
     suggested_task_type = pending.get("task_type_choice")
     if suggested_task_type in {"auto", "classification", "regression"}:
         st.session_state["task_type_choice"] = suggested_task_type
+    pending_task_type_choices = pending.get("task_type_choices", {})
+    if isinstance(pending_task_type_choices, dict):
+        st.session_state["task_type_choices"] = {
+            target: _normalize_task_type_choice(
+                pending_task_type_choices.get(target, suggested_task_type or "auto")
+            )
+            for target in pending_targets
+        }
 
     excluded_columns = [
         column
@@ -2654,9 +2823,15 @@ def _target_selection_summary(
     *,
     target_columns: list[str],
     task_type_choice: str,
+    task_type_choices: dict[str, str],
     inferred_task_types: dict[str, str],
 ) -> tuple[str, str]:
-    if task_type_choice == "auto":
+    manual_targets = [
+        target
+        for target in target_columns
+        if _normalize_task_type_choice(task_type_choices.get(target, "auto")) != "auto"
+    ]
+    if not manual_targets:
         if len(target_columns) == 1:
             target = str(target_columns[0])
             inferred = inferred_task_types.get(target, "regression")
@@ -2678,8 +2853,7 @@ def _target_selection_summary(
     return (
         "success",
         _t(
-            "Your target is the result you want to predict. You set the task type manually, so the app will treat the selected target as {task_type_explanation}.",
-            task_type_explanation=_task_type_plain_language(task_type_choice),
+            "Automatic task detection still applies to targets left on auto. Manual task type settings only affect the target row where you set them."
         ),
     )
 
@@ -4130,10 +4304,14 @@ def _materialize_prepared_batches(
 def main() -> None:
     _sync_navigation_state_from_query_params()
     _apply_beamer_design()
-    _render_language_switcher()
-    _render_hero()
+    hero_cols = st.columns([0.72, 0.28], gap="medium", vertical_alignment="top")
+    with hero_cols[0]:
+        _render_hero()
+    with hero_cols[1]:
+        _render_ai_help_prompt()
+        settings = _configure_llm_settings(load_settings())
+        _render_language_switcher()
     _render_help_center()
-    settings = _configure_llm_settings(load_settings())
     storage = RunStorage(settings.runs_dir)
     active_step = _active_step()
     active_index = _wizard_step_index(active_step)
@@ -4331,38 +4509,69 @@ def main() -> None:
                 return
 
             selected_targets = ", ".join(str(target) for target in target_columns)
+            task_type_choices = _sync_task_type_choices(target_columns)
+            inferred_task_types = {
+                target: _infer_task_type(df, target) for target in target_columns
+            }
             selection_task_types = _target_task_types(
-                df, target_columns, task_type_choice
+                df,
+                target_columns,
+                task_type_choice,
+                task_type_choices,
             )
             with setup_cols[1]:
-                if len(selection_task_types) == 1:
-                    _render_task_type_card(
-                        _t("Detected task type"),
-                        _t(next(iter(selection_task_types.values()))),
-                    )
-                else:
-                    _panel_title(_t("Detected task type"))
-                    st.dataframe(
-                        pd.DataFrame(
-                            [
-                                {_t("Target"): target, _t("Task type"): _t(task_type)}
-                                for target, task_type in selection_task_types.items()
-                            ]
-                        ),
-                        hide_index=True,
-                        use_container_width=True,
-                    )
-                _section_caption(_t("Manual task type override"))
-                task_type_choice = st.radio(
-                    _t("Task type"),
-                    list(task_type_labels.keys()),
-                    horizontal=True,
-                    key="task_type_choice",
-                    format_func=lambda value: task_type_labels.get(str(value), str(value)),
-                    help=_t("Use auto for inference, or force classification/regression manually."),
-                )
+                _panel_title(_t("Target task types"))
+                header_cols = st.columns([0.34, 0.28, 0.38])
+                header_cols[0].caption(_t("Target"))
+                header_cols[1].caption(_t("System detected"))
+                header_cols[2].caption(_t("Task type setting"))
+                for target in target_columns:
+                    row_cols = st.columns([0.34, 0.28, 0.38])
+                    row_cols[0].markdown(f"`{target}`")
+                    row_cols[1].markdown(_t(inferred_task_types[target]))
+                    with row_cols[2]:
+                        widget_key = f"task_type_choice__{_safe_widget_key(target)}"
+                        current_choice = _normalize_task_type_choice(
+                            task_type_choices.get(target, "auto")
+                        )
+                        selected_task_type = st.selectbox(
+                            _t("Task type setting"),
+                            list(task_type_labels.keys()),
+                            index=list(task_type_labels.keys()).index(current_choice),
+                            key=widget_key,
+                            label_visibility="collapsed",
+                            format_func=lambda value: task_type_labels.get(
+                                str(value), str(value)
+                            ),
+                            help=_t(
+                                "Use auto for this target, or force classification/regression manually."
+                            ),
+                        )
+                        task_type_choices[target] = _normalize_task_type_choice(
+                            selected_task_type or current_choice
+                        )
+                st.session_state["task_type_choices"] = {
+                    target: _normalize_task_type_choice(task_type_choices[target])
+                    for target in target_columns
+                }
                 selection_task_types = _target_task_types(
-                    df, target_columns, str(task_type_choice)
+                    df,
+                    target_columns,
+                    task_type_choice,
+                    st.session_state["task_type_choices"],
+                )
+                st.dataframe(
+                    pd.DataFrame(
+                        [
+                            {
+                                _t("Target"): target,
+                                _t("Resolved task type"): _t(task_type),
+                            }
+                            for target, task_type in selection_task_types.items()
+                        ]
+                    ),
+                    hide_index=True,
+                    use_container_width=True,
                 )
 
             with st.container(border=True):
@@ -4412,6 +4621,7 @@ def main() -> None:
             target_explanation_level, target_explanation = _target_selection_summary(
                 target_columns=target_columns,
                 task_type_choice=task_type_choice,
+                task_type_choices=st.session_state.get("task_type_choices", {}),
                 inferred_task_types=selection_task_types,
             )
             _render_message(target_explanation_level, target_explanation)
@@ -4425,7 +4635,10 @@ def main() -> None:
     if not target_columns:
         _set_active_step("target")
         st.rerun()
-    selection_task_types = _target_task_types(df, target_columns, task_type_choice)
+    task_type_choices = _sync_task_type_choices(target_columns)
+    selection_task_types = _target_task_types(
+        df, target_columns, task_type_choice, task_type_choices
+    )
     exclude_options = [column for column in columns if column not in target_columns]
 
     applied_preprocessing_plan = (
@@ -4499,7 +4712,9 @@ def main() -> None:
     candidate_feature_columns = [
         column for column in analysis_df.columns if column not in target_columns
     ]
-    task_types = _target_task_types(analysis_df, target_columns, task_type_choice)
+    task_types = _target_task_types(
+        analysis_df, target_columns, task_type_choice, task_type_choices
+    )
     if len(target_columns) > 1:
         st.caption(
             _t(
@@ -4650,6 +4865,7 @@ def main() -> None:
             "Data Preprocessing",
             _t("Preprocess frame: {frame}.", frame=_t(preprocess_frame_label)),
         )
+        _render_preprocessing_frame_anchor()
         back_cols = st.columns([0.22, 0.78])
         with back_cols[0]:
             if st.button(_t("Back: choose target"), key="back_to_target_from_check"):
@@ -5297,6 +5513,7 @@ def main() -> None:
                                         "Applied feature engineering remains active until you apply a different draft."
                                     )
                                 )
+                    _render_preprocessing_frame_bottom_nav()
 
         draft_preprocessing_plan = _build_preprocessing_plan(
             base_analysis_df=draft_base_analysis_df,
@@ -5332,6 +5549,7 @@ def main() -> None:
         dataset_fingerprint=current_dataset_fingerprint,
         target_columns=target_columns,
         task_type_choice=task_type_choice,
+        task_type_choices=task_type_choices,
         time_budget=int(time_budget),
         priority_metric_choice=priority_metric_choice,
         planner_brief=planner_brief,
@@ -5343,7 +5561,7 @@ def main() -> None:
 
     priority_metrics = {
         target: resolve_priority_metric(
-            _target_task_types(analysis_df, [target], task_type_choice)[target],
+            task_types[target],
             priority_metric_choice,
         )
         for target in target_columns
@@ -5858,6 +6076,8 @@ def main() -> None:
                             "target_columns": target_columns,
                             "task_type": task_type,
                             "task_type_choice": task_type_choice,
+                            "task_type_choices": task_type_choices,
+                            "task_types": task_types,
                             "excluded_columns": applied_excluded_columns,
                             "test_size": cleaned.config.test_size,
                             "high_missing_threshold": cleaned.config.high_missing_threshold,

@@ -65,6 +65,7 @@ def _seed_cached_result_state(app: AppTest, tmp_path: Path, *, active_step: str)
         dataset_fingerprint=dataset_fingerprint,
         target_columns=["target"],
         task_type_choice="classification",
+        task_type_choices={"target": "classification"},
         time_budget=30,
         priority_metric_choice="accuracy",
         planner_brief="",
@@ -127,6 +128,7 @@ def _seed_cached_result_state(app: AppTest, tmp_path: Path, *, active_step: str)
     app.session_state["target_columns"] = ["target"]
     app.session_state["_selected_target_columns"] = ["target"]
     app.session_state["task_type_choice"] = "classification"
+    app.session_state["task_type_choices"] = {"target": "classification"}
     app.session_state["time_budget"] = 30
     app.session_state["time_budget_text"] = "30"
     app.session_state["priority_metric_choice"] = "accuracy"
@@ -204,8 +206,11 @@ def test_beamer_v5_zh_top_level_copy_is_localized(monkeypatch, tmp_path) -> None
     text_blob = _markdown_blob(app)
     assert app.selectbox(key="ui_language").label == "界面语言"
     assert "数据集上传" in text_blob
-    assert "引导式 AutoML 工作流" in text_blob
+    assert "数据集与任务" in text_blob
+    assert "引导式 AutoML 工作流" not in text_blob
+    assert "可使用 AI 建议" in text_blob
     assert any('class="beamer-app-headline"' in item.value for item in app.markdown)
+    assert any('class="beamer-ai-callout"' in item.value for item in app.markdown)
     assert not any('class="beamer-help-strip"' in item.value for item in app.markdown)
     assert "Dataset Upload" not in text_blob
     assert "Guided AutoML workflow" not in text_blob
@@ -223,11 +228,34 @@ def test_beamer_v5_english_switches_top_level_copy(monkeypatch, tmp_path) -> Non
     text_blob = _markdown_blob(app)
     assert app.selectbox(key="ui_language").label == "Interface language"
     assert "Dataset Upload" in text_blob
-    assert "Guided AutoML workflow" in text_blob
+    assert "Dataset &amp; Task" in text_blob
+    assert "Guided AutoML workflow" not in text_blob
+    assert "Use AI suggestions" in text_blob
     assert any('class="beamer-app-headline"' in item.value for item in app.markdown)
+    assert any('class="beamer-ai-callout"' in item.value for item in app.markdown)
     assert not any('class="beamer-help-strip"' in item.value for item in app.markdown)
     assert "数据集上传" not in text_blob
     assert "界面语言" not in text_blob
+
+
+def test_beamer_v5_optional_ai_help_is_compact_and_collapsed(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("ML_PLATFORM_RUNS_DIR", str(tmp_path / "runs"))
+
+    app = AppTest.from_file("app_beamer_v5.py")
+    app.run(timeout=120)
+    app.selectbox(key="ui_language").set_value("en")
+    app.run(timeout=120)
+
+    text_blob = _markdown_blob(app)
+    assert not any(expander.label == "Optional AI help" for expander in app.expander)
+    assert "Use AI suggestions" in text_blob
+    assert (
+        "Optional AI help: you can finish the full local training flow without any API key"
+        not in text_blob
+    )
+    assert app.text_input(key="_llm_api_key").label == "API key"
+    assert app.text_input(key="_llm_base_url").label == "Base URL"
+    assert app.text_input(key="_llm_model").label == "Model"
 
 
 def test_beamer_v5_preprocess_frame_copy_is_localized(monkeypatch, tmp_path) -> None:
@@ -249,6 +277,21 @@ def test_beamer_v5_preprocess_frame_copy_is_localized(monkeypatch, tmp_path) -> 
     assert "EDA 概览" in [button.label for button in app.button]
     assert "Preprocess frame:" not in text_blob
     assert "Field health is separated from preprocessing controls." not in text_blob
+
+
+def test_beamer_v5_preprocess_details_has_bottom_navigation(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("ML_PLATFORM_RUNS_DIR", str(tmp_path / "runs"))
+
+    app = AppTest.from_file("app_beamer_v5.py")
+    app.run(timeout=120)
+
+    _choose_demo_and_target(app, language="zh-CN")
+    _click_button(app, "预处理细节")
+
+    text_blob = _markdown_blob(app)
+    assert "回到本 frame 顶部" in text_blob
+    assert any(button.key == "preprocess_frame_bottom_prev" for button in app.button)
+    assert any(button.key == "preprocess_frame_bottom_next" for button in app.button)
 
 
 def test_beamer_v5_advanced_experiment_settings_are_always_visible(
@@ -275,6 +318,59 @@ def test_beamer_v5_advanced_experiment_settings_are_always_visible(
     )
 
 
+def test_beamer_v5_task_type_can_be_set_per_target(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("ML_PLATFORM_RUNS_DIR", str(tmp_path / "runs"))
+
+    app = AppTest.from_file("app_beamer_v5.py")
+    app.run(timeout=120)
+
+    app.selectbox(key="ui_language").set_value("en")
+    app.run(timeout=120)
+    app.radio[0].set_value("Demo: demo_customer_churn.csv")
+    app.run(timeout=120)
+    app.multiselect(key="target_columns").set_value(["churn", "region"])
+    app.run(timeout=120)
+
+    churn_key = f"task_type_choice__{app_module._safe_widget_key('churn')}"
+    region_key = f"task_type_choice__{app_module._safe_widget_key('region')}"
+
+    assert app.selectbox(key=churn_key).label == "Task type setting"
+    assert app.selectbox(key=region_key).label == "Task type setting"
+    assert app.session_state[churn_key] == "auto"
+    assert app.session_state[region_key] == "auto"
+    app.selectbox(key=region_key).set_value("regression")
+    app.run(timeout=120)
+
+    assert app.session_state["task_type_choices"] == {
+        "churn": "auto",
+        "region": "regression",
+    }
+    assert not any(radio.key == "task_type_choice" for radio in app.radio)
+
+
+def test_beamer_v5_task_type_choices_affect_signature() -> None:
+    base_kwargs = {
+        "dataset_fingerprint": "dataset-1",
+        "target_columns": ["churn", "region"],
+        "task_type_choice": "auto",
+        "time_budget": 30,
+        "priority_metric_choice": "auto",
+        "planner_brief": "",
+        "preprocessing_plan": app_module._default_preprocessing_plan(),
+    }
+
+    auto_signature = app_module._experiment_signature(
+        **base_kwargs,
+        task_type_choices={"churn": "auto", "region": "auto"},
+    )
+    mixed_signature = app_module._experiment_signature(
+        **base_kwargs,
+        task_type_choices={"churn": "auto", "region": "regression"},
+    )
+
+    assert auto_signature != mixed_signature
+
+
 def test_beamer_v5_nav_dots_are_progress_only(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("ML_PLATFORM_RUNS_DIR", str(tmp_path / "runs"))
 
@@ -289,8 +385,10 @@ def test_beamer_v5_nav_dots_are_progress_only(monkeypatch, tmp_path) -> None:
     )
     nav_keys = {button.key for button in app.button if button.key}
     assert "wizard_nav_dataset_0" not in nav_keys
-    assert nav_markup.count('aria-label="数据集 · 来源"') == 1
-    assert 'aria-label="数据集 · 结构"' not in nav_markup
+    assert nav_markup.count('aria-label="数据集与任务 · 来源"') == 1
+    assert nav_markup.count('aria-label="数据集与任务 · 目标列"') == 1
+    assert 'aria-label="数据集 · 来源"' not in nav_markup
+    assert 'aria-label="任务 · 目标列"' not in nav_markup
     assert 'aria-label="任务 · 预算"' not in nav_markup
 
 
