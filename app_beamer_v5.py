@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+from functools import lru_cache
 import hashlib
 import json
 import logging
@@ -103,6 +104,7 @@ UI_LANGUAGE_LABELS = {
     "en": "English",
     "zh-CN": "简体中文",
 }
+LXGW_WENKAI_FONT_PATH = PROJECT_ROOT / "assets" / "fonts" / "lxgw-wenkai-500-normal.woff2"
 BEAMER_SANS_FONT_STACK = (
     '"LXGW WenKai", "LXGW WenKai GB", "LXGW WenKai Screen", '
     '"Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif'
@@ -561,12 +563,29 @@ def _load_rainbow_strip_background() -> str:
     )
 
 
+@lru_cache(maxsize=1)
+def _self_hosted_lxgw_wenkai_font_face() -> str:
+    if not LXGW_WENKAI_FONT_PATH.exists():
+        return ""
+    encoded = base64.b64encode(LXGW_WENKAI_FONT_PATH.read_bytes()).decode("ascii")
+    return (
+        "@font-face {"
+        'font-family: "LXGW WenKai";'
+        "font-style: normal;"
+        "font-weight: 300 800;"
+        "font-display: swap;"
+        f'src: url("data:font/woff2;base64,{encoded}") format("woff2");'
+        "}"
+    )
+
+
 def _apply_design_system() -> None:
     hero_background = _load_hero_background()
+    lxgw_wenkai_font_face = _self_hosted_lxgw_wenkai_font_face()
     st.markdown(
         """
         <style>
-            @import url("https://fonts.googleapis.com/css2?family=LXGW+WenKai+Mono+TC&display=swap");
+            __LXGW_WENKAI_FONT_FACE__
 
             :root {
                 --lab-ink: #171717;
@@ -585,7 +604,7 @@ def _apply_design_system() -> None:
             html,
             body,
             .stApp {
-                font-family: "LXGW WenKai Mono", "LXGW WenKai Mono GB", "LXGW WenKai Mono TC", "霞鹜文楷等宽", monospace !important;
+                font-family: "LXGW WenKai", "LXGW WenKai GB", "LXGW WenKai Screen", "霞鹜文楷", "Noto Sans SC", sans-serif !important;
             }
 
             button,
@@ -593,7 +612,7 @@ def _apply_design_system() -> None:
             textarea,
             select,
             [data-baseweb="select"] > div {
-                font-family: "LXGW WenKai Mono", "LXGW WenKai Mono GB", "LXGW WenKai Mono TC", "霞鹜文楷等宽", monospace !important;
+                font-family: "LXGW WenKai", "LXGW WenKai GB", "LXGW WenKai Screen", "霞鹜文楷", "Noto Sans SC", sans-serif !important;
             }
 
             .stApp {
@@ -601,7 +620,7 @@ def _apply_design_system() -> None:
                 background:
                     linear-gradient(180deg, #ffffff 0, #f7f8fb 34rem, var(--lab-bg) 100%),
                     var(--lab-bg);
-                font-family: "LXGW WenKai Mono", "LXGW WenKai Mono GB", "LXGW WenKai Mono TC", "霞鹜文楷等宽", monospace;
+                font-family: "LXGW WenKai", "LXGW WenKai GB", "LXGW WenKai Screen", "霞鹜文楷", "Noto Sans SC", sans-serif;
             }
 
             .stApp::before {
@@ -641,14 +660,14 @@ def _apply_design_system() -> None:
             [data-testid="stSidebar"] h2,
             [data-testid="stSidebar"] h3 {
                 color: var(--lab-ink);
-                font-family: "LXGW WenKai Mono", "LXGW WenKai Mono GB", "LXGW WenKai Mono TC", "霞鹜文楷等宽", monospace;
+                font-family: "LXGW WenKai", "LXGW WenKai GB", "LXGW WenKai Screen", "霞鹜文楷", "Noto Sans SC", sans-serif;
                 font-weight: 800;
                 letter-spacing: 0;
             }
 
             h1, h2, h3 {
                 color: var(--lab-ink);
-                font-family: "LXGW WenKai Mono", "LXGW WenKai Mono GB", "LXGW WenKai Mono TC", "霞鹜文楷等宽", monospace;
+                font-family: "LXGW WenKai", "LXGW WenKai GB", "LXGW WenKai Screen", "霞鹜文楷", "Noto Sans SC", sans-serif;
                 font-weight: 800;
                 letter-spacing: 0;
             }
@@ -671,7 +690,7 @@ def _apply_design_system() -> None:
 
             p, li, label, .stMarkdown, [data-testid="stCaptionContainer"] {
                 color: var(--lab-muted);
-                font-family: "LXGW WenKai Mono", "LXGW WenKai Mono GB", "LXGW WenKai Mono TC", "霞鹜文楷等宽", monospace;
+                font-family: "LXGW WenKai", "LXGW WenKai GB", "LXGW WenKai Screen", "霞鹜文楷", "Noto Sans SC", sans-serif;
             }
 
             .lab-hero {
@@ -713,7 +732,7 @@ def _apply_design_system() -> None:
                 font-weight: 800;
                 letter-spacing: 0.02em;
                 text-transform: none;
-                font-family: "LXGW WenKai Mono", "LXGW WenKai Mono GB", "LXGW WenKai Mono TC", "霞鹜文楷等宽", monospace;
+                font-family: "LXGW WenKai", "LXGW WenKai GB", "LXGW WenKai Screen", "霞鹜文楷", "Noto Sans SC", sans-serif;
             }
 
             .lab-kicker::before {
@@ -755,7 +774,7 @@ def _apply_design_system() -> None:
                 border-radius: 7px;
                 padding: 0.5rem 0.75rem;
                 font-size: 0.76rem;
-                font-family: "LXGW WenKai Mono", "LXGW WenKai Mono GB", "LXGW WenKai Mono TC", "霞鹜文楷等宽", monospace;
+                font-family: "LXGW WenKai", "LXGW WenKai GB", "LXGW WenKai Screen", "霞鹜文楷", "Noto Sans SC", sans-serif;
                 text-transform: none;
                 letter-spacing: 0;
                 font-weight: 700;
@@ -768,7 +787,7 @@ def _apply_design_system() -> None:
                 background: #ffffff;
                 color: #4d5562;
                 border-radius: 9px;
-                font-family: "LXGW WenKai Mono", "LXGW WenKai Mono GB", "LXGW WenKai Mono TC", "霞鹜文楷等宽", monospace;
+                font-family: "LXGW WenKai", "LXGW WenKai GB", "LXGW WenKai Screen", "霞鹜文楷", "Noto Sans SC", sans-serif;
             }
 
             .lab-caption {
@@ -786,12 +805,12 @@ def _apply_design_system() -> None:
 
             [data-testid="stMetricLabel"] {
                 color: var(--lab-muted);
-                font-family: "LXGW WenKai Mono", "LXGW WenKai Mono GB", "LXGW WenKai Mono TC", "霞鹜文楷等宽", monospace;
+                font-family: "LXGW WenKai", "LXGW WenKai GB", "LXGW WenKai Screen", "霞鹜文楷", "Noto Sans SC", sans-serif;
             }
 
             [data-testid="stMetricValue"] {
                 color: var(--lab-accent);
-                font-family: "LXGW WenKai Mono", "LXGW WenKai Mono GB", "LXGW WenKai Mono TC", "霞鹜文楷等宽", monospace;
+                font-family: "LXGW WenKai", "LXGW WenKai GB", "LXGW WenKai Screen", "霞鹜文楷", "Noto Sans SC", sans-serif;
                 font-weight: 800;
             }
 
@@ -999,7 +1018,9 @@ def _apply_design_system() -> None:
                 }
             }
         </style>
-        """.replace("__HERO_BACKGROUND__", hero_background),
+        """.replace("__HERO_BACKGROUND__", hero_background).replace(
+            "__LXGW_WENKAI_FONT_FACE__", lxgw_wenkai_font_face
+        ),
         unsafe_allow_html=True,
     )
 
@@ -1008,10 +1029,11 @@ def _apply_design_system() -> None:
 def _apply_beamer_design() -> None:
     """Minimal beamer-like layer on top of the existing Streamlit app."""
     rainbow_strip_background = _load_rainbow_strip_background()
+    lxgw_wenkai_font_face = _self_hosted_lxgw_wenkai_font_face()
     st.markdown(
         """
         <style>
-            @import url("https://fonts.googleapis.com/css2?family=LXGW+WenKai&family=Noto+Sans+SC:wght@400;500;600;700&display=swap");
+            __LXGW_WENKAI_FONT_FACE__
 
             :root {
                 --beamer-bg: #FAFAF8;
@@ -1584,6 +1606,7 @@ def _apply_beamer_design() -> None:
             }
         </style>
         """.replace("__RAINBOW_STRIP__", rainbow_strip_background)
+        .replace("__LXGW_WENKAI_FONT_FACE__", lxgw_wenkai_font_face)
         .replace("__BEAMER_SANS__", BEAMER_SANS_FONT_STACK)
         .replace("__BEAMER_MONO__", BEAMER_MONO_FONT_STACK),
         unsafe_allow_html=True,
@@ -1884,7 +1907,7 @@ def _render_results_restart_actions() -> None:
             "Need another run? Return to the dataset and task section to choose a different CSV or target setup."
         )
     )
-    action_cols = st.columns([1, 1, 2])
+    action_cols = st.columns(3)
     with action_cols[0]:
         if st.button(
             _t("Back: choose dataset"),
@@ -1900,6 +1923,15 @@ def _render_results_restart_actions() -> None:
             use_container_width=True,
         ):
             _set_active_step("target")
+            st.rerun()
+    with action_cols[2]:
+        if st.button(
+            _t("Back: preprocessing"),
+            key="results_back_to_preprocessing",
+            use_container_width=True,
+        ):
+            _set_active_step("check")
+            _set_preprocess_frame_index(1)
             st.rerun()
 
 

@@ -512,6 +512,7 @@ UI_TRANSLATIONS: dict[str, dict[str, str]] = {
         "Need another run? Return to the dataset and task section to choose a different CSV or target setup.": "需要再跑一版时，可以回到数据集与任务部分，重新选择 CSV 或目标设置。",
         "Back: choose dataset": "返回：选择数据集",
         "Back: choose task": "返回：选择任务",
+        "Back: preprocessing": "返回：预处理",
         "Use auto for inference, or force classification/regression manually.": "可以使用自动判断，也可以手动强制指定为分类或回归。",
         "Next: data preprocessing": "下一步：数据预处理",
         "Prepared data batches. Starting AutoML fitting...": "数据批次已准备完成，开始 AutoML 拟合……",

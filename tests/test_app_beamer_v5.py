@@ -493,6 +493,7 @@ def test_beamer_v5_results_can_return_to_dataset_or_task(monkeypatch, tmp_path) 
     assert "需要再跑一版时，可以回到数据集与任务部分" in text_blob
     assert "返回：选择数据集" in [button.label for button in app.button]
     assert "返回：选择任务" in [button.label for button in app.button]
+    assert "返回：预处理" in [button.label for button in app.button]
 
     _click_button(app, "返回：选择任务")
     text_blob = _markdown_blob(app)
@@ -506,6 +507,27 @@ def test_beamer_v5_results_can_return_to_dataset_or_task(monkeypatch, tmp_path) 
     text_blob = _markdown_blob(app_for_dataset)
     assert "数据集上传" in text_blob
     assert app_for_dataset.session_state["active_step"] == "upload"
+
+    app_for_preprocessing = AppTest.from_file("app_beamer_v5.py")
+    _seed_cached_result_state(app_for_preprocessing, tmp_path, active_step="results")
+    app_for_preprocessing.run(timeout=120)
+    _click_button(app_for_preprocessing, "返回：预处理")
+    text_blob = _markdown_blob(app_for_preprocessing)
+    assert "数据预处理" in text_blob
+    assert "预处理细节" in text_blob
+    assert app_for_preprocessing.session_state["active_step"] == "check"
+    assert app_for_preprocessing.session_state["preprocess_frame_idx"] == 1
+
+
+def test_beamer_v5_self_hosts_lxgw_wenkai_font() -> None:
+    source = Path("app_beamer_v5.py").read_text(encoding="utf-8")
+    font_face = app_module._self_hosted_lxgw_wenkai_font_face()
+
+    assert app_module.LXGW_WENKAI_FONT_PATH.exists()
+    assert 'font-family: "LXGW WenKai"' in font_face
+    assert "data:font/woff2;base64," in font_face
+    assert "fonts.googleapis.com" not in source
+    assert "fonts.gstatic.com" not in source
 
 
 def test_beamer_v5_translation_audit_covers_metadata_and_helper_literals() -> None:
