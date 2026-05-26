@@ -332,6 +332,27 @@ def test_beamer_v5_preprocess_details_has_bottom_navigation(monkeypatch, tmp_pat
     assert any(button.key == "preprocess_frame_bottom_next" for button in app.button)
 
 
+def test_beamer_v5_column_exclusion_updates_applied_preprocessing(
+    monkeypatch, tmp_path
+) -> None:
+    monkeypatch.setenv("ML_PLATFORM_RUNS_DIR", str(tmp_path / "runs"))
+
+    app = AppTest.from_file("app_beamer_v5.py")
+    app.run(timeout=120)
+
+    _choose_demo_and_target(app, language="zh-CN")
+    _click_button(app, "预处理细节")
+
+    app.multiselect(key="excluded_columns").set_value(["customer_id", "signup_date"])
+    app.run(timeout=120)
+
+    applied_plan = app.session_state["_preprocessing_plan_applied"]
+    excluded_columns = app_module._preprocessing_step_params(
+        applied_plan, "column_selection"
+    ).get("excluded_columns")
+    assert excluded_columns == ["customer_id", "signup_date"]
+
+
 def test_beamer_v5_advanced_experiment_settings_are_always_visible(
     monkeypatch, tmp_path
 ) -> None:

@@ -34,6 +34,39 @@ def test_cleaning_preserves_target_and_drops_unusable_features() -> None:
     assert cleaned.categorical_features == ["cat"]
 
 
+def test_cleaning_drops_user_excluded_columns_before_training() -> None:
+    df = pd.DataFrame(
+        {
+            "target": [0, 1, 0, 1, 0, 1],
+            "customer_id": ["c1", "c2", "c3", "c4", "c5", "c6"],
+            "amount": [10.0, 20.0, 30.0, 40.0, 50.0, 60.0],
+            "region": ["east", "west", "east", "north", "west", "north"],
+        }
+    )
+    tracker = DataFlowTracker(target="target")
+
+    cleaned = clean_and_split(
+        df,
+        CleanConfig(
+            target="target",
+            task_type="classification",
+            excluded_columns=["customer_id", "missing_column", "target"],
+            test_size=0.33,
+            random_state=3,
+        ),
+        tracker=tracker,
+    )
+    trace = artifact_to_dict(tracker.to_trace())
+    snapshots = {snapshot["step"]: snapshot for snapshot in trace["snapshots"]}
+
+    assert "customer_id" not in cleaned.feature_columns
+    assert cleaned.feature_columns == ["amount", "region"]
+    assert "customer_id" in snapshots["after_excluded_columns_drop"]["columns_removed"]
+    assert snapshots["after_excluded_columns_drop"]["metadata"]["dropped_columns"] == [
+        "customer_id"
+    ]
+
+
 def test_cleaning_handles_all_categorical_features() -> None:
     df = pd.DataFrame(
         {
@@ -228,12 +261,18 @@ def test_preprocessing_plan_maps_to_clean_config() -> None:
     plan = PreprocessingPlan(
         global_params={"test_size": 0.3, "random_state": 9},
         applied_step_ids=[
+            "column_selection",
             "missing_value",
             "categorical_encoding",
             "numeric_scaling",
             "feature_engineering",
         ],
         steps=[
+            PreprocessingStep(
+                id="column_selection",
+                kind="column_selection",
+                params={"excluded_columns": ["customer_id", "target"]},
+            ),
             PreprocessingStep(
                 id="missing_value",
                 kind="missing_value",
@@ -276,6 +315,7 @@ def test_preprocessing_plan_maps_to_clean_config() -> None:
     )
 
     assert config.test_size == 0.3
+    assert config.excluded_columns == ["customer_id"]
     assert config.random_state == 9
     assert config.high_missing_threshold == 0.75
     assert config.numeric_imputation_strategy == "mean"

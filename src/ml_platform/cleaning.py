@@ -26,6 +26,7 @@ MISSING_TOKEN = "__missing__"
 class CleanConfig:
     target: str
     task_type: str
+    excluded_columns: list[str] | None = None
     test_size: float = 0.2
     random_state: int = 42
     high_missing_threshold: float = 0.9
@@ -158,12 +159,23 @@ def preprocessing_plan_to_clean_config(
     scaling_step = resolved_steps.get("numeric_scaling", {})
     feature_step = resolved_steps.get("feature_engineering", {})
     autogluon_step = resolved_steps.get("autogluon_feature_generator", {})
+    column_selection_step = resolved_steps.get("column_selection", {})
 
     missing_params = missing_step.get("params", {}) if isinstance(missing_step, dict) else {}
     encoding_params = encoding_step.get("params", {}) if isinstance(encoding_step, dict) else {}
     scaling_params = scaling_step.get("params", {}) if isinstance(scaling_step, dict) else {}
     feature_params = feature_step.get("params", {}) if isinstance(feature_step, dict) else {}
     autogluon_params = autogluon_step.get("params", {}) if isinstance(autogluon_step, dict) else {}
+    column_selection_params = (
+        column_selection_step.get("params", {})
+        if isinstance(column_selection_step, dict)
+        else {}
+    )
+    excluded_columns = [
+        str(column)
+        for column in column_selection_params.get("excluded_columns", [])
+        if str(column).strip() and str(column) != target
+    ]
 
     feature_operations: list[FeatureEngineeringOperation] = []
     if bool(feature_params.get("enabled", True)):
@@ -191,6 +203,7 @@ def preprocessing_plan_to_clean_config(
     return CleanConfig(
         target=target,
         task_type=task_type,
+        excluded_columns=excluded_columns,
         test_size=float(global_params.get("test_size", 0.2)),
         random_state=int(global_params.get("random_state", 42)),
         high_missing_threshold=float(missing_params.get("high_missing_threshold", 0.9)),
@@ -221,6 +234,24 @@ def clean_and_split(df: pd.DataFrame, config: CleanConfig, tracker: DataFlowTrac
             working,
             metadata={"target": config.target, "task_type": config.task_type},
         )
+
+    excluded_columns = [
+        column
+        for column in (config.excluded_columns or [])
+        if column in working.columns and column != config.target
+    ]
+    if excluded_columns:
+        working = working.drop(columns=excluded_columns)
+        logger.info("Dropped user-excluded columns count=%d", len(excluded_columns))
+        log.append({"step": "drop_excluded_columns", "columns": excluded_columns})
+        if tracker is not None:
+            tracker.snapshot_dataframe(
+                "after_excluded_columns_drop",
+                "After excluded columns drop",
+                "cleaning",
+                working,
+                metadata={"dropped_columns": excluded_columns},
+            )
 
     before_rows = len(working)
     working = working.dropna(subset=[config.target])

@@ -118,6 +118,7 @@ UI_TRANSLATIONS: dict[str, dict[str, str]] = {
         "After manual cleaning (EDA + training)": "手动清洗后（EDA + 训练）",
         "After manual cleaning (training only)": "手动清洗后（仅训练）",
         "Cleaning input": "清洗输入",
+        "After excluded columns drop": "删除排除列后",
         "After target drop": "删除目标缺失后",
         "After high-missing drop": "删除高缺失列后",
         "After constant drop": "删除常量列后",

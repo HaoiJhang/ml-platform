@@ -610,6 +610,27 @@ def _update_applied_preprocessing_step(step_data: dict[str, Any]) -> None:
     )
 
 
+def _column_selection_step(excluded_columns: list[str]) -> dict[str, Any]:
+    return _preprocessing_step(
+        "column_selection",
+        params={"excluded_columns": list(excluded_columns)},
+        summary=_t("Excluded columns: {count}.", count=len(excluded_columns)),
+    )
+
+
+def _apply_excluded_columns_from_session(
+    columns: list[str], target_columns: list[str]
+) -> None:
+    target_set = set(target_columns)
+    excluded_columns = [
+        str(column)
+        for column in st.session_state.get("excluded_columns", [])
+        if str(column) in columns and str(column) not in target_set
+    ]
+    st.session_state["excluded_columns"] = excluded_columns
+    _update_applied_preprocessing_step(_column_selection_step(excluded_columns))
+
+
 def _preprocessing_plan_global_params(plan_data: Any) -> dict[str, Any]:
     payload = (
         artifact_to_dict(plan_data) if not isinstance(plan_data, dict) else plan_data
@@ -2872,6 +2893,7 @@ def _consume_pending_plan_suggestion(columns: list[str]) -> None:
         and column not in set(st.session_state.get("target_columns", []))
     ]
     st.session_state["excluded_columns"] = excluded_columns
+    _update_applied_preprocessing_step(_column_selection_step(excluded_columns))
 
     metric = pending.get("priority_metric_choice")
     current_metric = st.session_state.get("priority_metric_choice")
@@ -5584,14 +5606,7 @@ def main() -> None:
     )
     preprocessing_summary_draft_plan = _upsert_preprocessing_step(
         preprocessing_summary_draft_plan,
-        _preprocessing_step(
-            "column_selection",
-            params={"excluded_columns": list(preprocessing_summary_excluded_columns)},
-            summary=_t(
-                "Excluded columns: {count}.",
-                count=len(preprocessing_summary_excluded_columns),
-            ),
-        ),
+        _column_selection_step(preprocessing_summary_excluded_columns),
     )
     preprocessing_summary = _preprocessing_summary_text(
         test_size=preprocessing_summary_test_size,
@@ -5626,11 +5641,7 @@ def main() -> None:
         )
         preview_plan_data = None
         draft_feature_plan = st.session_state.get("_feature_engineering_applied_plan")
-        draft_column_step = _preprocessing_step(
-            "column_selection",
-            params={"excluded_columns": list(draft_excluded_columns)},
-            summary=_t("Excluded columns: {count}.", count=len(draft_excluded_columns)),
-        )
+        draft_column_step = _column_selection_step(draft_excluded_columns)
         draft_autogluon_plan = _build_preprocessing_plan(
             base_analysis_df=draft_base_analysis_df,
             target_columns=target_columns,
@@ -5679,11 +5690,7 @@ def main() -> None:
         autogluon_feature_generator_params = dict(preprocessing_summary_autogluon_params)
         preview_plan_data = None
         draft_feature_plan = st.session_state.get("_feature_engineering_applied_plan")
-        draft_column_step = _preprocessing_step(
-            "column_selection",
-            params={"excluded_columns": list(draft_excluded_columns)},
-            summary=_t("Excluded columns: {count}.", count=len(draft_excluded_columns)),
-        )
+        draft_column_step = _column_selection_step(draft_excluded_columns)
         draft_autogluon_plan = _build_preprocessing_plan(
             base_analysis_df=draft_base_analysis_df,
             target_columns=target_columns,
@@ -5751,6 +5758,8 @@ def main() -> None:
                             _t("Exclude columns from EDA and training features"),
                             exclude_options,
                             key="excluded_columns",
+                            on_change=_apply_excluded_columns_from_session,
+                            args=(columns, target_columns),
                             help=_t(
                                 "Excluded columns are removed before EDA and are not used as model features."
                             ),
@@ -5810,14 +5819,7 @@ def main() -> None:
 
                     with st.container(border=True):
                         st.write(_t("Step 3.1: Column selection and manual cleaning"))
-                        draft_column_step = _preprocessing_step(
-                            "column_selection",
-                            params={"excluded_columns": list(draft_excluded_columns)},
-                            summary=_t(
-                                "Excluded columns: {count}.",
-                                count=len(draft_excluded_columns),
-                            ),
-                        )
+                        draft_column_step = _column_selection_step(draft_excluded_columns)
                         _render_preprocessing_step_status(
                             "Column selection", draft_column_step, applied_preprocessing_plan
                         )
