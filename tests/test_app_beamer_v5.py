@@ -94,6 +94,7 @@ def _seed_cached_result_state(app: AppTest, tmp_path: Path, *, active_step: str)
         "task_type": "classification",
         "run": SimpleNamespace(run_id="seed-run", path=run_path),
         "trained": SimpleNamespace(
+            model=SimpleNamespace(),
             trainer_name="autogluon_tabular_predictor_long_name",
             leaderboard=[],
             feature_importance=[],
@@ -155,6 +156,11 @@ def _seed_cached_result_state(app: AppTest, tmp_path: Path, *, active_step: str)
         "report_path": report_path,
         "prediction_path": prediction_path,
         "model_path": model_path,
+        "cleaned": SimpleNamespace(
+            feature_columns=["feature_a", "feature_b"],
+            fitted_preprocessor=None,
+            prepared_feature_names=None,
+        ),
     }
 
     app.session_state["active_step"] = active_step
@@ -818,6 +824,26 @@ def test_beamer_v5_validation_risk_details_expand_for_warnings(
     assert "风险与问题明细" in text_blob
     assert "依赖结果前请先检查风险" in text_blob
     assert _expander_by_label(app, "风险与问题明细").proto.expanded is True
+
+
+def test_beamer_v5_results_include_current_session_inference_frame(
+    monkeypatch, tmp_path
+) -> None:
+    monkeypatch.setenv("ML_PLATFORM_RUNS_DIR", str(tmp_path / "runs"))
+
+    app = AppTest.from_file("app_beamer_v5.py")
+    _seed_cached_result_state(app, tmp_path, active_step="results")
+    app.run(timeout=120)
+
+    text_blob = _markdown_blob(app)
+    assert "推理预测" in text_blob
+    assert "推理预测" in [button.label for button in app.button]
+
+    _click_button(app, "推理预测")
+    text_blob = _markdown_blob(app)
+
+    assert "必需特征列：feature_a, feature_b" in text_blob
+    assert "上传一份推理 CSV 后预览预测结果。" in text_blob
 
 
 def test_beamer_v5_translation_audit_covers_metadata_and_helper_literals() -> None:

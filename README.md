@@ -21,7 +21,7 @@ UV_CACHE_DIR=.uv-cache uv run pytest
 Start the local app with:
 
 ```bash
-UV_CACHE_DIR=.uv-cache uv run streamlit run app.py
+UV_CACHE_DIR=.uv-cache uv run streamlit run app_beamer_v5.py
 ```
 
 The app is available at `http://localhost:8501` by default.
@@ -33,6 +33,13 @@ directory containing `config.json`, `eda_summary.json`, `cleaning_log.json`,
 `fit_summary.json`, and `report.md`. Run metadata is also recorded in
 `runs/runs.sqlite`.
 
+After a model is trained in the current browser session, the results page also
+includes an `Inference` frame. Upload a CSV with the same feature columns used
+for training to preview predictions. Classification runs show predicted labels
+plus per-class probabilities; regression runs show predicted values. This first
+version does not load historical runs for inference and does not write a new
+prediction artifact.
+
 LLM report generation is optional. If `LLM_API_KEY` is not configured, the
 pipeline still completes and writes a local rule-based report.
 
@@ -42,7 +49,7 @@ Deploy from GitHub with these settings:
 
 - Repository: `HaoiJhang/ml-platform`
 - Branch: the branch you want to deploy
-- Main file path: `app.py`
+- Main file path: `app_beamer_v5.py`
 - Python version: `3.11`
 
 The repository includes `uv.lock`, which Streamlit Community Cloud recognizes

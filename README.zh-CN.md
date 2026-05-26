@@ -37,7 +37,7 @@ UV_CACHE_DIR=.uv-cache uv run pytest
 然后启动应用：
 
 ```bash
-UV_CACHE_DIR=.uv-cache uv run streamlit run app.py
+UV_CACHE_DIR=.uv-cache uv run streamlit run app_beamer_v5.py
 ```
 
 默认访问地址是 `http://localhost:8501`。
@@ -48,7 +48,7 @@ UV_CACHE_DIR=.uv-cache uv run streamlit run app.py
 
 - Repository：`HaoiJhang/ml-platform`
 - Branch：你要部署的分支
-- Main file path：`app.py`
+- Main file path：`app_beamer_v5.py`
 - Python version：`3.11`
 
 项目根目录已经包含 `uv.lock`，Streamlit Community Cloud 会把它作为依赖文件使用。当前项目声明的 Python 版本是 `>=3.11,<3.12`，所以部署时需要在 Advanced settings 里选择 Python 3.11，不要使用 Cloud 默认版本。
@@ -177,6 +177,8 @@ predict churn, optimize recall, ignore customer_id-like fields, keep this as a q
 - 推荐下一步动作
 - 特征重要性
 - 分析报告正文
+
+训练完成后，结果页还会出现“推理预测”frame。你可以上传一份包含训练特征列的新 CSV，页面会复用当前会话刚训练出的模型和训练时拟合好的特征工程变换来生成预测；分类任务会展示预测类别和各类别概率，回归任务会展示预测值。第一版只支持当前页面会话中的模型，不加载历史 run，也不会额外保存新的推理结果文件。
 
 ## 5. 输出文件保存在哪里
 

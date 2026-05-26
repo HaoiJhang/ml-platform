@@ -38,6 +38,7 @@ from ml_platform.eda import (
 )
 from ml_platform.evaluation import evaluate_model
 from ml_platform.feature_engineering import suggest_feature_engineering_plan
+from ml_platform.inference import predict_with_trained_model
 from ml_platform.llm_report import generate_report_result
 from ml_platform.manual_cleaning import (
     DEFAULT_EFFECT_STAGE,
@@ -156,7 +157,7 @@ BEAMER_NAV_SECTIONS = {
         "Preflight validation",
     ),
     "training": ("Prepare batches", "Fit models"),
-    "results": ("Summary", "Metrics", "Validation", "Feature importance", "Downloads"),
+    "results": ("Summary", "Metrics", "Validation", "Feature importance", "Inference", "Downloads"),
 }
 
 BEAMER_STEP_TO_SECTION_FRAME = {
@@ -172,7 +173,7 @@ BEAMER_NAV_STEP_TARGETS = {
     "dataset_task": ("upload", "target"),
     "preprocess": ("check", "check", "check", "check"),
     "training": ("prepare", "train"),
-    "results": ("results", "results", "results", "results", "results"),
+    "results": ("results", "results", "results", "results", "results", "results"),
 }
 
 SLIDE_TITLES = {
@@ -2686,7 +2687,7 @@ def _render_run_outputs(results: list[dict[str, object]]) -> None:
     _render_slide_title(
         "results",
         "Evaluation & Export",
-        "Results are separated into summary, metrics, validation, importance, and downloads.",
+        "Results are separated into summary, metrics, validation, importance, inference, and downloads.",
     )
     if not results:
         st.info(_t("No completed training results are available yet."))
@@ -2789,6 +2790,12 @@ def _render_run_outputs(results: list[dict[str, object]]) -> None:
             "Feature importance is kept in its own frame so model explanation does not compete with model comparison."
         )
 
+    elif result_frame_idx == 4:
+        _render_inference_outputs(results)
+        _render_explanation_strip(
+            "Inference uses the current session model and the same feature engineering transform fitted during training."
+        )
+
     else:
         _panel_title(_t("Download files"))
         for result_index, result in enumerate(results):
@@ -2831,6 +2838,64 @@ def _render_run_outputs(results: list[dict[str, object]]) -> None:
         _render_explanation_strip(
             "Downloads are the final frame: model, report, and prediction sample are grouped by target."
         )
+
+
+def _render_inference_outputs(results: list[dict[str, object]]) -> None:
+    _panel_title(_t("Inference predictions"))
+    st.caption(
+        _t(
+            "Upload a CSV with the required feature columns. The target column is ignored if present, and extra columns stay in the displayed output."
+        )
+    )
+    for result_index, result in enumerate(results):
+        target = str(result["target"])
+        run = result["run"]
+        cleaned = result.get("cleaned")
+        trained = result["trained"]
+        label = f"{target} ({_t(str(result['task_type']))})"
+        with st.container(border=True):
+            _section_title(label)
+            if cleaned is None:
+                st.warning(
+                    _t(
+                        "Inference is available only for models trained in the current page session."
+                    )
+                )
+                continue
+
+            required_features = list(getattr(cleaned, "feature_columns", []))
+            st.caption(
+                _t(
+                    "Required feature columns: {columns}",
+                    columns=", ".join(required_features),
+                )
+            )
+            uploaded_file = st.file_uploader(
+                _t("Upload inference CSV"),
+                type=["csv"],
+                key=_safe_widget_key("inference_upload", getattr(run, "run_id", result_index), target),
+            )
+            if uploaded_file is None:
+                st.info(_t("Upload an inference CSV to preview predictions."))
+                continue
+
+            try:
+                inference_input = read_csv(uploaded_file)
+                inference_result = predict_with_trained_model(
+                    model=trained.model,
+                    cleaned=cleaned,
+                    new_data=inference_input,
+                    task_type=str(result["task_type"]),
+                )
+            except Exception as exc:
+                st.error(_t("Inference failed: {error}", error=str(exc)))
+                continue
+
+            st.dataframe(
+                inference_result.head(100),
+                hide_index=True,
+                use_container_width=True,
+            )
 
 
 def _queue_plan_suggestion(
@@ -7098,6 +7163,7 @@ def main() -> None:
                             "report_path": report_path,
                             "prediction_path": prediction_path,
                             "model_path": model_path,
+                            "cleaned": cleaned,
                         }
                     )
 
