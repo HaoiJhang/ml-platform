@@ -22,9 +22,12 @@ def _markdown_blob(app: AppTest) -> str:
     parts.extend(item.value for item in app.caption)
     parts.extend(item.value for item in app.info)
     parts.extend(item.value for item in app.success)
+    parts.extend(item.label for item in app.metric)
+    parts.extend(item.value for item in app.metric)
     parts.extend(item.label for item in app.button)
     parts.extend(item.label for item in app.radio)
     parts.extend(item.label for item in app.selectbox)
+    parts.extend(item.label for item in app.expander)
     return "\n".join(str(part) for part in parts)
 
 
@@ -32,6 +35,10 @@ def _click_button(app: AppTest, label: str) -> None:
     button = next(button for button in app.button if button.label == label)
     button.click()
     app.run(timeout=120)
+
+
+def _expander_by_label(app: AppTest, label: str):
+    return next(expander for expander in app.expander if expander.label == label)
 
 
 def _choose_demo_and_target(app: AppTest, *, language: str) -> None:
@@ -68,6 +75,7 @@ def _seed_cached_result_state(app: AppTest, tmp_path: Path, *, active_step: str)
         task_type_choices={"target": "classification"},
         time_budget=30,
         priority_metric_choice="accuracy",
+        priority_metric_choices={"target": "accuracy"},
         planner_brief="",
         preprocessing_plan=preprocessing_plan,
     )
@@ -86,15 +94,15 @@ def _seed_cached_result_state(app: AppTest, tmp_path: Path, *, active_step: str)
         "task_type": "classification",
         "run": SimpleNamespace(run_id="seed-run", path=run_path),
         "trained": SimpleNamespace(
-            trainer_name="autogluon",
+            trainer_name="autogluon_tabular_predictor_long_name",
             leaderboard=[],
             feature_importance=[],
             fit_summary={},
             training_notes=[],
-            optimization_metric_used="accuracy",
+            optimization_metric_used="f1_weighted",
             model_path=model_path,
         ),
-        "metrics": {"accuracy": 0.9, "train_accuracy": 0.95},
+        "metrics": {"f1_weighted": 0.9, "train_f1_weighted": 0.95},
         "report": "# seeded report\n",
         "preflight_validation": {
             "ok_to_run": True,
@@ -107,14 +115,43 @@ def _seed_cached_result_state(app: AppTest, tmp_path: Path, *, active_step: str)
         },
         "postrun_validation": {
             "ok": True,
-            "trainer_name": "autogluon",
+            "trainer_name": "autogluon_tabular_predictor_long_name",
             "report_mode": "rule_based",
             "generalization_gap": {},
             "issues": [],
         },
         "recommendations": {"summary": [], "next_steps": []},
-        "priority_metric": "accuracy",
-        "data_flow": {"snapshots": []},
+        "priority_metric": "f1_weighted",
+        "data_flow": {
+            "target": "target",
+            "snapshots": [
+                {
+                    "step": "target_dataset",
+                    "label": "Target dataset with a deliberately long label",
+                    "stage": "intake",
+                    "partition": "full",
+                    "data_kind": "dataframe",
+                    "rows": 240,
+                    "columns": 11,
+                    "rows_delta": None,
+                    "columns_added": [],
+                    "columns_removed": [],
+                },
+                {
+                    "step": "autogluon_feature_generator_config",
+                    "label": "AutoGluon feature generator config",
+                    "stage": "training",
+                    "partition": "full",
+                    "data_kind": "artifact",
+                    "rows": None,
+                    "columns": None,
+                    "rows_delta": None,
+                    "columns_added": [],
+                    "columns_removed": [],
+                    "metadata": {"trainer": "autogluon_tabular_predictor_long_name"},
+                },
+            ],
+        },
         "report_path": report_path,
         "prediction_path": prediction_path,
         "model_path": model_path,
@@ -132,6 +169,7 @@ def _seed_cached_result_state(app: AppTest, tmp_path: Path, *, active_step: str)
     app.session_state["time_budget"] = 30
     app.session_state["time_budget_text"] = "30"
     app.session_state["priority_metric_choice"] = "accuracy"
+    app.session_state["priority_metric_choices"] = {"target": "accuracy"}
     app.session_state["apply_feature_engineering"] = False
     app.session_state["excluded_columns"] = []
     app.session_state["test_size"] = 0.2
@@ -348,6 +386,91 @@ def test_beamer_v5_task_type_can_be_set_per_target(monkeypatch, tmp_path) -> Non
     assert not any(radio.key == "task_type_choice" for radio in app.radio)
 
 
+def test_beamer_v5_priority_metric_can_be_set_per_target(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("ML_PLATFORM_RUNS_DIR", str(tmp_path / "runs"))
+
+    app = AppTest.from_file("app_beamer_v5.py")
+    app.run(timeout=120)
+
+    app.selectbox(key="ui_language").set_value("en")
+    app.run(timeout=120)
+    app.radio[0].set_value("Demo: demo_customer_churn.csv")
+    app.run(timeout=120)
+    app.multiselect(key="target_columns").set_value(["churn", "monthly_spend"])
+    app.run(timeout=120)
+
+    churn_key = f"priority_metric_choice__{app_module._safe_widget_key('churn')}"
+    spend_key = f"priority_metric_choice__{app_module._safe_widget_key('monthly_spend')}"
+
+    assert app.selectbox(key=churn_key).label == "Priority metric"
+    assert app.selectbox(key=spend_key).label == "Priority metric"
+    app.selectbox(key=churn_key).set_value("recall_weighted")
+    app.selectbox(key=spend_key).set_value("r2")
+    app.run(timeout=120)
+
+    assert app.session_state["priority_metric_choices"] == {
+        "churn": "recall_weighted",
+        "monthly_spend": "r2",
+    }
+
+
+def test_beamer_v5_priority_metric_choices_survive_return_to_target(
+    monkeypatch, tmp_path
+) -> None:
+    monkeypatch.setenv("ML_PLATFORM_RUNS_DIR", str(tmp_path / "runs"))
+
+    app = AppTest.from_file("app_beamer_v5.py")
+    app.run(timeout=120)
+
+    app.selectbox(key="ui_language").set_value("en")
+    app.run(timeout=120)
+    app.radio[0].set_value("Demo: demo_customer_churn.csv")
+    app.run(timeout=120)
+    app.multiselect(key="target_columns").set_value(["churn", "monthly_spend"])
+    app.run(timeout=120)
+
+    churn_key = f"priority_metric_choice__{app_module._safe_widget_key('churn')}"
+    spend_key = f"priority_metric_choice__{app_module._safe_widget_key('monthly_spend')}"
+    app.selectbox(key=churn_key).set_value("recall_weighted")
+    app.selectbox(key=spend_key).set_value("r2")
+    app.run(timeout=120)
+
+    _click_button(app, "Next: data preprocessing")
+    _click_button(app, "Back: choose target")
+
+    assert app.selectbox(key=churn_key).value == "recall_weighted"
+    assert app.selectbox(key=spend_key).value == "r2"
+    assert app.session_state["priority_metric_choices"] == {
+        "churn": "recall_weighted",
+        "monthly_spend": "r2",
+    }
+
+
+def test_beamer_v5_single_priority_metric_survives_return_to_target(
+    monkeypatch, tmp_path
+) -> None:
+    monkeypatch.setenv("ML_PLATFORM_RUNS_DIR", str(tmp_path / "runs"))
+
+    app = AppTest.from_file("app_beamer_v5.py")
+    app.run(timeout=120)
+
+    app.selectbox(key="ui_language").set_value("en")
+    app.run(timeout=120)
+    app.radio[0].set_value("Demo: demo_customer_churn.csv")
+    app.run(timeout=120)
+    app.multiselect(key="target_columns").set_value(["monthly_spend"])
+    app.run(timeout=120)
+
+    app.selectbox(key="priority_metric_choice").set_value("r2")
+    app.run(timeout=120)
+
+    _click_button(app, "Next: data preprocessing")
+    _click_button(app, "Back: choose target")
+
+    assert app.selectbox(key="priority_metric_choice").value == "r2"
+    assert app.session_state["priority_metric_choices"] == {"monthly_spend": "r2"}
+
+
 def test_beamer_v5_task_type_choices_affect_signature() -> None:
     base_kwargs = {
         "dataset_fingerprint": "dataset-1",
@@ -369,6 +492,72 @@ def test_beamer_v5_task_type_choices_affect_signature() -> None:
     )
 
     assert auto_signature != mixed_signature
+
+
+def test_beamer_v5_priority_metric_choices_affect_signature() -> None:
+    base_kwargs = {
+        "dataset_fingerprint": "dataset-1",
+        "target_columns": ["churn", "monthly_spend"],
+        "task_type_choice": "auto",
+        "task_type_choices": {"churn": "classification", "monthly_spend": "regression"},
+        "time_budget": 30,
+        "priority_metric_choice": "auto",
+        "planner_brief": "",
+        "preprocessing_plan": app_module._default_preprocessing_plan(),
+    }
+
+    auto_signature = app_module._experiment_signature(
+        **base_kwargs,
+        priority_metric_choices={"churn": "auto", "monthly_spend": "auto"},
+    )
+    mixed_signature = app_module._experiment_signature(
+        **base_kwargs,
+        priority_metric_choices={"churn": "recall_weighted", "monthly_spend": "r2"},
+    )
+
+    assert auto_signature != mixed_signature
+
+
+def test_beamer_v5_planner_suggestion_preserves_manual_priority_metric(monkeypatch) -> None:
+    fake_state = {
+        "target_columns": ["target"],
+        "priority_metric_choice": "r2",
+    }
+    monkeypatch.setattr(app_module.st, "session_state", fake_state)
+
+    app_module._queue_plan_suggestion(
+        {
+            "suggested_targets": ["target"],
+            "suggested_task_type": "regression",
+            "suggested_excluded_columns": [],
+            "priority_metric": "rmse",
+        },
+        ["feature", "target"],
+    )
+    app_module._consume_pending_plan_suggestion(["feature", "target"])
+
+    assert fake_state["priority_metric_choice"] == "r2"
+
+
+def test_beamer_v5_planner_suggestion_sets_auto_priority_metric(monkeypatch) -> None:
+    fake_state = {
+        "target_columns": ["target"],
+        "priority_metric_choice": "auto",
+    }
+    monkeypatch.setattr(app_module.st, "session_state", fake_state)
+
+    app_module._queue_plan_suggestion(
+        {
+            "suggested_targets": ["target"],
+            "suggested_task_type": "regression",
+            "suggested_excluded_columns": [],
+            "priority_metric": "rmse",
+        },
+        ["feature", "target"],
+    )
+    app_module._consume_pending_plan_suggestion(["feature", "target"])
+
+    assert fake_state["priority_metric_choice"] == "rmse"
 
 
 def test_beamer_v5_nav_dots_are_progress_only(monkeypatch, tmp_path) -> None:
@@ -528,6 +717,86 @@ def test_beamer_v5_self_hosts_lxgw_wenkai_font() -> None:
     assert "data:font/woff2;base64," in font_face
     assert "fonts.googleapis.com" not in source
     assert "fonts.gstatic.com" not in source
+
+
+def test_beamer_v5_metric_css_constrains_long_values() -> None:
+    source = Path("app_beamer_v5.py").read_text(encoding="utf-8")
+
+    assert "--beamer-fs-metric-value:" in source
+    assert "--beamer-fs-metric-value: clamp(18px, 1.7vw, 24px);" in source
+    assert "--beamer-fs-metric-value-compact:" in source
+    assert "--beamer-fs-metric-value-compact: clamp(15px, 1.25vw, 18px);" in source
+    assert "--beamer-card-min-height:" in source
+    assert '[data-testid="stMetric"]' in source
+    assert "min-width: 0 !important;" in source
+    assert "text-overflow: ellipsis !important;" in source
+    assert "white-space: nowrap !important;" in source
+    assert "font-family: var(--beamer-mono) !important;" in source
+
+
+def test_beamer_v5_data_flow_uses_selectable_diagram_nodes(
+    monkeypatch, tmp_path
+) -> None:
+    monkeypatch.setenv("ML_PLATFORM_RUNS_DIR", str(tmp_path / "runs"))
+
+    app = AppTest.from_file("app_beamer_v5.py")
+    _seed_cached_result_state(app, tmp_path, active_step="results")
+    app.session_state["data_flow_selected_index_target"] = 1
+    app.run(timeout=120)
+    _click_button(app, "校验")
+
+    text_blob = _markdown_blob(app)
+    assert "数据处理流程" in text_blob
+    assert "数据处理流程摘要" in text_blob
+    assert "总步骤数" in text_blob
+    assert "最终数据形状" in text_blob
+    assert "f1_weighted" in text_blob
+    assert "autogluon_tabular_predictor_long_name" in text_blob
+    assert _expander_by_label(app, "运行校验详情").proto.expanded is False
+    assert _expander_by_label(app, "风险与问题明细").proto.expanded is False
+    assert _expander_by_label(app, "数据处理流程详情").proto.expanded is False
+    assert "选择下方数据流程图中的节点" in text_blob
+    assert "选择数据流程节点" in text_blob
+    assert "AutoGluon 特征生成配置" in text_blob
+    source = Path("app_beamer_v5.py").read_text(encoding="utf-8")
+    assert "st.plotly_chart" not in source
+    assert 'on_select="rerun"' not in source
+    assert "beamer-flow-svg" in source
+    assert "_data_flow_node_href" not in source
+    assert any("beamer-flow-selected" in item.value for item in app.markdown)
+    assert any("beamer-flow-svg" in item.value for item in app.markdown)
+    assert any('marker-end="url(#arrowhead)"' in item.value for item in app.markdown)
+    assert any("240 x 11" in item.value for item in app.markdown)
+    assert not any(
+        "beamer-flow-svg" in item.value and "<a href=" in item.value
+        for item in app.markdown
+    )
+    assert "元数据" in text_blob
+    assert "字段" in text_blob
+    assert "值" in text_blob
+
+
+def test_beamer_v5_validation_risk_details_expand_for_warnings(
+    monkeypatch, tmp_path
+) -> None:
+    monkeypatch.setenv("ML_PLATFORM_RUNS_DIR", str(tmp_path / "runs"))
+
+    app = AppTest.from_file("app_beamer_v5.py")
+    _seed_cached_result_state(app, tmp_path, active_step="results")
+    app.session_state["_latest_results"][0]["preflight_validation"]["issues"] = [
+        {
+            "severity": "warning",
+            "code": "small_dataset",
+            "message": "Small dataset warning",
+        }
+    ]
+    app.run(timeout=120)
+    _click_button(app, "校验")
+
+    text_blob = _markdown_blob(app)
+    assert "风险与问题明细" in text_blob
+    assert "依赖结果前请先检查风险" in text_blob
+    assert _expander_by_label(app, "风险与问题明细").proto.expanded is True
 
 
 def test_beamer_v5_translation_audit_covers_metadata_and_helper_literals() -> None:

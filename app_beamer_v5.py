@@ -7,6 +7,7 @@ import json
 import logging
 import os
 from pathlib import Path
+import re
 import sys
 from typing import Any, Callable
 
@@ -298,25 +299,27 @@ def _default_preprocessing_plan() -> dict[str, Any]:
         _preprocessing_step(
             "column_selection",
             params={"excluded_columns": []},
-            summary="No excluded columns.",
+            summary=_t("No excluded columns."),
         ),
         _preprocessing_step(
             "manual_cleaning",
             enabled=False,
             params={"plan": None},
-            summary="No manual cleaning rules applied.",
+            summary=_t("No manual cleaning rules applied."),
         ),
         _preprocessing_step(
             "missing_value",
             params={
                 "high_missing_threshold": 0.9,
             },
-            summary="Auto-drop high-missing columns above 0.90.",
+            summary=_t("Auto-drop high-missing columns above 0.90."),
         ),
         _preprocessing_step(
             "autogluon_feature_generator",
             params=dict(AUTOGLUON_FEATURE_GENERATOR_DEFAULTS),
-            summary="AutoGluon feature generation is enabled for numeric, categorical, datetime, and text features.",
+            summary=_t(
+                "AutoGluon feature generation is enabled for numeric, categorical, datetime, and text features."
+            ),
         ),
         _preprocessing_step(
             "feature_engineering",
@@ -327,7 +330,7 @@ def _default_preprocessing_plan() -> dict[str, Any]:
                 "rejected_operations": [],
                 "notes": [],
             },
-            summary="Feature engineering is disabled.",
+            summary=_t("Feature engineering is disabled."),
         ),
     ]
     return {
@@ -389,7 +392,192 @@ def _autogluon_enabled_feature_names(params: dict[str, bool]) -> list[str]:
         "enable_raw_text_features": "raw_text",
         "enable_vision_features": "vision",
     }
-    return [label for key, label in labels.items() if bool(params.get(key))]
+    return [_t(label) for key, label in labels.items() if bool(params.get(key))]
+
+
+def _display_value(value: Any) -> str:
+    return _t(str(value))
+
+
+def _localize_generated_text(value: Any) -> str:
+    text = str(value)
+    if not text.strip():
+        return ""
+
+    exact = _t(text)
+    if exact != text:
+        return exact
+
+    patterns: list[tuple[str, Callable[[re.Match[str]], str]]] = [
+        (
+            r"^Inferred target candidates from the brief: (?P<targets>.+)\.$",
+            lambda match: _t(
+                "Inferred target candidates from the brief: {targets}.",
+                targets=match.group("targets"),
+            ),
+        ),
+        (
+            r"^No target was found in the brief, so the last column was suggested: (?P<column>.+)\.$",
+            lambda match: _t(
+                "No target was found in the brief, so the last column was suggested: {column}.",
+                column=match.group("column"),
+            ),
+        ),
+        (
+            r"^Suggested task type for (?P<target>.+): (?P<task_type>auto|classification|regression)\.$",
+            lambda match: _t(
+                "Suggested task type for {target}: {task_type}.",
+                target=match.group("target"),
+                task_type=_display_value(match.group("task_type")),
+            ),
+        ),
+        (
+            r"^Potential identifier columns were suggested for exclusion: (?P<columns>.+)\.$",
+            lambda match: _t(
+                "Potential identifier columns were suggested for exclusion: {columns}.",
+                columns=match.group("columns"),
+            ),
+        ),
+        (
+            r"^Detected a priority metric preference from the brief: (?P<metric>.+)\.$",
+            lambda match: _t(
+                "Detected a priority metric preference from the brief: {metric}.",
+                metric=match.group("metric"),
+            ),
+        ),
+        (
+            r"^Review and possibly exclude: (?P<columns>.+)\.$",
+            lambda match: _t(
+                "Review and possibly exclude: {columns}.",
+                columns=match.group("columns"),
+            ),
+        ),
+        (
+            r"^Consider excluding identifier-like columns: (?P<columns>.+)\.$",
+            lambda match: _t(
+                "Consider excluding identifier-like columns: {columns}.",
+                columns=match.group("columns"),
+            ),
+        ),
+        (
+            r"^Pick a metric compatible with (?P<task_type>.+) or adjust the task definition\.$",
+            lambda match: _t(
+                "Pick a metric compatible with {task_type} or adjust the task definition.",
+                task_type=_display_value(match.group("task_type")),
+            ),
+        ),
+        (
+            r"^Rejected rule (?P<rule_id>[^:]+): (?P<reason>.+)$",
+            lambda match: _t(
+                "Rejected rule {rule_id}: {reason}",
+                rule_id=match.group("rule_id"),
+                reason=_localize_generated_text(match.group("reason")),
+            ),
+        ),
+        (
+            r"^operator (?P<operator>.+) requires one or more values\.$",
+            lambda match: _t(
+                "operator {operator} requires one or more values.",
+                operator=_display_value(match.group("operator")),
+            ),
+        ),
+        (
+            r"^operator (?P<operator>.+) requires a value\.$",
+            lambda match: _t(
+                "operator {operator} requires a value.",
+                operator=_display_value(match.group("operator")),
+            ),
+        ),
+        (
+            r"^numeric comparison requires a numeric column: (?P<column>.+)\.$",
+            lambda match: _t(
+                "numeric comparison requires a numeric column: {column}.",
+                column=match.group("column"),
+            ),
+        ),
+        (
+            r"^column is missing or was already removed: (?P<column>.+)\.$",
+            lambda match: _t(
+                "column is missing or was already removed: {column}.",
+                column=match.group("column"),
+            ),
+        ),
+        (
+            r"^unsupported rule type (?P<rule_type>.+)\.$",
+            lambda match: _t(
+                "unsupported rule type {rule_type}.",
+                rule_type=_display_value(match.group("rule_type")),
+            ),
+        ),
+        (
+            r"^protected target column cannot be dropped: (?P<column>.+)\.$",
+            lambda match: _t(
+                "protected target column cannot be dropped: {column}.",
+                column=match.group("column"),
+            ),
+        ),
+        (
+            r"^unsupported filter operator (?P<operator>.+)\.$",
+            lambda match: _t(
+                "unsupported filter operator {operator}.",
+                operator=_display_value(match.group("operator")),
+            ),
+        ),
+        (
+            r"^Rejected unsupported operation: (?P<operation>.+)\.$",
+            lambda match: _t(
+                "Rejected unsupported operation: {operation}.",
+                operation=_display_value(match.group("operation")),
+            ),
+        ),
+        (
+            r"^Rejected (?P<operation>.+): source column is missing, unknown, or target-like\.$",
+            lambda match: _t(
+                "Rejected {operation}: source column is missing, unknown, or target-like.",
+                operation=_display_value(match.group("operation")),
+            ),
+        ),
+        (
+            r"^Rejected date_parts for (?P<column>.+): no allowed parts were requested\.$",
+            lambda match: _t(
+                "Rejected date_parts for {column}: no allowed parts were requested.",
+                column=match.group("column"),
+            ),
+        ),
+        (
+            r"^Rejected numeric_binning for (?P<column>.+): source is not numeric\.$",
+            lambda match: _t(
+                "Rejected numeric_binning for {column}: source is not numeric.",
+                column=match.group("column"),
+            ),
+        ),
+        (
+            r"^Rejected numeric_interaction: unsupported operator (?P<operator>.+)\.$",
+            lambda match: _t(
+                "Rejected numeric_interaction: unsupported operator {operator}.",
+                operator=_display_value(match.group("operator")),
+            ),
+        ),
+        (
+            r"^Rejected categorical_mapping for (?P<column>.+): source is numeric\.$",
+            lambda match: _t(
+                "Rejected categorical_mapping for {column}: source is numeric.",
+                column=match.group("column"),
+            ),
+        ),
+        (
+            r"^Rejected categorical_mapping for (?P<column>.+): mapping is empty\.$",
+            lambda match: _t(
+                "Rejected categorical_mapping for {column}: mapping is empty.",
+                column=match.group("column"),
+            ),
+        ),
+    ]
+    for pattern, formatter in patterns:
+        match = re.match(pattern, text)
+        if match:
+            return formatter(match)
+    return text
 
 
 def _upsert_preprocessing_step(
@@ -1053,6 +1241,10 @@ def _apply_beamer_design() -> None:
                 --beamer-fs-panel: 18px;
                 --beamer-fs-slide: 24px;
                 --beamer-fs-hero: 28px;
+                --beamer-fs-metric-label: 12px;
+                --beamer-fs-metric-value: clamp(18px, 1.7vw, 24px);
+                --beamer-fs-metric-value-compact: clamp(15px, 1.25vw, 18px);
+                --beamer-card-min-height: 84px;
             }
 
             html, body, .stApp, .stApp *,
@@ -1108,6 +1300,14 @@ def _apply_beamer_design() -> None:
                 max-width: 1120px !important;
                 padding-top: 1.1rem !important;
                 padding-bottom: 3rem !important;
+            }
+
+            [data-testid="stHorizontalBlock"],
+            [data-testid="column"],
+            [data-testid="stVerticalBlock"],
+            [data-testid="stVerticalBlock"] > div,
+            div[data-testid="stVerticalBlockBorderWrapper"] {
+                min-width: 0 !important;
             }
 
             [data-testid="stHeader"],
@@ -1440,6 +1640,21 @@ def _apply_beamer_design() -> None:
                 box-shadow: none !important;
             }
 
+            [data-testid="stMetric"] {
+                min-width: 0 !important;
+                min-height: var(--beamer-card-min-height) !important;
+                padding: 0.62rem 0.72rem !important;
+                overflow: hidden !important;
+                display: flex !important;
+                flex-direction: column !important;
+                justify-content: center !important;
+            }
+
+            [data-testid="stMetric"] * {
+                min-width: 0 !important;
+                overflow-wrap: anywhere;
+            }
+
             div[data-testid="stVerticalBlockBorderWrapper"] {
                 border: 1px solid var(--beamer-line) !important;
                 background: var(--beamer-paper) !important;
@@ -1457,14 +1672,116 @@ def _apply_beamer_design() -> None:
 
             [data-testid="stMetricValue"] {
                 color: var(--beamer-blue) !important;
-                font-weight: 700 !important;
+                font-family: var(--beamer-mono) !important;
+                font-size: var(--beamer-fs-metric-value) !important;
+                font-weight: 650 !important;
+                line-height: 1.05 !important;
+                max-width: 100% !important;
+                overflow: hidden !important;
+                text-overflow: ellipsis !important;
+                white-space: nowrap !important;
+            }
+
+            [data-testid="stMetricValue"] div,
+            [data-testid="stMetricValue"] span {
+                max-width: 100% !important;
+                overflow: hidden !important;
+                text-overflow: ellipsis !important;
+                white-space: nowrap !important;
             }
 
             [data-testid="stMetricLabel"],
             [data-testid="stCaptionContainer"] {
                 color: var(--beamer-muted);
-                font-size: var(--beamer-fs-meta) !important;
+                font-size: var(--beamer-fs-metric-label) !important;
                 line-height: 1.45 !important;
+            }
+
+            [data-testid="stMetricLabel"] {
+                max-width: 100% !important;
+                overflow: hidden !important;
+                text-overflow: ellipsis !important;
+                white-space: nowrap !important;
+            }
+
+            .beamer-flow-instruction {
+                margin: 0.15rem 0 0.7rem;
+                color: var(--beamer-muted);
+                font-size: var(--beamer-fs-meta);
+                line-height: 1.45;
+            }
+
+            .beamer-flow-selected {
+                margin: 0.4rem 0 0.8rem;
+                padding: 0.55rem 0.7rem;
+                border-left: 4px solid var(--beamer-blue);
+                background: #F2F6FF;
+                color: var(--beamer-ink);
+                font-size: var(--beamer-fs-meta);
+                line-height: 1.45;
+            }
+
+            .beamer-flow-svg {
+                width: 100%;
+                height: auto;
+                margin: 0.3rem 0 0.8rem;
+                display: block;
+                overflow: visible;
+            }
+
+            .beamer-flow-svg .flow-arrow {
+                fill: none;
+                stroke: var(--beamer-muted);
+                stroke-width: 1.8;
+                stroke-linecap: round;
+                stroke-linejoin: round;
+            }
+
+            .beamer-flow-svg .flow-arrow-head {
+                fill: var(--beamer-muted);
+            }
+
+            .beamer-flow-svg .flow-node rect {
+                fill: #FFFFFF;
+                stroke: #CBD3E7;
+                stroke-width: 1.6;
+            }
+
+            .beamer-flow-svg .flow-node.selected rect {
+                fill: #1F4EAA;
+                stroke: #1F4EAA;
+            }
+
+            .beamer-flow-svg .flow-node-index,
+            .beamer-flow-svg .flow-node-label,
+            .beamer-flow-svg .flow-node-meta {
+                font-family: var(--beamer-sans);
+                letter-spacing: 0;
+            }
+
+            .beamer-flow-svg .flow-node-index {
+                fill: var(--beamer-muted);
+                font-size: 11px;
+                font-weight: 700;
+            }
+
+            .beamer-flow-svg .flow-node-label {
+                fill: var(--beamer-blue);
+                font-size: 14px;
+                font-weight: 700;
+                text-anchor: middle;
+            }
+
+            .beamer-flow-svg .flow-node-meta {
+                fill: var(--beamer-muted);
+                font-size: 10px;
+                text-anchor: middle;
+            }
+
+            .beamer-flow-svg .flow-node.selected .flow-node-index,
+            .beamer-flow-svg .flow-node.selected .flow-node-label,
+            .beamer-flow-svg .flow-node.selected .flow-node-meta {
+                fill: #FFFFFF;
             }
 
             button[kind="primary"],
@@ -1596,6 +1913,9 @@ def _apply_beamer_design() -> None:
                 }
                 .beamer-roadmap {
                     grid-template-columns: repeat(2, minmax(0, 1fr));
+                }
+                [data-testid="stMetricValue"] {
+                    font-size: var(--beamer-fs-metric-value-compact) !important;
                 }
             }
 
@@ -2164,9 +2484,38 @@ def _infer_task_type(df: pd.DataFrame, target: str) -> str:
 VALID_TASK_TYPE_CHOICES = {"auto", "classification", "regression"}
 
 
+PRIORITY_METRIC_CHOICES = (
+    "auto",
+    "accuracy",
+    "f1_weighted",
+    "precision_weighted",
+    "recall_weighted",
+    "roc_auc",
+    "rmse",
+    "mae",
+    "r2",
+)
+PRIORITY_METRIC_OPTIONS = {
+    "auto",
+    "accuracy",
+    "f1_weighted",
+    "precision_weighted",
+    "recall_weighted",
+    "roc_auc",
+    "rmse",
+    "mae",
+    "r2",
+}
+
+
 def _normalize_task_type_choice(value: object) -> str:
     choice = str(value)
     return choice if choice in VALID_TASK_TYPE_CHOICES else "auto"
+
+
+def _normalize_priority_metric_choice(value: object) -> str:
+    choice = str(value)
+    return choice if choice in PRIORITY_METRIC_OPTIONS else "auto"
 
 
 def _sync_task_type_choices(targets: list[str]) -> dict[str, str]:
@@ -2185,6 +2534,42 @@ def _sync_task_type_choices(targets: list[str]) -> dict[str, str]:
             st.session_state[widget_key] = choices[target]
     st.session_state["task_type_choices"] = choices
     return choices
+
+
+def _sync_priority_metric_choices(targets: list[str]) -> dict[str, str]:
+    legacy_choice = _normalize_priority_metric_choice(
+        st.session_state.get("priority_metric_choice", "auto")
+    )
+    stored = st.session_state.get("priority_metric_choices", {})
+    if not isinstance(stored, dict):
+        stored = {}
+    choices: dict[str, str] = {}
+    for target in targets:
+        widget_key = f"priority_metric_choice__{_safe_widget_key(target)}"
+        raw_choice = st.session_state.get(widget_key, stored.get(target, legacy_choice))
+        choices[target] = _normalize_priority_metric_choice(raw_choice)
+        if widget_key not in st.session_state:
+            st.session_state[widget_key] = choices[target]
+    st.session_state["priority_metric_choices"] = choices
+    return choices
+
+
+def _restore_single_target_priority_metric(targets: list[str]) -> str:
+    current = _normalize_priority_metric_choice(
+        st.session_state.get("priority_metric_choice", "auto")
+    )
+    if len(targets) != 1:
+        return current
+
+    stored = st.session_state.get("priority_metric_choices", {})
+    if not isinstance(stored, dict):
+        return current
+
+    target_metric = _normalize_priority_metric_choice(stored.get(targets[0], "auto"))
+    if current == "auto" and target_metric != "auto":
+        st.session_state["priority_metric_choice"] = target_metric
+        return target_metric
+    return current
 
 
 def _target_task_types(
@@ -2209,6 +2594,7 @@ def _experiment_signature(
     task_type_choices: dict[str, str] | None = None,
     time_budget: int,
     priority_metric_choice: str,
+    priority_metric_choices: dict[str, str] | None = None,
     planner_brief: str,
     preprocessing_plan: Any,
 ) -> str:
@@ -2219,6 +2605,7 @@ def _experiment_signature(
         "task_type_choices": task_type_choices or {},
         "time_budget": time_budget,
         "priority_metric_choice": priority_metric_choice,
+        "priority_metric_choices": priority_metric_choices or {},
         "planner_brief": planner_brief.strip(),
         "preprocessing_plan": artifact_to_dict(preprocessing_plan),
     }
@@ -2240,6 +2627,7 @@ def _initialize_experiment_state(dataset_signature: str, columns: list[str]) -> 
     st.session_state["time_budget"] = 30
     st.session_state["time_budget_text"] = "30"
     st.session_state["priority_metric_choice"] = "auto"
+    st.session_state["priority_metric_choices"] = {}
     st.session_state["apply_feature_engineering"] = False
     st.session_state["excluded_columns"] = []
     st.session_state["test_size"] = 0.2
@@ -2364,7 +2752,7 @@ def _render_run_outputs(results: list[dict[str, object]]) -> None:
                 _section_title(_t("Data flow"))
                 _render_data_flow(result["data_flow"])
         _render_explanation_strip(
-            "Validation is separated from score comparison because it answers a different question: whether this run is safe to trust."
+            "Validation answers whether this run is safe to trust. Expand the details to audit issues and data flow."
         )
 
     elif result_frame_idx == 3:
@@ -2486,18 +2874,25 @@ def _consume_pending_plan_suggestion(columns: list[str]) -> None:
     st.session_state["excluded_columns"] = excluded_columns
 
     metric = pending.get("priority_metric_choice")
-    if metric in {
-        "auto",
-        "accuracy",
-        "f1_weighted",
-        "precision_weighted",
-        "recall_weighted",
-        "roc_auc",
-        "rmse",
-        "mae",
-        "r2",
-    }:
+    current_metric = st.session_state.get("priority_metric_choice")
+    has_manual_metric = (
+        current_metric in PRIORITY_METRIC_OPTIONS and current_metric != "auto"
+    )
+    if metric in PRIORITY_METRIC_OPTIONS and not has_manual_metric:
         st.session_state["priority_metric_choice"] = metric
+
+    current_metric_choices = st.session_state.get("priority_metric_choices", {})
+    if metric in PRIORITY_METRIC_OPTIONS and isinstance(current_metric_choices, dict):
+        metric_targets = pending_targets or list(st.session_state.get("target_columns", []))
+        st.session_state["priority_metric_choices"] = {
+            target: (
+                _normalize_priority_metric_choice(current_metric_choices.get(target))
+                if _normalize_priority_metric_choice(current_metric_choices.get(target))
+                != "auto"
+                else metric
+            )
+            for target in metric_targets
+        }
 
 
 def _render_text_items(title: str, items: list[object], empty_text: str) -> None:
@@ -2508,7 +2903,7 @@ def _render_text_items(title: str, items: list[object], empty_text: str) -> None
         st.caption(_t(empty_text))
         return
     for item in clean_items:
-        st.write(f"- {item}")
+        st.write(f"- {_localize_generated_text(item)}")
 
 
 def _normalize_item_list(value: Any) -> list[object]:
@@ -2522,12 +2917,12 @@ def _normalize_item_list(value: Any) -> list[object]:
 def _render_planner_suggestion(plan_data: dict[str, object]) -> None:
     summary_cols = st.columns(3)
     with summary_cols[0]:
-        st.metric(_t("Planner"), str(plan_data.get("planner_name") or "unknown"))
+        st.metric(_t("Planner"), _display_value(plan_data.get("planner_name") or "unknown"))
     with summary_cols[1]:
-        st.metric(_t("Task type"), str(plan_data.get("suggested_task_type") or "auto"))
+        st.metric(_t("Task type"), _display_value(plan_data.get("suggested_task_type") or "auto"))
     with summary_cols[2]:
         st.metric(
-            _t("Priority metric"), str(plan_data.get("priority_metric") or "auto")
+            _t("Priority metric"), _display_value(plan_data.get("priority_metric") or "auto")
         )
 
     target_items = [
@@ -2618,7 +3013,7 @@ def _render_feature_engineering_plan(plan_data: dict[str, object]) -> None:
     summary_cols = st.columns(3)
     with summary_cols[0]:
         st.metric(
-            _t("Planner"), str(plan_data.get("planner_name") or "local_whitelist")
+            _t("Planner"), _display_value(plan_data.get("planner_name") or "local_whitelist")
         )
     with summary_cols[1]:
         st.metric(_t("Accepted ops"), len(operations))
@@ -2632,14 +3027,15 @@ def _render_feature_engineering_plan(plan_data: dict[str, object]) -> None:
                 continue
             rows.append(
                 {
-                    _t("Operation"): operation.get("operation"),
+                    _t("Operation"): _display_value(operation.get("operation")),
                     _t("Source"): operation.get("source_column")
                     or ", ".join(operation.get("columns", [])),
-                    _t("Detail"): operation.get("operator")
-                    or ", ".join(operation.get("parts", []))
+                    _t("Detail"): _display_value(operation.get("operator"))
+                    if operation.get("operator")
+                    else ", ".join(_display_value(part) for part in operation.get("parts", []))
                     or operation.get("bins")
                     or "",
-                    _t("Rationale"): operation.get("rationale", ""),
+                    _t("Rationale"): _localize_generated_text(operation.get("rationale", "")),
                 }
             )
         st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
@@ -2759,15 +3155,15 @@ def _build_preprocessing_plan(
         _preprocessing_step(
             "column_selection",
             params={"excluded_columns": list(excluded_columns)},
-            summary=f"Excluded columns: {len(excluded_columns)}.",
+            summary=_t("Excluded columns: {count}.", count=len(excluded_columns)),
         ),
         _preprocessing_step(
             "manual_cleaning",
             enabled=manual_rule_count > 0,
             params={"plan": manual_plan_data},
-            summary="No manual cleaning rules applied."
+            summary=_t("No manual cleaning rules applied.")
             if manual_rule_count == 0
-            else f"Manual cleaning rules enabled: {manual_rule_count}.",
+            else _t("Manual cleaning rules enabled: {count}.", count=manual_rule_count),
         ),
         _preprocessing_step(
             "missing_value",
@@ -2775,8 +3171,9 @@ def _build_preprocessing_plan(
                 "high_missing_threshold": float(high_missing_threshold),
                 "high_missing_columns": high_missing_columns,
             },
-            summary=(
-                f"Auto-drop high-missing columns: {len(high_missing_columns)}."
+            summary=_t(
+                "Auto-drop high-missing columns: {count}.",
+                count=len(high_missing_columns),
             ),
         ),
         _preprocessing_step(
@@ -2787,9 +3184,9 @@ def _build_preprocessing_plan(
                 "categorical_feature_count": len(categorical_columns),
                 "estimated_one_hot_features_if_legacy": encoded_feature_estimate,
             },
-            summary=(
-                "AutoGluon feature generation enabled: "
-                f"{', '.join(_autogluon_enabled_feature_names(autogluon_params))}."
+            summary=_t(
+                "AutoGluon feature generation enabled: {features}.",
+                features=", ".join(_autogluon_enabled_feature_names(autogluon_params)),
             ),
         ),
         _preprocessing_step(
@@ -2805,10 +3202,11 @@ def _build_preprocessing_plan(
                 ),
                 "notes": list((feature_plan_data or {}).get("notes", [])),
             },
-            summary=(
-                "Feature engineering is disabled."
-                if not feature_operations
-                else f"Feature engineering operations: {len(feature_operations)}."
+            summary=_t("Feature engineering is disabled.")
+            if not feature_operations
+            else _t(
+                "Feature engineering operations: {count}.",
+                count=len(feature_operations),
             ),
         ),
     ]
@@ -3955,78 +4353,267 @@ def _shape_label(snapshot: dict[str, object]) -> str:
     return f"{rows} x {columns}"
 
 
-def _render_data_flow(trace_data: dict[str, object]) -> None:
-    snapshots = [
-        item for item in trace_data.get("snapshots", []) if isinstance(item, dict)
-    ]
-    if not snapshots:
-        st.caption(_t("No data flow trace available."))
-        return
+def _data_flow_label(snapshot: dict[str, object]) -> str:
+    return _t(str(snapshot.get("label") or snapshot.get("step") or "-"))
 
-    target_name = str(trace_data.get("target") or "run")
-    for start in range(0, len(snapshots), 4):
-        chunk = snapshots[start : start + 4]
-        columns = st.columns(len(chunk))
-        for index, snapshot in enumerate(chunk, start=start + 1):
-            with columns[index - start - 1]:
-                st.caption(
-                    _t(
-                        "{index}. {label}",
-                        index=index,
-                        label=snapshot.get("label") or snapshot.get("step"),
-                    )
-                )
-                st.metric(_t("Shape"), _shape_label(snapshot))
-                partition = str(snapshot.get("partition") or "full")
-                stage = str(snapshot.get("stage") or "-")
-                delta = snapshot.get("rows_delta")
-                delta_text = "-" if delta is None else f"{int(delta):+d}"
-                st.caption(
-                    _t(
-                        "{stage} | {partition} | delta {delta_text}",
-                        stage=stage,
-                        partition=partition,
-                        delta_text=delta_text,
-                    )
-                )
 
-    summary_rows = []
-    for index, snapshot in enumerate(snapshots, start=1):
-        summary_rows.append(
-            {
-                "index": index,
-                "step": snapshot.get("step"),
-                "label": snapshot.get("label"),
-                "stage": snapshot.get("stage"),
-                "partition": snapshot.get("partition"),
-                "kind": snapshot.get("data_kind"),
-                "shape": _shape_label(snapshot),
-                "rows_delta": snapshot.get("rows_delta"),
-                "added": len(snapshot.get("columns_added", [])),
-                "removed": len(snapshot.get("columns_removed", [])),
-            }
-        )
-    st.dataframe(pd.DataFrame(summary_rows), hide_index=True, use_container_width=True)
+def _data_flow_stage_label(value: object) -> str:
+    labels = {
+        "intake": _t("intake"),
+        "cleaning": _t("cleaning"),
+        "preparation": _t("preparation"),
+        "training": _t("training"),
+        "evaluation": _t("evaluation"),
+    }
+    return labels.get(str(value), _t(str(value)))
 
-    options = [
-        f"{index}. {snapshot.get('label') or snapshot.get('step')} [{snapshot.get('partition') or 'full'}]"
-        for index, snapshot in enumerate(snapshots, start=1)
-    ]
-    selected = st.selectbox(
-        _t("Inspect data flow step"),
-        options,
-        key=f"data_flow_step_{target_name}",
+
+def _data_flow_partition_label(value: object) -> str:
+    labels = {
+        "full": _t("full"),
+        "train": _t("train"),
+        "test": _t("test"),
+    }
+    return labels.get(str(value), _t(str(value)))
+
+
+def _data_flow_kind_label(value: object) -> str:
+    labels = {
+        "dataframe": _t("dataframe"),
+        "matrix": _t("matrix"),
+        "artifact": _t("artifact"),
+    }
+    return labels.get(str(value), _t(str(value)))
+
+
+def _data_flow_option_label(index: int, snapshot: dict[str, object]) -> str:
+    return _t(
+        "{index}. {label}",
+        index=index,
+        label=_data_flow_label(snapshot),
     )
-    selected_index = options.index(selected)
+
+
+def _data_flow_snapshot_summary(index: int, snapshot: dict[str, object]) -> dict[str, object]:
+    partition = _data_flow_partition_label(snapshot.get("partition") or "full")
+    stage = _data_flow_stage_label(snapshot.get("stage") or "-")
+    delta = snapshot.get("rows_delta")
+    delta_text = "-" if delta is None else f"{int(delta):+d}"
+    return {
+        _t("index"): index,
+        _t("step"): snapshot.get("step"),
+        _t("label"): _data_flow_label(snapshot),
+        _t("stage"): stage,
+        _t("partition"): partition,
+        _t("kind"): _data_flow_kind_label(snapshot.get("data_kind") or "-"),
+        _t("shape"): _shape_label(snapshot),
+        _t("rows_delta"): delta_text,
+        _t("added"): len(snapshot.get("columns_added", [])),
+        _t("removed"): len(snapshot.get("columns_removed", [])),
+    }
+
+
+def _metadata_display_value(value: object) -> str:
+    if isinstance(value, bool):
+        return _t("true") if value else _t("false")
+    if isinstance(value, (list, tuple)):
+        return ", ".join(_metadata_display_value(item) for item in value) or "-"
+    if isinstance(value, dict):
+        return json.dumps(value, ensure_ascii=False, sort_keys=True)
+    return _t(str(value)) if value is not None else "-"
+
+
+def _render_metadata_table(metadata: dict[str, object]) -> None:
+    rows = [
+        {
+            _t("Field"): str(key),
+            _t("Value"): _metadata_display_value(value),
+        }
+        for key, value in metadata.items()
+    ]
+    st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
+
+
+def _svg_text_lines(text: str, max_chars: int = 13, max_lines: int = 2) -> list[str]:
+    value = str(text).strip()
+    if not value:
+        return ["-"]
+    lines: list[str] = []
+    current = ""
+    for char in value:
+        if len(current) >= max_chars:
+            lines.append(current)
+            current = char
+        else:
+            current += char
+        if len(lines) >= max_lines:
+            break
+    if len(lines) < max_lines and current:
+        lines.append(current)
+    if len(value) > sum(len(line) for line in lines) and lines:
+        lines[-1] = lines[-1].rstrip(" .,_-") + "..."
+    return lines or ["-"]
+
+
+def _render_data_flow_svg(
+    snapshots: list[dict[str, object]], selected_index: int
+) -> None:
+    columns = 4
+    node_width = 170
+    node_height = 72
+    gap_x = 74
+    gap_y = 58
+    margin_x = 24
+    margin_y = 24
+    rows = (len(snapshots) + columns - 1) // columns
+    width = margin_x * 2 + columns * node_width + (columns - 1) * gap_x
+    height = margin_y * 2 + rows * node_height + max(rows - 1, 0) * gap_y
+
+    positions: list[tuple[int, int, int]] = []
+    for index, snapshot in enumerate(snapshots):
+        row = index // columns
+        col = index % columns
+        positions.append(
+            (
+                index,
+                margin_x + col * (node_width + gap_x),
+                margin_y + row * (node_height + gap_y),
+            )
+        )
+
+    arrow_parts: list[str] = []
+    position_map = {index: (x, y) for index, x, y in positions}
+    for index in range(len(snapshots) - 1):
+        x1, y1 = position_map[index]
+        x2, y2 = position_map[index + 1]
+        if y1 == y2:
+            y_mid = y1 + node_height / 2
+            path = (
+                f"M {x1 + node_width} {y_mid:.1f} "
+                f"L {x2 - 10} {y_mid:.1f}"
+            )
+        else:
+            start_x = x1 + node_width / 2
+            start_y = y1 + node_height
+            end_x = x2 + node_width / 2
+            end_y = y2
+            bend_y = start_y + gap_y / 2
+            path = (
+                f"M {start_x:.1f} {start_y} "
+                f"L {start_x:.1f} {bend_y:.1f} "
+                f"L {end_x:.1f} {bend_y:.1f} "
+                f"L {end_x:.1f} {end_y - 10}"
+            )
+        arrow_parts.append(
+            f'<path class="flow-arrow" d="{path}" marker-end="url(#arrowhead)" />'
+        )
+
+    node_parts: list[str] = []
+    for index, x, y in positions:
+        snapshot = snapshots[index]
+        selected_class = " selected" if index == selected_index else ""
+        label_lines = _svg_text_lines(_data_flow_label(snapshot))
+        label_parts = []
+        for line_index, line in enumerate(label_lines):
+            dy = 0 if line_index == 0 else 16
+            label_parts.append(
+                f'<tspan x="{node_width / 2:.1f}" dy="{dy}">'
+                f"{_html_escape(line)}</tspan>"
+            )
+        node_parts.append(
+            f'<g class="flow-node{selected_class}" transform="translate({x},{y})">'
+            f'<rect width="{node_width}" height="{node_height}" rx="4" ry="4" />'
+            f'<text class="flow-node-index" x="16" y="24">{index + 1}.</text>'
+            f'<text class="flow-node-label" x="{node_width / 2:.1f}" y="28">'
+            + "".join(label_parts)
+            + "</text>"
+            f'<text class="flow-node-meta" x="{node_width / 2:.1f}" y="56">'
+            f"{_html_escape(_shape_label(snapshot))}</text>"
+            "</g>"
+        )
+
+    svg = (
+        f'<svg class="beamer-flow-svg" viewBox="0 0 {width} {height}" '
+        f'role="img" aria-label="{_html_escape(_t("Data flow diagram"))}">'
+        '<defs><marker id="arrowhead" markerWidth="10" markerHeight="8" '
+        'refX="8" refY="4" orient="auto" markerUnits="strokeWidth">'
+        '<path class="flow-arrow-head" d="M 0 0 L 8 4 L 0 8 z" />'
+        "</marker></defs>"
+        + "".join(arrow_parts)
+        + "".join(node_parts)
+        + "</svg>"
+    )
+    st.markdown(svg, unsafe_allow_html=True)
+
+
+def _render_selected_data_flow_summary(index: int, snapshot: dict[str, object]) -> None:
+    st.markdown(
+        '<div class="beamer-flow-selected">'
+        + _html_escape(
+            _t(
+                "Selected flow step: {step}",
+                step=_data_flow_option_label(index, snapshot),
+            )
+        )
+        + "</div>",
+        unsafe_allow_html=True,
+    )
+    st.dataframe(
+        pd.DataFrame([_data_flow_snapshot_summary(index, snapshot)]),
+        hide_index=True,
+        use_container_width=True,
+    )
+
+
+def _render_data_flow_diagram(
+    snapshots: list[dict[str, object]], *, target_name: str
+) -> int:
+    state_key = f"data_flow_selected_index_{target_name}"
+    try:
+        selected_index = int(st.session_state.get(state_key, 0))
+    except (TypeError, ValueError):
+        selected_index = 0
+    selected_index = max(0, min(selected_index, len(snapshots) - 1))
+    st.session_state[state_key] = selected_index
+
+    st.caption(
+        _t(
+            "Select a node in the data flow diagram below to inspect that processing step."
+        )
+    )
+    options = list(range(len(snapshots)))
+    selected_index = st.selectbox(
+        _t("Select a data flow node"),
+        options,
+        index=selected_index,
+        format_func=lambda option: _data_flow_option_label(
+            int(option) + 1, snapshots[int(option)]
+        ),
+        key=f"data_flow_node_select_{target_name}",
+    )
+    selected_index = int(selected_index)
+    st.session_state[state_key] = selected_index
+    _render_data_flow_svg(snapshots, selected_index)
+    return selected_index
+
+
+def _render_data_flow_details(
+    snapshots: list[dict[str, object]], *, target_name: str
+) -> None:
+    selected_index = _render_data_flow_diagram(snapshots, target_name=target_name)
     selected_snapshot = snapshots[selected_index]
+    _render_selected_data_flow_summary(selected_index + 1, selected_snapshot)
 
     metric_cols = st.columns(5)
     with metric_cols[0]:
-        st.metric(_t("Stage"), str(selected_snapshot.get("stage") or "-"))
+        st.metric(_t("Stage"), _data_flow_stage_label(selected_snapshot.get("stage") or "-"))
     with metric_cols[1]:
-        st.metric(_t("Partition"), str(selected_snapshot.get("partition") or "-"))
+        st.metric(
+            _t("Partition"),
+            _data_flow_partition_label(selected_snapshot.get("partition") or "-"),
+        )
     with metric_cols[2]:
-        st.metric(_t("Kind"), str(selected_snapshot.get("data_kind") or "-"))
+        st.metric(_t("Kind"), _data_flow_kind_label(selected_snapshot.get("data_kind") or "-"))
     with metric_cols[3]:
         st.metric(_t("Shape"), _shape_label(selected_snapshot))
     with metric_cols[4]:
@@ -4048,7 +4635,7 @@ def _render_data_flow(trace_data: dict[str, object]) -> None:
     metadata = selected_snapshot.get("metadata", {})
     if isinstance(metadata, dict) and metadata:
         _section_title(_t("Metadata"))
-        st.json(metadata, expanded=True)
+        _render_metadata_table(metadata)
 
     detail_cols = st.columns(2)
     with detail_cols[0]:
@@ -4075,6 +4662,87 @@ def _render_data_flow(trace_data: dict[str, object]) -> None:
             st.caption(_t("Preview truncated to the first rows."))
 
 
+def _render_data_flow(trace_data: dict[str, object]) -> None:
+    snapshots = [
+        item for item in trace_data.get("snapshots", []) if isinstance(item, dict)
+    ]
+    if not snapshots:
+        st.caption(_t("No data flow trace available."))
+        return
+
+    _section_title(_t("Data flow summary"))
+    final_snapshot = snapshots[-1]
+    rows_changed = sum(
+        int(snapshot.get("rows_delta") or 0)
+        for snapshot in snapshots
+        if snapshot.get("rows_delta") is not None
+    )
+    columns_changed = sum(
+        len(snapshot.get("columns_added", [])) + len(snapshot.get("columns_removed", []))
+        for snapshot in snapshots
+    )
+    summary_cols = st.columns(4)
+    with summary_cols[0]:
+        st.metric(_t("Total steps"), len(snapshots))
+    with summary_cols[1]:
+        st.metric(_t("Final shape"), _shape_label(final_snapshot))
+    with summary_cols[2]:
+        st.metric(_t("Rows changed"), f"{rows_changed:+d}")
+    with summary_cols[3]:
+        st.metric(_t("Columns changed"), columns_changed)
+
+    with st.expander(_t("Data flow details"), expanded=False):
+        _render_data_flow_details(
+            snapshots,
+            target_name=str(trace_data.get("target") or "run"),
+        )
+
+
+def _has_attention_issues(*issue_groups: object) -> bool:
+    for issue_group in issue_groups:
+        if not isinstance(issue_group, list):
+            continue
+        for issue in issue_group:
+            if not isinstance(issue, dict):
+                continue
+            if str(issue.get("severity") or "") in {"error", "warning"}:
+                return True
+    return False
+
+
+def _validation_conclusion_level(
+    preflight: dict[str, object], postrun: dict[str, object]
+) -> tuple[str, str]:
+    preflight_issues = list(preflight.get("issues", []))
+    postrun_issues = list(postrun.get("issues", []))
+    has_error = any(
+        isinstance(issue, dict) and str(issue.get("severity")) == "error"
+        for issue in preflight_issues + postrun_issues
+    )
+    if has_error or not bool(preflight.get("ok_to_run", True)):
+        return (
+            "warning",
+            _t(
+                "This run has blocking validation issues. Fix them before relying on it."
+            ),
+        )
+    if _has_attention_issues(preflight_issues, postrun_issues) or not bool(
+        postrun.get("ok", True)
+    ):
+        return (
+            "info",
+            _t(
+                "This run completed with caution signals. Review the risks before relying on it."
+            ),
+        )
+    return (
+        "success",
+        _t(
+            "This run passed validation checks and can be treated as a first baseline."
+        ),
+    )
+
+
 def _render_validation_summary(
     preflight: dict[str, object],
     postrun: dict[str, object],
@@ -4093,72 +4761,96 @@ def _render_validation_summary(
     with summary_cols[3]:
         st.metric(_t("Trainer"), str(postrun.get("trainer_name") or "-"))
 
-    preflight_detail_cols = st.columns(3)
-    with preflight_detail_cols[0]:
-        st.metric(_t("Feature count"), int(preflight.get("feature_count") or 0))
-    with preflight_detail_cols[1]:
-        st.metric(
-            _t("Dropped target rows"), int(preflight.get("dropped_target_rows") or 0)
+    conclusion_level, conclusion_text = _validation_conclusion_level(preflight, postrun)
+    _render_message(conclusion_level, conclusion_text)
+    st.caption(
+        _t(
+            "Review the expandable sections below to audit issues and data flow details."
         )
-    with preflight_detail_cols[2]:
-        st.metric(_t("Report mode"), str(postrun.get("report_mode") or "-"))
+    )
 
-    generalization_gap = postrun.get("generalization_gap", {})
-    if isinstance(generalization_gap, dict) and generalization_gap:
-        gap_rows = [
-            {"metric": key, "value": value} for key, value in generalization_gap.items()
-        ]
-        _section_title(_t("Generalization gap"))
-        st.dataframe(pd.DataFrame(gap_rows), hide_index=True, use_container_width=True)
-
-    class_balance = preflight.get("class_balance", {})
-    if isinstance(class_balance, dict) and class_balance:
-        _section_title(_t("Class balance"))
-        st.dataframe(
-            pd.DataFrame(
-                [{"class": key, "share": value} for key, value in class_balance.items()]
-            ),
-            hide_index=True,
-            use_container_width=True,
-        )
-
-    recommended_exclusions = preflight.get("recommended_excluded_columns", [])
-    detected_leakage = preflight.get("detected_leakage_columns", [])
-    detail_cols = st.columns(2)
-    with detail_cols[0]:
-        _render_text_items(
-            "Recommended exclusions",
-            list(recommended_exclusions),
-            "No extra exclusions suggested.",
-        )
-    with detail_cols[1]:
-        _render_text_items(
-            "Potential leakage columns",
-            list(detected_leakage),
-            "No leakage columns detected.",
-        )
-
-    issue_cols = st.columns(2)
-    with issue_cols[0]:
-        _section_title(_t("Preflight issues"))
-        _render_issue_table(list(preflight.get("issues", [])))
-    with issue_cols[1]:
-        _section_title(_t("Postrun issues"))
-        _render_issue_table(list(postrun.get("issues", [])))
-
+    recommendation_summary = list(recommendations.get("summary", []))
+    next_steps = list(recommendations.get("next_steps", []))
     recommendation_cols = st.columns(2)
     with recommendation_cols[0]:
         _render_text_items(
             "Recommendation summary",
-            list(recommendations.get("summary", [])),
+            recommendation_summary[:3],
             "No summary available.",
         )
     with recommendation_cols[1]:
         _render_text_items(
             "Next steps",
-            list(recommendations.get("next_steps", [])),
+            next_steps[:3],
             "No next steps available.",
         )
+
+    with st.expander(_t("Run validation details"), expanded=False):
+        preflight_detail_cols = st.columns(3)
+        with preflight_detail_cols[0]:
+            st.metric(_t("Feature count"), int(preflight.get("feature_count") or 0))
+        with preflight_detail_cols[1]:
+            st.metric(
+                _t("Dropped target rows"),
+                int(preflight.get("dropped_target_rows") or 0),
+            )
+        with preflight_detail_cols[2]:
+            st.metric(_t("Report mode"), str(postrun.get("report_mode") or "-"))
+
+        generalization_gap = postrun.get("generalization_gap", {})
+        if isinstance(generalization_gap, dict) and generalization_gap:
+            gap_rows = [
+                {"metric": key, "value": value}
+                for key, value in generalization_gap.items()
+            ]
+            _section_title(_t("Generalization gap"))
+            st.dataframe(
+                pd.DataFrame(gap_rows), hide_index=True, use_container_width=True
+            )
+
+        class_balance = preflight.get("class_balance", {})
+        if isinstance(class_balance, dict) and class_balance:
+            _section_title(_t("Class balance"))
+            st.dataframe(
+                pd.DataFrame(
+                    [
+                        {"class": key, "share": value}
+                        for key, value in class_balance.items()
+                    ]
+                ),
+                hide_index=True,
+                use_container_width=True,
+            )
+
+    recommended_exclusions = preflight.get("recommended_excluded_columns", [])
+    detected_leakage = preflight.get("detected_leakage_columns", [])
+    preflight_issues = list(preflight.get("issues", []))
+    postrun_issues = list(postrun.get("issues", []))
+    with st.expander(
+        _t("Risk and issue details"),
+        expanded=_has_attention_issues(preflight_issues, postrun_issues),
+    ):
+        detail_cols = st.columns(2)
+        with detail_cols[0]:
+            _render_text_items(
+                "Recommended exclusions",
+                list(recommended_exclusions),
+                "No extra exclusions suggested.",
+            )
+        with detail_cols[1]:
+            _render_text_items(
+                "Potential leakage columns",
+                list(detected_leakage),
+                "No leakage columns detected.",
+            )
+
+        issue_cols = st.columns(2)
+        with issue_cols[0]:
+            _section_title(_t("Preflight issues"))
+            _render_issue_table(preflight_issues)
+        with issue_cols[1]:
+            _section_title(_t("Postrun issues"))
+            _render_issue_table(postrun_issues)
 
 
 def _render_issue_table(issues: list[dict[str, object]]) -> None:
@@ -4507,12 +5199,15 @@ def main() -> None:
         if current_task_type_choice in task_type_labels
         else "auto"
     )
-    priority_metric_choice = str(st.session_state.get("priority_metric_choice", "auto"))
+    priority_metric_choice = _normalize_priority_metric_choice(
+        st.session_state.get("priority_metric_choice", "auto")
+    )
     time_budget = int(st.session_state.get("time_budget", 30))
     stored_targets = st.session_state.get(
         "_selected_target_columns", st.session_state.get("target_columns", [])
     )
     target_columns = [column for column in stored_targets if column in columns]
+    priority_metric_choice = _restore_single_target_priority_metric(target_columns)
 
     if active_step == "target":
         if "target_columns" not in st.session_state and target_columns:
@@ -4639,30 +5334,65 @@ def main() -> None:
                         "Most first runs can keep the defaults here. Adjust these only when you want more control."
                     )
                 )
-                top_advanced_cols = st.columns(2)
+                top_advanced_cols = st.columns(2 if len(target_columns) == 1 else 1)
                 with top_advanced_cols[0]:
                     time_budget = _render_integer_input(
                         _t("Training time budget seconds"), "time_budget", min_value=5
                     )
-                with top_advanced_cols[1]:
-                    priority_metric_choice = st.selectbox(
-                        _t("Priority metric"),
-                        [
-                            "auto",
-                            "accuracy",
-                            "f1_weighted",
-                            "precision_weighted",
-                            "recall_weighted",
-                            "roc_auc",
-                            "rmse",
-                            "mae",
-                            "r2",
-                        ],
-                        key="priority_metric_choice",
-                        help=_t(
-                            "This is the score the trainer treats as most important when choosing the best baseline."
-                        ),
+                if len(target_columns) == 1:
+                    with top_advanced_cols[1]:
+                        priority_metric_choice = st.selectbox(
+                            _t("Priority metric"),
+                            list(PRIORITY_METRIC_CHOICES),
+                            key="priority_metric_choice",
+                            help=_t(
+                                "This is the score the trainer treats as most important when choosing the best baseline."
+                            ),
+                        )
+                        st.session_state["priority_metric_choices"] = {
+                            target_columns[0]: _normalize_priority_metric_choice(
+                                priority_metric_choice
+                            )
+                        }
+                else:
+                    st.caption(
+                        _t(
+                            "Set one priority metric per target. Each target is trained as an independent run."
+                        )
                     )
+                    priority_metric_choices = _sync_priority_metric_choices(target_columns)
+                    metric_header_cols = st.columns([0.42, 0.24, 0.34])
+                    metric_header_cols[0].caption(_t("Target"))
+                    metric_header_cols[1].caption(_t("Resolved task type"))
+                    metric_header_cols[2].caption(_t("Priority metric"))
+                    for target in target_columns:
+                        metric_row_cols = st.columns([0.42, 0.24, 0.34])
+                        metric_row_cols[0].markdown(f"`{target}`")
+                        metric_row_cols[1].markdown(
+                            _t(selection_task_types.get(target, "auto"))
+                        )
+                        with metric_row_cols[2]:
+                            metric_key = (
+                                f"priority_metric_choice__{_safe_widget_key(target)}"
+                            )
+                            selected_metric = st.selectbox(
+                                _t("Priority metric"),
+                                list(PRIORITY_METRIC_CHOICES),
+                                key=metric_key,
+                                label_visibility="collapsed",
+                                help=_t(
+                                    "This is the score the trainer treats as most important when choosing the best baseline."
+                                ),
+                            )
+                            priority_metric_choices[target] = (
+                                _normalize_priority_metric_choice(selected_metric)
+                            )
+                    st.session_state["priority_metric_choices"] = {
+                        target: _normalize_priority_metric_choice(
+                            priority_metric_choices[target]
+                        )
+                        for target in target_columns
+                    }
             _render_step_status(
                 _t(
                     "Selected target columns: {selected_targets}.",
@@ -4694,6 +5424,7 @@ def main() -> None:
         _set_active_step("target")
         st.rerun()
     task_type_choices = _sync_task_type_choices(target_columns)
+    priority_metric_choices = _sync_priority_metric_choices(target_columns)
     selection_task_types = _target_task_types(
         df, target_columns, task_type_choice, task_type_choices
     )
@@ -4856,7 +5587,10 @@ def main() -> None:
         _preprocessing_step(
             "column_selection",
             params={"excluded_columns": list(preprocessing_summary_excluded_columns)},
-            summary=f"Excluded columns: {len(preprocessing_summary_excluded_columns)}.",
+            summary=_t(
+                "Excluded columns: {count}.",
+                count=len(preprocessing_summary_excluded_columns),
+            ),
         ),
     )
     preprocessing_summary = _preprocessing_summary_text(
@@ -4895,7 +5629,7 @@ def main() -> None:
         draft_column_step = _preprocessing_step(
             "column_selection",
             params={"excluded_columns": list(draft_excluded_columns)},
-            summary=f"Excluded columns: {len(draft_excluded_columns)}.",
+            summary=_t("Excluded columns: {count}.", count=len(draft_excluded_columns)),
         )
         draft_autogluon_plan = _build_preprocessing_plan(
             base_analysis_df=draft_base_analysis_df,
@@ -4948,7 +5682,7 @@ def main() -> None:
         draft_column_step = _preprocessing_step(
             "column_selection",
             params={"excluded_columns": list(draft_excluded_columns)},
-            summary=f"Excluded columns: {len(draft_excluded_columns)}.",
+            summary=_t("Excluded columns: {count}.", count=len(draft_excluded_columns)),
         )
         draft_autogluon_plan = _build_preprocessing_plan(
             base_analysis_df=draft_base_analysis_df,
@@ -5079,7 +5813,10 @@ def main() -> None:
                         draft_column_step = _preprocessing_step(
                             "column_selection",
                             params={"excluded_columns": list(draft_excluded_columns)},
-                            summary=f"Excluded columns: {len(draft_excluded_columns)}.",
+                            summary=_t(
+                                "Excluded columns: {count}.",
+                                count=len(draft_excluded_columns),
+                            ),
                         )
                         _render_preprocessing_step_status(
                             "Column selection", draft_column_step, applied_preprocessing_plan
@@ -5140,7 +5877,7 @@ def main() -> None:
                                         "manual_cleaning",
                                         enabled=False,
                                         params={"plan": None},
-                                        summary="No manual cleaning rules applied.",
+                                        summary=_t("No manual cleaning rules applied."),
                                     )
                                 )
                                 st.rerun()
@@ -5179,9 +5916,12 @@ def main() -> None:
                                 "manual_cleaning",
                                 enabled=_enabled_manual_rule_count(preview_plan_data) > 0,
                                 params={"plan": preview_plan_data},
-                                summary="No manual cleaning rules applied."
+                                summary=_t("No manual cleaning rules applied.")
                                 if _enabled_manual_rule_count(preview_plan_data) == 0
-                                else f"Manual cleaning rules enabled: {_enabled_manual_rule_count(preview_plan_data)}.",
+                                else _t(
+                                    "Manual cleaning rules enabled: {count}.",
+                                    count=_enabled_manual_rule_count(preview_plan_data),
+                                ),
                             )
                             _render_preprocessing_step_status(
                                 "Manual cleaning",
@@ -5193,7 +5933,7 @@ def main() -> None:
                             with summary_cols[0]:
                                 st.metric(
                                     _t("Planner"),
-                                    str(preview_plan_data.get("planner_name") or "manual"),
+                                    _display_value(preview_plan_data.get("planner_name") or "manual"),
                                 )
                             with summary_cols[1]:
                                 st.metric(
@@ -5540,10 +6280,13 @@ def main() -> None:
                                 "notes": list((draft_feature_plan or {}).get("notes", [])),
                             },
                             summary=(
-                                "Feature engineering is disabled."
+                                _t("Feature engineering is disabled.")
                                 if not draft_feature_plan
                                 or not _feature_plan_operations(draft_feature_plan)
-                                else f"Feature engineering operations: {len(_feature_plan_operations(draft_feature_plan))}."
+                                else _t(
+                                    "Feature engineering operations: {count}.",
+                                    count=len(_feature_plan_operations(draft_feature_plan)),
+                                )
                             ),
                         )
                         _render_preprocessing_step_status(
@@ -5610,6 +6353,7 @@ def main() -> None:
         task_type_choices=task_type_choices,
         time_budget=int(time_budget),
         priority_metric_choice=priority_metric_choice,
+        priority_metric_choices=priority_metric_choices,
         planner_brief=planner_brief,
         preprocessing_plan=applied_preprocessing_plan,
     )
@@ -5620,7 +6364,7 @@ def main() -> None:
     priority_metrics = {
         target: resolve_priority_metric(
             task_types[target],
-            priority_metric_choice,
+            priority_metric_choices.get(target, priority_metric_choice),
         )
         for target in target_columns
     }
@@ -5649,7 +6393,7 @@ def main() -> None:
             target=target,
             task_type=task_types[target],
             excluded_columns=[],
-            priority_metric=priority_metric_choice,
+            priority_metric=priority_metric_choices.get(target, priority_metric_choice),
             high_missing_threshold=float(
                 applied_missing_params.get("high_missing_threshold", 0.9)
             ),
@@ -6142,6 +6886,7 @@ def main() -> None:
                             "task_type_choice": task_type_choice,
                             "task_type_choices": task_type_choices,
                             "task_types": task_types,
+                            "priority_metric_choices": priority_metric_choices,
                             "excluded_columns": applied_excluded_columns,
                             "test_size": cleaned.config.test_size,
                             "high_missing_threshold": cleaned.config.high_missing_threshold,
@@ -6224,6 +6969,7 @@ def main() -> None:
                         preflight_validation=preflight_validation,
                         postrun_validation=postrun_validation,
                         recommendations=recommendations,
+                        language=_ui_language(),
                     )
                     postrun_validation = validate_postrun(
                         metrics=metrics,
@@ -6249,6 +6995,7 @@ def main() -> None:
                             preflight_validation=preflight_validation,
                             postrun_validation=postrun_validation,
                             recommendations=recommendations,
+                            language=_ui_language(),
                         )
 
                     training_progress.progress(min(batch_base_progress + int(50 / total_batches), 96))
